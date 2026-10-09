@@ -15,7 +15,10 @@ use strata_core::{Entry, VfsRef};
 use super::highlight::Highlighter;
 use crate::event::AppEvent;
 
-const MAX_TEXT_BYTES: usize = 128 * 1024;
+const MAX_TEXT_BYTES: usize = 1024 * 1024;
+/// Lines kept for scrolling, and how many of them get syntax colours.
+const MAX_LINES: usize = 5000;
+const MAX_HIGHLIGHTED: usize = 2000;
 const MAX_IMAGE_BYTES: u64 = 40 * 1024 * 1024;
 const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico"];
 
@@ -87,12 +90,17 @@ impl PreviewJob {
             return PreviewContent::Binary { size: entry.size };
         }
         let text = String::from_utf8_lossy(&buf);
-        let max_lines = self.size.height as usize * 4;
-        if let Some(lines) = self.highlighter.as_ref().and_then(|h| h.highlight(&entry.name, &text, max_lines.max(200)))
+        let plain = |l: &str| l.replace('\t', "    ");
+        if let Some(mut lines) =
+            self.highlighter.as_ref().and_then(|h| h.highlight(&entry.name, &text, MAX_HIGHLIGHTED))
         {
+            // Past the highlighted part, keep the rest as plain text.
+            lines.extend(
+                text.lines().skip(MAX_HIGHLIGHTED).take(MAX_LINES - MAX_HIGHLIGHTED).map(|l| Line::raw(plain(l))),
+            );
             return PreviewContent::Code(lines);
         }
-        PreviewContent::Text(text.lines().take(max_lines.max(200)).map(|l| l.replace('\t', "    ")).collect())
+        PreviewContent::Text(text.lines().take(MAX_LINES).map(plain).collect())
     }
 }
 

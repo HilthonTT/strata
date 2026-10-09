@@ -46,8 +46,11 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     let selecting = panel.visual_anchor.is_some() || !panel.marked.is_empty();
     let (mode_icon, mode) = if selecting { ("\u{f0c8} ", "Select") } else { ("\u{f06e} ", "Browser") };
     let mode = format!(" {}{mode} ", if general.icons { mode_icon } else { "" });
-    let position =
-        if panel.len() == 0 { " 0/0 ".to_string() } else { format!(" {}/{} ", panel.cursor + 1, panel.len()) };
+    let position = match (panel.loading, panel.len()) {
+        (true, _) => " ⟳ ".to_string(),
+        (false, 0) => " 0/0 ".to_string(),
+        (false, n) => format!(" {}/{n} ", panel.cursor + 1),
+    };
     let muted = Style::default().fg(theme.muted);
     let b = block(theme, general.border, &title, focused)
         .title_bottom(Line::styled(mode, muted).right_aligned())
@@ -77,7 +80,11 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         return frame.render_widget(p, list);
     }
     if panel.len() == 0 {
-        let msg = if panel.filter.is_empty() { "   empty directory" } else { "   no matches" };
+        let msg = match (panel.loading, panel.filter.is_empty()) {
+            (true, _) => "   loading…",
+            (false, true) => "   empty directory",
+            (false, false) => "   no matches",
+        };
         return frame.render_widget(Paragraph::new(Line::styled(msg, muted)), list);
     }
 

@@ -81,6 +81,8 @@ pub enum AppEvent {
         pattern: String,
         result: Result<GrepResult, String>,
     },
+    /// Files changed on disk (from the watcher).
+    FsChanged(Vec<PathBuf>),
     /// Connections that have a password in the keychain.
     Keychain(std::collections::HashSet<String>),
 }

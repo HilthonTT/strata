@@ -27,6 +27,8 @@ pub enum After {
 
 pub enum External {
     Edit(Vec<PathBuf>),
+    /// A downloaded copy of a remote file, uploaded back if it changes.
+    EditRemote(super::remote_edit::RemoteEdit),
     Shell {
         cwd: PathBuf,
         remote: Option<Vec<String>>,
@@ -73,7 +75,11 @@ impl App {
 
     pub(super) fn edit_targets(&mut self) {
         if !self.panel().vfs.is_local() {
-            return self.notify("editing works on local files", Level::Warn);
+            // Remote files are edited one at a time through a local copy.
+            if let Some(entry) = self.panel().hovered().cloned() {
+                self.edit_remote(&entry);
+            }
+            return;
         }
         let files: Vec<PathBuf> = self.panel().targets();
         if !files.is_empty() {
@@ -225,6 +231,7 @@ impl App {
                 }
                 self.reload_all();
             }
+            External::EditRemote(edit) => self.run_remote_edit(terminal, edit),
             External::BulkRename { vfs, dir, names } => self.run_bulk_rename(terminal, vfs, dir, names),
             External::Mount { plan, after } => self.run_mount(terminal, plan, after),
             External::Run { argv, cwd, wait, after } => {

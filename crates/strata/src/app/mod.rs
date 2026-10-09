@@ -16,11 +16,14 @@ pub mod overlay;
 pub mod panel;
 mod plugins;
 pub mod preview;
+mod preview_nav;
+mod remote_edit;
 pub mod sidebar;
 mod tabs;
 mod undo;
 mod vcs;
 mod views;
+mod watch;
 mod workers;
 
 use std::collections::HashMap;
@@ -140,6 +143,7 @@ pub struct Inspection {
 pub struct LayoutCache {
     pub panels: Vec<Rect>,
     pub sidebar: Option<Rect>,
+    pub preview: Option<Rect>,
     pub list: Option<Rect>,
 }
 
@@ -157,7 +161,9 @@ pub struct App {
     pub tabs: Vec<tabs::Tab>,
     pub tab: usize,
     git: vcs::GitCache,
+    watch: watch::FsWatch,
     undo: undo::UndoHistory,
+    remote_edits: remote_edit::RemoteEdits,
     /// Password typed for an SFTP login, offered for the keychain on success.
     pending_password: Option<(String, String)>,
     pub view: View,
@@ -176,6 +182,11 @@ pub struct App {
     preview_due: Option<Instant>,
     preview_generation: u64,
     pub preview_area: Size,
+    /// First preview line shown, for scrolling.
+    pub preview_scroll: usize,
+    /// Text searched for in the preview with `preview_find`.
+    pub preview_query: Option<String>,
+    preview_path: Option<PathBuf>,
     picker: Option<Picker>,
     highlighter: Option<Arc<highlight::Highlighter>>,
     pub inspection: Inspection,
@@ -200,12 +211,16 @@ pub struct App {
     cd_on_exit: bool,
     tx: Sender<AppEvent>,
     rx: Receiver<AppEvent>,
+    /// Background directory listings for remote panels.
+    listing_tx: panel::Lister,
+    listing_rx: Receiver<panel::Listing>,
     should_quit: bool,
 }
 
 impl App {
     pub fn new(config: Config, opts: StartOptions, picker: Picker) -> Result<Self> {
         let (tx, rx) = mpsc::channel();
+        let (listing_tx, listing_rx) = mpsc::channel();
         let config_dir = strata_config::config_dir();
         let (themes, theme_errors) = ThemeRegistry::load(&config_dir.join("themes"));
 
@@ -224,7 +239,7 @@ impl App {
         let start_dirs = start_directories(&opts.paths, config.general.panels.clamp(1, 6));
         let panels = start_dirs
             .into_iter()
-            .map(|dir| Panel::new(local.clone(), dir, sort, config.general.show_hidden))
+            .map(|dir| Panel::new(local.clone(), dir, sort, config.general.show_hidden, Some(listing_tx.clone())))
             .collect();
 
         let pinned = load_pins(&config);
@@ -244,7 +259,9 @@ impl App {
             tabs: vec![tabs::Tab::default()],
             tab: 0,
             git: vcs::GitCache::default(),
+            watch: watch::FsWatch::default(),
             undo: undo::UndoHistory::default(),
+            remote_edits: remote_edit::RemoteEdits::default(),
             pending_password: None,
             view: View::Files,
             focus: Focus::Panels,
@@ -261,6 +278,9 @@ impl App {
             preview_due: None,
             preview_generation: 0,
             preview_area: Size::new(40, 20),
+            preview_scroll: 0,
+            preview_query: None,
+            preview_path: None,
             picker,
             highlighter,
             inspection: Inspection::default(),
@@ -293,6 +313,8 @@ impl App {
             cd_on_exit: false,
             tx,
             rx,
+            listing_tx,
+            listing_rx,
             should_quit: false,
             config,
         };
@@ -314,6 +336,7 @@ impl App {
             self.tx.clone(),
             Duration::from_millis(self.config.general.metrics_interval_ms.max(250)),
         );
+        self.start_watcher();
         self.probe_connections();
         self.auto_connect();
         self.emit_plugin_event("startup");
@@ -406,7 +429,24 @@ impl App {
         self.invalidate_git();
     }
 
+    /// A panel that lists remote locations in the background.
+    pub(super) fn make_panel(&self, vfs: VfsRef, cwd: PathBuf, sort: SortOptions, show_hidden: bool) -> Panel {
+        Panel::new(vfs, cwd, sort, show_hidden, Some(self.listing_tx.clone()))
+    }
+
     fn drain_events(&mut self) {
+        while let Ok(listing) = self.listing_rx.try_recv() {
+            let id = listing.panel;
+            let active = self.panels.get(self.active).is_some_and(|p| p.id == id);
+            let panel = self
+                .panels
+                .iter_mut()
+                .chain(self.tabs.iter_mut().flat_map(|t| t.panels.iter_mut()))
+                .find(|p| p.id == id);
+            if panel.is_some_and(|p| p.apply_listing(listing)) && active {
+                self.invalidate_preview();
+            }
+        }
         while let Ok(event) = self.rx.try_recv() {
             self.on_event(event);
         }
@@ -416,6 +456,7 @@ impl App {
         match event {
             AppEvent::Job(done) => {
                 self.job_finished_for_undo(done.id, &done.state);
+                self.remote_download_finished(done.id, &done.state);
                 match &done.state {
                     JobState::Done => self.info(format!("✓ {}", done.label)),
                     JobState::Failed(e) => self.error(format!("{} failed: {e}", done.label)),
@@ -481,6 +522,7 @@ impl App {
                 }
             }
             AppEvent::Git { dir, status } => self.on_git_status(dir, status),
+            AppEvent::FsChanged(paths) => self.on_fs_changed(paths),
             AppEvent::Grep { root, pattern, result } => self.on_grep_results(root, pattern, result),
             AppEvent::Keychain(names) => self.nas.saved_passwords = names,
             AppEvent::Checksum { path, md5 } => {
@@ -501,6 +543,8 @@ impl App {
         self.update_preview();
         self.update_inspection();
         self.update_git();
+        self.sync_watches();
+        self.flush_fs_changes();
 
         if self.plugin_refreshed.elapsed() > Duration::from_secs(2) {
             self.refresh_plugin_ui();
@@ -541,6 +585,11 @@ impl App {
             }
             return;
         };
+        if self.preview_path.as_ref() != Some(&entry.path) {
+            self.preview_path = Some(entry.path.clone());
+            self.preview_scroll = 0;
+            self.preview_query = None;
+        }
         let key = (entry.path.clone(), self.preview_area);
         if self.preview_for.as_ref() != Some(&key) {
             // Only a resize of a non-image does not need a new preview.

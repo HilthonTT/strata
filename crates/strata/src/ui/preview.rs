@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Local};
 use ratatui::layout::{Rect, Size};
 use ratatui::style::{Modifier, Style};
@@ -37,6 +39,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     let numbers = app.config.general.line_numbers;
     app.preview_area = Size::new(inner.width, inner.height);
+    app.layout.preview = Some(area);
     let muted = Style::default().fg(theme.muted);
 
     match &app.preview {
@@ -64,38 +67,55 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             ];
             frame.render_widget(Paragraph::new(lines), inner);
         }
-        PreviewContent::Text(lines) => {
-            let num_w = if numbers { lines.len().to_string().len().max(2) } else { 0 };
-            let text: Vec<Line> = lines
-                .iter()
-                .take(inner.height as usize)
-                .enumerate()
-                .map(|(i, l)| {
-                    let gutter = if numbers { format!("{:>num_w$} ", i + 1) } else { String::new() };
-                    let room = inner.width.saturating_sub(gutter.len() as u16) as usize;
-                    Line::from(vec![
-                        Span::styled(gutter, muted),
-                        Span::styled(truncate(l, room), Style::default().fg(theme.fg)),
-                    ])
+        PreviewContent::Text(_) | PreviewContent::Code(_) => {
+            let total = match &app.preview {
+                PreviewContent::Text(l) => l.len(),
+                PreviewContent::Code(l) => l.len(),
+                _ => 0,
+            };
+            let line_at = |i: usize| -> Line<'static> {
+                match &app.preview {
+                    PreviewContent::Text(l) => Line::raw(l[i].clone()),
+                    PreviewContent::Code(l) => l[i].clone(),
+                    _ => Line::default(),
+                }
+            };
+            let matches: HashSet<usize> = app.preview_matches().into_iter().collect();
+            let searching = app.preview_query.is_some();
+            let scroll = app.preview_scroll.min(total.saturating_sub(1));
+            let num_w = if numbers { total.to_string().len().max(2) } else { 0 };
+            let gutter_w = if numbers { num_w + 1 } else { 0 } + usize::from(searching);
+            let room = (inner.width as usize).saturating_sub(gutter_w);
+            let text: Vec<Line> = (scroll..(scroll + inner.height as usize).min(total))
+                .map(|i| {
+                    let hit = matches.contains(&i);
+                    let mut spans = Vec::new();
+                    if searching {
+                        spans
+                            .push(Span::styled(if hit { "▌" } else { " " }, Style::default().fg(theme.palette.accent)));
+                    }
+                    if numbers {
+                        spans.push(Span::styled(format!("{:>num_w$} ", i + 1), muted));
+                    }
+                    spans.extend(clip_spans(&line_at(i), room, theme.fg));
+                    let line = Line::from(spans);
+                    if hit {
+                        line.style(Style::default().bg(theme.surface))
+                    } else {
+                        line
+                    }
                 })
                 .collect();
             frame.render_widget(Paragraph::new(text), inner);
-        }
-        PreviewContent::Code(lines) => {
-            let num_w = if numbers { lines.len().to_string().len().max(2) } else { 0 };
-            let room = inner.width.saturating_sub(if numbers { num_w as u16 + 1 } else { 0 }) as usize;
-            let text: Vec<Line> = lines
-                .iter()
-                .take(inner.height as usize)
-                .enumerate()
-                .map(|(i, line)| {
-                    let gutter = if numbers { format!("{:>num_w$} ", i + 1) } else { String::new() };
-                    let mut spans = vec![Span::styled(gutter, muted)];
-                    spans.extend(clip_spans(line, room, theme.fg));
-                    Line::from(spans)
-                })
-                .collect();
-            frame.render_widget(Paragraph::new(text), inner);
+            // Where we are, once the file is longer than the preview.
+            if total > inner.height as usize && inner.height > 0 {
+                let label = format!(" {}–{} / {total} ", scroll + 1, (scroll + inner.height as usize).min(total));
+                let w = label.chars().count() as u16;
+                if inner.width > w {
+                    let at = Rect { x: inner.right() - w, y: inner.bottom() - 1, width: w, height: 1 };
+                    frame.render_widget(Paragraph::new(Line::styled(label, muted.bg(theme.surface))), at);
+                }
+            }
         }
         PreviewContent::Dir(entries) => {
             if entries.is_empty() {
@@ -105,6 +125,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             let icons_on = app.config.general.icons;
             let lines: Vec<Line> = entries
                 .iter()
+                .skip(app.preview_scroll)
                 .take(inner.height as usize)
                 .map(|e| {
                     let style = Style::default().fg(icons::color(e, theme));

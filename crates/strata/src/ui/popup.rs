@@ -57,6 +57,51 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             ];
             frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
         }
+        Overlay::Conflict(c) => {
+            let theme = &app.theme;
+            let dest = crate::app::short_path(&c.transfer.dest_dir);
+            let shown = c.names.len().min(6);
+            let rect = centered(area, 70, shown as u16 + 7 + u16::from(c.names.len() > shown));
+            frame.render_widget(Clear, rect);
+            let b = block(theme, app.config.general.border, "Already exists", true);
+            let inner = b.inner(rect);
+            frame.render_widget(b, rect);
+            let width = inner.width as usize;
+            let mut lines = vec![Line::styled(
+                truncate(&format!(" {} item(s) already exist in {dest}:", c.names.len()), width),
+                Style::default().fg(theme.fg),
+            )];
+            for name in c.names.iter().take(shown) {
+                lines.push(Line::styled(truncate(&format!("   • {name}"), width), Style::default().fg(theme.warning)));
+            }
+            if c.names.len() > shown {
+                lines.push(Line::styled(
+                    format!("   … and {} more", c.names.len() - shown),
+                    Style::default().fg(theme.muted),
+                ));
+            }
+            lines.push(Line::raw(""));
+            let key = |k: &'static str| {
+                Span::styled(k, Style::default().fg(theme.palette.accent).add_modifier(Modifier::BOLD))
+            };
+            let text = |t: &'static str| Span::styled(t, Style::default().fg(theme.muted));
+            lines.push(Line::from(vec![
+                text(" "),
+                key("[k]"),
+                text("eep both  "),
+                key("[o]"),
+                text("verwrite  "),
+                key("[s]"),
+                text("kip  "),
+                key("[esc]"),
+                text(" cancel"),
+            ]));
+            lines.push(Line::styled(
+                " Overwritten items go to the trash on local disks.",
+                Style::default().fg(theme.muted),
+            ));
+            frame.render_widget(Paragraph::new(lines), inner);
+        }
         Overlay::Help { scroll } => draw_help(frame, app, area, *scroll),
         Overlay::Text(t) => draw_text(frame, app, area, &t.title, &t.lines, t.scroll),
     }

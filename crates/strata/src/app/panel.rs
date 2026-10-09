@@ -2,12 +2,29 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::Sender;
 
 use strata_core::search::Fuzzy;
 use strata_core::sort::{sort_entries, SortOptions};
 use strata_core::{Entry, VfsRef};
 
+/// A directory listing produced off the UI thread (remote locations).
+pub struct Listing {
+    pub panel: u64,
+    generation: u64,
+    path: PathBuf,
+    result: Result<Vec<Entry>, String>,
+}
+
+/// Where background listings are delivered.
+pub type Lister = Sender<Listing>;
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
 pub struct Panel {
+    /// Identifies the panel for background listings.
+    pub id: u64,
     pub vfs: VfsRef,
     pub cwd: PathBuf,
     /// Every entry in the directory, sorted (hidden ones included).
@@ -26,11 +43,19 @@ pub struct Panel {
     forward: Vec<PathBuf>,
     /// Rows available in the last render, for paging.
     pub page: usize,
+    /// Remote listings run in the background when this is set.
+    lister: Option<Lister>,
+    generation: u64,
+    /// A background listing is in flight.
+    pub loading: bool,
+    /// Name to put the cursor on once the listing arrives.
+    pending_focus: Option<String>,
 }
 
 impl Panel {
-    pub fn new(vfs: VfsRef, cwd: PathBuf, sort: SortOptions, show_hidden: bool) -> Self {
+    pub fn new(vfs: VfsRef, cwd: PathBuf, sort: SortOptions, show_hidden: bool, lister: Option<Lister>) -> Self {
         let mut panel = Self {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             vfs,
             cwd,
             entries: Vec::new(),
@@ -46,6 +71,10 @@ impl Panel {
             back: Vec::new(),
             forward: Vec::new(),
             page: 20,
+            lister,
+            generation: 0,
+            loading: false,
+            pending_focus: None,
         };
         panel.reload();
         panel
@@ -63,10 +92,42 @@ impl Panel {
         self.entry_at(self.cursor)
     }
 
-    /// Re-reads the directory, keeping the cursor on the same name if possible.
+    /// Re-reads the directory, keeping the cursor on the same name if
+    /// possible. Remote locations are listed in the background so a slow
+    /// server never freezes the UI.
     pub fn reload(&mut self) {
-        let keep = self.hovered().map(|e| e.name.clone());
-        match self.vfs.read_dir(&self.cwd) {
+        if self.pending_focus.is_none() {
+            self.pending_focus = self.hovered().map(|e| e.name.clone());
+        }
+        match self.lister.clone().filter(|_| !self.vfs.is_local()) {
+            Some(tx) => {
+                self.generation += 1;
+                self.loading = true;
+                let (vfs, path, panel, generation) = (self.vfs.clone(), self.cwd.clone(), self.id, self.generation);
+                std::thread::spawn(move || {
+                    let result = vfs.read_dir(&path).map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Listing { panel, generation, path, result });
+                });
+            }
+            None => {
+                let result = self.vfs.read_dir(&self.cwd).map_err(|e| format!("{e:#}"));
+                self.apply_entries(result);
+            }
+        }
+    }
+
+    /// Applies a background listing. Returns false if it is stale.
+    pub fn apply_listing(&mut self, listing: Listing) -> bool {
+        if listing.panel != self.id || listing.generation != self.generation || listing.path != self.cwd {
+            return false;
+        }
+        self.loading = false;
+        self.apply_entries(listing.result);
+        true
+    }
+
+    fn apply_entries(&mut self, result: Result<Vec<Entry>, String>) {
+        match result {
             Ok(mut entries) => {
                 sort_entries(&mut entries, self.sort);
                 self.entries = entries;
@@ -74,13 +135,13 @@ impl Panel {
             }
             Err(e) => {
                 self.entries.clear();
-                self.error = Some(format!("{e:#}"));
+                self.error = Some(e);
             }
         }
         let names: HashSet<&PathBuf> = self.entries.iter().map(|e| &e.path).collect();
         self.marked.retain(|p| names.contains(p));
         self.refilter();
-        if let Some(name) = keep {
+        if let Some(name) = self.pending_focus.take() {
             self.focus_name(&name);
         }
     }
@@ -119,9 +180,13 @@ impl Panel {
             self.reload();
             return true;
         }
-        if let Err(e) = self.vfs.read_dir(&path) {
-            self.error = Some(format!("{e:#}"));
-            return false;
+        // Local folders are checked first so a failed cd keeps the listing;
+        // remote ones report errors when their listing arrives.
+        if self.vfs.is_local() {
+            if let Err(e) = self.vfs.read_dir(&path) {
+                self.error = Some(format!("{e:#}"));
+                return false;
+            }
         }
         let previous = std::mem::replace(&mut self.cwd, path);
         self.back.push(previous.clone());
@@ -145,15 +210,15 @@ impl Panel {
         self.visual_anchor = None;
         self.cursor = 0;
         self.offset = 0;
-        self.reload();
+        self.entries.clear();
+        self.visible.clear();
+        self.error = None;
         // Coming back up from a child: put the cursor on that child.
-        if let Some(prev) = previous {
-            if prev.parent() == Some(self.cwd.as_path()) {
-                if let Some(name) = prev.file_name() {
-                    self.focus_name(&name.to_string_lossy());
-                }
-            }
-        }
+        self.pending_focus = previous
+            .filter(|prev| prev.parent() == Some(self.cwd.as_path()))
+            .and_then(|prev| prev.file_name())
+            .map(|name| name.to_string_lossy().into_owned());
+        self.reload();
     }
 
     pub fn parent(&mut self) -> bool {
@@ -317,7 +382,7 @@ mod tests {
     use strata_core::vfs::LocalVfs;
 
     fn panel_in(dir: &Path) -> Panel {
-        Panel::new(Arc::new(LocalVfs), dir.to_path_buf(), SortOptions::default(), false)
+        Panel::new(Arc::new(LocalVfs), dir.to_path_buf(), SortOptions::default(), false, None)
     }
 
     #[test]
@@ -361,5 +426,73 @@ mod tests {
         assert_eq!(p.marked.len(), 3);
         p.toggle_visual();
         assert_eq!(p.marked.len(), 3, "leaving visual mode keeps marks");
+    }
+
+    /// Pretends to be remote so listings go through the background path.
+    #[derive(Debug)]
+    struct Remote(LocalVfs);
+
+    impl strata_core::Vfs for Remote {
+        fn scheme(&self) -> &'static str {
+            "test"
+        }
+        fn label(&self) -> String {
+            "test".into()
+        }
+        fn home(&self) -> PathBuf {
+            self.0.home()
+        }
+        fn read_dir(&self, path: &Path) -> anyhow::Result<Vec<Entry>> {
+            self.0.read_dir(path)
+        }
+        fn stat(&self, path: &Path) -> anyhow::Result<Entry> {
+            self.0.stat(path)
+        }
+        fn create_dir(&self, path: &Path) -> anyhow::Result<()> {
+            self.0.create_dir(path)
+        }
+        fn create_file(&self, path: &Path) -> anyhow::Result<()> {
+            self.0.create_file(path)
+        }
+        fn remove_file(&self, path: &Path) -> anyhow::Result<()> {
+            self.0.remove_file(path)
+        }
+        fn remove_dir(&self, path: &Path) -> anyhow::Result<()> {
+            self.0.remove_dir(path)
+        }
+        fn rename(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
+            self.0.rename(from, to)
+        }
+        fn reader(&self, path: &Path) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
+            self.0.reader(path)
+        }
+        fn writer(&self, path: &Path) -> anyhow::Result<Box<dyn std::io::Write + Send>> {
+            self.0.writer(path)
+        }
+    }
+
+    #[test]
+    fn remote_listings_arrive_in_the_background_and_stale_ones_are_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("sub/inner.txt"), "").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let vfs: VfsRef = Arc::new(Remote(LocalVfs));
+        let mut p = Panel::new(vfs, dir.path().to_path_buf(), SortOptions::default(), false, Some(tx));
+        assert!(p.loading);
+        assert_eq!(p.len(), 0, "nothing is listed synchronously");
+
+        let first = rx.recv().unwrap();
+        // Navigate before the first listing is applied: it becomes stale.
+        assert!(p.cd(dir.path().join("sub")));
+        assert!(!p.apply_listing(first));
+        assert!(p.apply_listing(rx.recv().unwrap()));
+        assert!(!p.loading);
+        assert_eq!(p.hovered().unwrap().name, "inner.txt");
+
+        // Going back up focuses the folder we came from once it is listed.
+        assert!(p.parent());
+        assert!(p.apply_listing(rx.recv().unwrap()));
+        assert_eq!(p.hovered().unwrap().name, "sub");
     }
 }

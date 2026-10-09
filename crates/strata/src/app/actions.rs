@@ -13,7 +13,6 @@ use strata_plugin::Level;
 
 use super::external::External;
 use super::overlay::{Confirm, ConfirmState, InputPurpose, InputState, Overlay, PickerPurpose, PickerState};
-use super::panel::Panel;
 use super::sidebar::SidebarItem;
 use super::undo::PendingUndo;
 use super::{App, Clipboard, Focus, View};
@@ -125,6 +124,16 @@ impl App {
             NextTab => self.cycle_tab(1),
             PrevTab => self.cycle_tab(-1),
             Undo => self.undo(),
+            Redo => self.redo(),
+            PreviewDown => self.scroll_preview(self.half_preview()),
+            PreviewUp => self.scroll_preview(-self.half_preview()),
+            PreviewNext => self.next_preview_match(true, false),
+            PreviewPrev => self.next_preview_match(false, false),
+            PreviewFind => {
+                let current = self.preview_query.clone().unwrap_or_default();
+                self.overlay =
+                    Some(Overlay::Input(InputState::new("Find in preview", current, InputPurpose::PreviewFind)));
+            }
             ContentSearch => {
                 if !self.panel().vfs.is_local() {
                     return self.notify("content search works on local directories", Level::Warn);
@@ -272,7 +281,11 @@ impl App {
             return self.cd(entry.path);
         }
         if !self.panel().vfs.is_local() {
-            self.notify("remote files open in the preview only; copy them locally to edit", Level::Warn);
+            if super::external::prefers_system_open(&entry.extension()) {
+                self.notify("copy media files to a local folder to open them", Level::Warn);
+            } else {
+                self.edit_remote(&entry);
+            }
         } else if self.open_with_rule(&entry) {
             // Handled by an `[open_with]` rule.
         } else if super::external::prefers_system_open(&entry.extension()) {
@@ -293,7 +306,7 @@ impl App {
             return self.notify("at most 6 panels", Level::Warn);
         }
         let p = self.panel();
-        let panel = Panel::new(p.vfs.clone(), p.cwd.clone(), p.sort, p.show_hidden);
+        let panel = self.make_panel(p.vfs.clone(), p.cwd.clone(), p.sort, p.show_hidden);
         self.panels.insert(self.active + 1, panel);
         self.active += 1;
     }
@@ -402,7 +415,7 @@ impl App {
         if clip.mode == TransferMode::Move {
             self.clipboard = None;
         }
-        self.start_transfer(transfer);
+        self.begin_transfer(transfer);
         self.emit_plugin_event("paste");
     }
 
@@ -424,10 +437,19 @@ impl App {
             conflict: Conflict::KeepBoth,
         };
         self.panel_mut().clear_marks();
-        self.start_transfer(transfer);
+        self.begin_transfer(transfer);
     }
 
-    fn start_transfer(&mut self, transfer: Transfer) {
+    /// Starts a transfer, first asking what to do about existing names.
+    fn begin_transfer(&mut self, transfer: Transfer) {
+        let names = transfer.conflicts();
+        if names.is_empty() {
+            return self.start_transfer(transfer);
+        }
+        self.overlay = Some(Overlay::Conflict(super::overlay::ConflictState { transfer, names }));
+    }
+
+    pub(super) fn start_transfer(&mut self, transfer: Transfer) {
         let verb = if transfer.mode == TransferMode::Copy { "Copy" } else { "Move" };
         let what = match transfer.sources.as_slice() {
             [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),

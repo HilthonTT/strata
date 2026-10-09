@@ -19,6 +19,7 @@ pub enum InputPurpose {
     AddConnectionUrl,
     AddConnectionName(Connection),
     Grep,
+    PreviewFind,
     /// Save a password for this connection in the keychain.
     SavePassword(String),
 }
@@ -204,6 +205,12 @@ pub struct ConfirmState {
     pub action: Confirm,
 }
 
+/// A paste whose destination already has some of the names.
+pub struct ConflictState {
+    pub transfer: strata_core::ops::Transfer,
+    pub names: Vec<String>,
+}
+
 pub struct TextPopup {
     pub title: String,
     pub lines: Vec<String>,
@@ -214,6 +221,7 @@ pub enum Overlay {
     Input(InputState),
     Picker(PickerState),
     Confirm(ConfirmState),
+    Conflict(ConflictState),
     Help { scroll: usize },
     Text(TextPopup),
 }

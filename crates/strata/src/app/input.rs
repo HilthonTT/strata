@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use strata_config::{Binding, KeyPress, Lookup};
+use strata_core::ops::Conflict;
 
 use super::overlay::{Confirm, InputPurpose, Overlay, PickerPurpose};
 use super::{App, Focus, View};
@@ -100,6 +101,21 @@ impl App {
                     _ => {}
                 }
                 self.on_picker_moved();
+            }
+            Some(Overlay::Conflict(_)) => {
+                let choice = match key.code {
+                    KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Enter => Some(Conflict::KeepBoth),
+                    KeyCode::Char('o') | KeyCode::Char('O') => Some(Conflict::Overwrite),
+                    KeyCode::Char('s') | KeyCode::Char('S') => Some(Conflict::Skip),
+                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('c') => None,
+                    _ => return,
+                };
+                if let Some(Overlay::Conflict(mut state)) = self.overlay.take() {
+                    if let Some(conflict) = choice {
+                        state.transfer.conflict = conflict;
+                        self.start_transfer(state.transfer);
+                    }
+                }
             }
             Some(Overlay::Confirm(_)) => match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
@@ -224,6 +240,14 @@ impl App {
                             }
                         }
                     }
+                    _ => {}
+                }
+                return;
+            }
+            if self.layout.preview.is_some_and(|r| inside(&r)) {
+                match mouse.kind {
+                    MouseEventKind::ScrollDown => self.scroll_preview(3),
+                    MouseEventKind::ScrollUp => self.scroll_preview(-3),
                     _ => {}
                 }
                 return;

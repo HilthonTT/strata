@@ -302,6 +302,7 @@ impl App {
                 self.connect_sftp(conn, Some(input.value));
             }
             InputPurpose::Grep => self.start_content_search(&value),
+            InputPurpose::PreviewFind => self.find_in_preview(&value),
             InputPurpose::SavePassword(name) if !input.value.is_empty() => {
                 self.confirmed(super::overlay::Confirm::SavePassword { name, password: input.value });
             }

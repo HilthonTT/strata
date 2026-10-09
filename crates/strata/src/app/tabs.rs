@@ -38,7 +38,7 @@ impl App {
         }
         let p = self.panel();
         let count = self.config.general.panels.clamp(1, 6);
-        let panels = (0..count).map(|_| Panel::new(p.vfs.clone(), p.cwd.clone(), p.sort, p.show_hidden)).collect();
+        let panels = (0..count).map(|_| self.make_panel(p.vfs.clone(), p.cwd.clone(), p.sort, p.show_hidden)).collect();
         self.tabs.insert(self.tab + 1, Tab { panels, active: 0 });
         self.switch_tab(self.tab + 1, true);
     }
