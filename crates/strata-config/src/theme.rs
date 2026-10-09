@@ -123,8 +123,7 @@ pub fn parse_color(s: &str) -> Result<Color> {
         };
         return Ok(Color::Rgb(r, g, b));
     }
-    s.parse::<Color>()
-        .map_err(|_| anyhow::anyhow!("invalid colour '{s}'"))
+    s.parse::<Color>().map_err(|_| anyhow::anyhow!("invalid colour '{s}'"))
 }
 
 macro_rules! palette {
@@ -675,9 +674,7 @@ pub struct ThemeRegistry {
 
 impl Default for ThemeRegistry {
     fn default() -> Self {
-        Self {
-            themes: builtin().into_iter().map(|t| (t.name.clone(), t)).collect(),
-        }
+        Self { themes: builtin().into_iter().map(|t| (t.name.clone(), t)).collect() }
     }
 }
 
@@ -692,10 +689,7 @@ impl ThemeRegistry {
         };
         let mut files: Vec<_> = read.filter_map(|e| e.ok().map(|e| e.path())).collect();
         files.sort();
-        for path in files
-            .into_iter()
-            .filter(|p| p.extension().is_some_and(|e| e == "toml"))
-        {
+        for path in files.into_iter().filter(|p| p.extension().is_some_and(|e| e == "toml")) {
             if let Err(e) = reg.load_file(&path) {
                 errors.push(format!("theme {}: {e:#}", path.display()));
             }
@@ -706,17 +700,10 @@ impl ThemeRegistry {
     fn load_file(&mut self, path: &Path) -> Result<()> {
         let text = std::fs::read_to_string(path)?;
         let file: ThemeFile = toml::from_str(&text)?;
-        let stem = path
-            .file_stem()
-            .context("no file name")?
-            .to_string_lossy()
-            .into_owned();
+        let stem = path.file_stem().context("no file name")?.to_string_lossy().into_owned();
         let name = file.name.clone().unwrap_or(stem);
         let base = file.inherits.as_deref().unwrap_or("catppuccin-mocha");
-        let mut p = self
-            .get(base)
-            .with_context(|| format!("unknown base theme '{base}'"))?
-            .palette;
+        let mut p = self.get(base).with_context(|| format!("unknown base theme '{base}'"))?.palette;
         let set = |slot: &mut Color, v: &Option<String>| -> Result<()> {
             if let Some(v) = v {
                 *slot = parse_color(v)?;
@@ -736,8 +723,7 @@ impl ThemeRegistry {
         set(&mut p.blue, &file.blue)?;
         set(&mut p.purple, &file.purple)?;
         set(&mut p.accent, &file.accent)?;
-        self.themes
-            .insert(name.clone(), Theme::from_palette(name, p));
+        self.themes.insert(name.clone(), Theme::from_palette(name, p));
         Ok(())
     }
 
@@ -766,14 +752,7 @@ mod tests {
     fn has_twenty_plus_themes() {
         let reg = ThemeRegistry::default();
         assert!(reg.len() >= 20, "only {} themes", reg.len());
-        for name in [
-            "catppuccin-mocha",
-            "nord",
-            "tokyo-night",
-            "dracula",
-            "gruvbox-dark",
-            "rose-pine",
-        ] {
+        for name in ["catppuccin-mocha", "nord", "tokyo-night", "dracula", "gruvbox-dark", "rose-pine"] {
             assert!(reg.get(name).is_some(), "missing {name}");
         }
     }
@@ -781,18 +760,8 @@ mod tests {
     #[test]
     fn every_builtin_colour_parses() {
         for theme in builtin().iter().filter(|t| t.name != "terminal") {
-            assert_ne!(
-                theme.palette.bg,
-                Color::Reset,
-                "{} has a bad colour",
-                theme.name
-            );
-            assert_ne!(
-                theme.palette.accent,
-                Color::Reset,
-                "{} has a bad colour",
-                theme.name
-            );
+            assert_ne!(theme.palette.bg, Color::Reset, "{} has a bad colour", theme.name);
+            assert_ne!(theme.palette.accent, Color::Reset, "{} has a bad colour", theme.name);
         }
     }
 
@@ -807,11 +776,7 @@ mod tests {
     #[test]
     fn loads_custom_theme_files() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("mine.toml"),
-            "inherits = \"nord\"\naccent = \"#ff8800\"",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("mine.toml"), "inherits = \"nord\"\naccent = \"#ff8800\"").unwrap();
         std::fs::write(dir.path().join("broken.toml"), "accent = \"nope\"").unwrap();
         let (reg, errors) = ThemeRegistry::load(dir.path());
         let mine = reg.get("mine").unwrap();

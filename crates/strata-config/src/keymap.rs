@@ -49,6 +49,10 @@ actions! {
     NextPanel => "next_panel", "Focus the next panel";
     PrevPanel => "prev_panel", "Focus the previous panel";
     NewPanel => "new_panel", "Open a new panel";
+    NewTab => "new_tab", "Open a new tab";
+    CloseTab => "close_tab", "Close the current tab";
+    NextTab => "next_tab", "Go to the next tab";
+    PrevTab => "prev_tab", "Go to the previous tab";
     ClosePanel => "close_panel", "Close the focused panel";
     FocusSidebar => "focus_sidebar", "Focus the sidebar";
     FocusPanels => "focus_panels", "Focus the file panels";
@@ -75,6 +79,8 @@ actions! {
     CancelJob => "cancel_job", "Cancel the latest running job";
     Filter => "filter", "Filter the current directory";
     FuzzyFind => "fuzzy_find", "Fuzzy-find files recursively";
+    ContentSearch => "content_search", "Search file contents (ripgrep)";
+    Undo => "undo", "Undo the last file operation";
     ToggleHidden => "toggle_hidden", "Show / hide dotfiles";
     TogglePreview => "toggle_preview", "Show / hide the preview";
     ToggleSidebar => "toggle_sidebar", "Show / hide the sidebar";
@@ -227,10 +233,7 @@ impl fmt::Display for KeyPress {
 
 /// Parses a space-separated key sequence such as `g g`.
 pub fn parse_sequence(s: &str) -> Result<Vec<KeyPress>> {
-    let keys: Vec<KeyPress> = s
-        .split_whitespace()
-        .map(KeyPress::parse)
-        .collect::<Result<_>>()?;
+    let keys: Vec<KeyPress> = s.split_whitespace().map(KeyPress::parse).collect::<Result<_>>()?;
     if keys.is_empty() {
         bail!("empty key sequence");
     }
@@ -238,10 +241,7 @@ pub fn parse_sequence(s: &str) -> Result<Vec<KeyPress>> {
 }
 
 pub fn format_sequence(keys: &[KeyPress]) -> String {
-    keys.iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(" ")
+    keys.iter().map(ToString::to_string).collect::<Vec<_>>().join(" ")
 }
 
 /// What a key sequence does.
@@ -263,9 +263,7 @@ impl Binding {
         if let Some(cmd) = value.strip_prefix(':') {
             return Ok(Self::Command(cmd.trim().to_string()));
         }
-        Action::from_name(value.trim())
-            .map(Self::Action)
-            .ok_or_else(|| anyhow::anyhow!("unknown action '{value}'"))
+        Action::from_name(value.trim()).map(Self::Action).ok_or_else(|| anyhow::anyhow!("unknown action '{value}'"))
     }
 
     pub fn description(&self) -> String {
@@ -337,6 +335,16 @@ const COMMON: &[(&str, &str)] = &[
     ("D", "delete_permanent"),
     ("q", "quit"),
     ("Q", "quit_cd"),
+    ("ctrl+g", "content_search"),
+    ("alt+1", ":tab 1"),
+    ("alt+2", ":tab 2"),
+    ("alt+3", ":tab 3"),
+    ("alt+4", ":tab 4"),
+    ("alt+5", ":tab 5"),
+    ("alt+6", ":tab 6"),
+    ("alt+7", ":tab 7"),
+    ("alt+8", ":tab 8"),
+    ("alt+9", ":tab 9"),
 ];
 
 const VIM: &[(&str, &str)] = &[
@@ -388,6 +396,11 @@ const VIM: &[(&str, &str)] = &[
     ("o", "open_with"),
     ("!", "shell"),
     ("ctrl+c", "quit"),
+    ("u", "undo"),
+    ("t", "new_tab"),
+    ("g t", "next_tab"),
+    ("g T", "prev_tab"),
+    ("g q", "close_tab"),
 ];
 
 /// Mirrors superfile's default hotkeys where strata has the feature.
@@ -428,6 +441,11 @@ const STANDARD: &[(&str, &str)] = &[
     ("ctrl+l", "focus_panels"),
     ("O", "open_with"),
     ("!", "shell"),
+    ("ctrl+z", "undo"),
+    ("ctrl+t", "new_tab"),
+    ("alt+w", "close_tab"),
+    ("alt+right", "next_tab"),
+    ("alt+left", "prev_tab"),
 ];
 
 impl Keymap {
@@ -444,10 +462,7 @@ impl Keymap {
         };
         for (keys, value) in COMMON.iter().chain(specific) {
             let seq = parse_sequence(keys).expect("preset keys are valid");
-            map.bindings.insert(
-                seq,
-                Binding::parse(value).expect("preset bindings are valid"),
-            );
+            map.bindings.insert(seq, Binding::parse(value).expect("preset bindings are valid"));
         }
         map
     }
@@ -478,10 +493,7 @@ impl Keymap {
 
     pub fn lookup(&self, seq: &[KeyPress]) -> Lookup {
         let exact = self.bindings.get(seq).cloned();
-        let longer = self
-            .bindings
-            .keys()
-            .any(|k| k.len() > seq.len() && k.starts_with(seq));
+        let longer = self.bindings.keys().any(|k| k.len() > seq.len() && k.starts_with(seq));
         match (exact, longer) {
             (Some(b), false) => Lookup::Exact(b),
             (b, true) => Lookup::Prefix(b),
@@ -505,10 +517,7 @@ impl Keymap {
     pub fn describe(&self) -> Vec<(String, String)> {
         let mut grouped: HashMap<String, Vec<String>> = HashMap::new();
         for (keys, binding) in &self.bindings {
-            grouped
-                .entry(binding.description())
-                .or_default()
-                .push(format_sequence(keys));
+            grouped.entry(binding.description()).or_default().push(format_sequence(keys));
         }
         let mut out: Vec<(String, String)> = grouped
             .into_iter()
@@ -544,14 +553,8 @@ mod tests {
 
     #[test]
     fn parses_keys() {
-        assert_eq!(
-            key("ctrl+D"),
-            KeyPress::new(KeyCode::Char('d'), KeyModifiers::CONTROL)
-        );
-        assert_eq!(
-            key("G"),
-            KeyPress::new(KeyCode::Char('G'), KeyModifiers::SHIFT)
-        );
+        assert_eq!(key("ctrl+D"), KeyPress::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        assert_eq!(key("G"), KeyPress::new(KeyCode::Char('G'), KeyModifiers::SHIFT));
         assert_eq!(key("shift+g"), key("G"));
         assert_eq!(key("space").code, KeyCode::Char(' '));
         assert_eq!(key("f5").code, KeyCode::F(5));
@@ -563,14 +566,8 @@ mod tests {
     fn sequences_resolve() {
         let map = Keymap::with_defaults();
         assert_eq!(map.lookup(&[key("g")]), Lookup::Prefix(None));
-        assert_eq!(
-            map.lookup(&[key("g"), key("g")]),
-            Lookup::Exact(Binding::Action(Action::Top))
-        );
-        assert_eq!(
-            map.lookup(&[key("j")]),
-            Lookup::Exact(Binding::Action(Action::Down))
-        );
+        assert_eq!(map.lookup(&[key("g"), key("g")]), Lookup::Exact(Binding::Action(Action::Top)));
+        assert_eq!(map.lookup(&[key("j")]), Lookup::Exact(Binding::Action(Action::Down)));
         assert_eq!(map.lookup(&[key("Z")]), Lookup::None);
     }
 
@@ -583,32 +580,17 @@ mod tests {
         o.insert("z".to_string(), "not_an_action".to_string());
         let errors = map.apply_overrides(&o);
         assert_eq!(errors.len(), 1);
-        assert_eq!(
-            map.lookup(&[key("g"), key("p")]),
-            Lookup::Exact(Binding::Command("cd ~/projects".into()))
-        );
+        assert_eq!(map.lookup(&[key("g"), key("p")]), Lookup::Exact(Binding::Command("cd ~/projects".into())));
         assert_eq!(map.lookup(&[key("j")]), Lookup::None);
     }
 
     #[test]
     fn default_preset_matches_superfile() {
         let map = Keymap::preset(KeymapPreset::Default);
-        assert_eq!(
-            map.lookup(&[key("ctrl+c")]),
-            Lookup::Exact(Binding::Action(Action::Copy))
-        );
-        assert_eq!(
-            map.lookup(&[key("ctrl+v")]),
-            Lookup::Exact(Binding::Action(Action::Paste))
-        );
-        assert_eq!(
-            map.lookup(&[key("ctrl+a")]),
-            Lookup::Exact(Binding::Command("compress".into()))
-        );
-        assert_eq!(
-            map.lookup(&[key("Q")]),
-            Lookup::Exact(Binding::Action(Action::QuitCd))
-        );
+        assert_eq!(map.lookup(&[key("ctrl+c")]), Lookup::Exact(Binding::Action(Action::Copy)));
+        assert_eq!(map.lookup(&[key("ctrl+v")]), Lookup::Exact(Binding::Action(Action::Paste)));
+        assert_eq!(map.lookup(&[key("ctrl+a")]), Lookup::Exact(Binding::Command("compress".into())));
+        assert_eq!(map.lookup(&[key("Q")]), Lookup::Exact(Binding::Action(Action::QuitCd)));
         // No multi-key sequences, so nothing waits for a second key.
         assert_eq!(map.lookup(&[key("g")]), Lookup::None);
     }

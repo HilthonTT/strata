@@ -77,6 +77,14 @@ pub struct General {
     pub image_preview: bool,
     /// Colour code in the preview.
     pub syntax_highlight: bool,
+    /// Show git status markers next to files in repositories.
+    pub git_status: bool,
+    /// Columns after the file name: 0 = name only, 1 = size, 2 = size and date.
+    pub extra_columns: u8,
+    /// Draw a border around the preview.
+    pub preview_border: bool,
+    /// Line numbers in text previews.
+    pub line_numbers: bool,
     pub sidebar: bool,
     pub footer: bool,
     /// Nerd Font file icons.
@@ -112,6 +120,10 @@ impl Default for General {
             preview: true,
             image_preview: true,
             syntax_highlight: true,
+            git_status: true,
+            extra_columns: 0,
+            preview_border: false,
+            line_numbers: false,
             sidebar: true,
             footer: true,
             icons: true,
@@ -145,12 +157,7 @@ pub struct PluginsConfig {
 impl Default for PluginsConfig {
     fn default() -> Self {
         Self {
-            enabled: vec![
-                "git".into(),
-                "bookmarks".into(),
-                "archive".into(),
-                "zoxide".into(),
-            ],
+            enabled: vec!["git".into(), "bookmarks".into(), "archive".into(), "zoxide".into()],
             disabled: Vec::new(),
             options: HashMap::new(),
         }
@@ -160,14 +167,11 @@ impl Default for PluginsConfig {
 impl Config {
     /// Loads `path` (or the default location). A missing file yields defaults.
     pub fn load(path: Option<&Path>) -> Result<Self> {
-        let path = path
-            .map(Path::to_path_buf)
-            .unwrap_or_else(Self::default_path);
+        let path = path.map(Path::to_path_buf).unwrap_or_else(Self::default_path);
         if !path.exists() {
             return Ok(Self::default());
         }
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         Self::parse(&text).with_context(|| format!("in {}", path.display()))
     }
 
@@ -185,9 +189,7 @@ impl Config {
         struct Wrapper<'a> {
             connections: [&'a Connection; 1],
         }
-        let snippet = toml::to_string(&Wrapper {
-            connections: [conn],
-        })?;
+        let snippet = toml::to_string(&Wrapper { connections: [conn] })?;
         let mut text = std::fs::read_to_string(path).unwrap_or_default();
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
@@ -219,17 +221,12 @@ pub fn config_dir() -> PathBuf {
     if cfg!(windows) {
         return dirs::config_dir().unwrap_or_default().join("strata");
     }
-    dirs::home_dir()
-        .unwrap_or_default()
-        .join(".config")
-        .join("strata")
+    dirs::home_dir().unwrap_or_default().join(".config").join("strata")
 }
 
 /// Where strata and its plugins keep state (bookmarks, pins...).
 pub fn data_dir() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("strata")
+    dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("strata")
 }
 
 #[cfg(test)]
