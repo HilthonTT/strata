@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+default-members = ["crates/strata"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+license = "MIT"
+repository = "https://github.com/HilthonTT/strata"
+authors = ["HilthonTT"]
+
+[workspace.dependencies]
+strata-core = { path = "crates/strata-core" }
+strata-config = { path = "crates/strata-config" }
+strata-plugin = { path = "crates/strata-plugin" }
+strata-sys = { path = "crates/strata-sys" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+dirs = "6"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+ratatui = "0.30"
+ratatui-image = { version = "11.1", default-features = false, features = ["crossterm"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
+mlua = { version = "0.12", features = ["lua54", "vendored"] }
+nucleo-matcher = "0.3"
+walkdir = "2"
+trash = "5"
+ssh2 = "0.9"
+sysinfo = { version = "0.39", default-features = false, features = ["disk", "system"] }
+clap = { version = "4", features = ["derive"] }
+unicode-width = "0.2"
+tempfile = "3"
+md-5 = "0.11"
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
