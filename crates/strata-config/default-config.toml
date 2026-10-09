@@ -1,0 +1,68 @@
+# strata configuration — every setting is optional.
+# Location: ~/.config/strata/config.toml (or $STRATA_CONFIG_DIR)
+
+# Directories pinned in the sidebar (also toggled with `P`).
+pinned = []
+
+[general]
+theme = "catppuccin-mocha"   # `strata --list-themes`, or press T inside strata
+keymap = "vim"               # vim (y y, d d, g g…) | default (ctrl+c, ctrl+x, ctrl+v… like superfile)
+transparent = false          # use the terminal background
+show_hidden = false
+panels = 2                   # file panels opened at start
+preview = true
+image_preview = true
+syntax_highlight = true      # colour code in the preview
+sidebar = true
+footer = true
+icons = true                 # needs a Nerd Font
+border = "rounded"           # plain | rounded | double | thick
+sort = "name"                # name | size | modified | extension
+dirs_first = true
+use_trash = true             # `d d` trashes; `D` always deletes permanently
+confirm_delete = true
+editor = ""                  # defaults to $VISUAL / $EDITOR / vi
+dir_editor = ""              # opens the current directory (E); defaults to editor
+opener = ""                  # defaults to xdg-open / open / start
+cd_on_quit = false           # cd your shell on every quit, not just Q (see `strata --shell-init`)
+md5_checksum = false         # show the MD5 of the hovered file (reads the whole file)
+date_format = "%Y-%m-%d %H:%M"
+metrics_interval_ms = 1000
+
+# Key overrides. Values are action names (see `?` in strata) or
+# `:commands` from the command palette.
+[keys]
+# "ctrl+c" = "copy"
+# "g p" = ":cd ~/projects"
+
+[plugins]
+enabled = ["git", "bookmarks", "archive", "zoxide"]   # official plugins
+disabled = []                                          # user plugins to skip
+
+# [plugins.options.git]
+# panel = true
+
+# Programs per file extension, used by enter and `o`. The file path is
+# appended. Plain strings run in the terminal; detach = true starts GUI apps
+# in the background.
+[open_with]
+# md = "glow -p"
+# png = { command = "feh", detach = true }
+# pdf = { command = "zathura", detach = true }
+
+# NAS connections. Protocols: smb, nfs, sftp.
+# [[connections]]
+# name = "nas"
+# protocol = "smb"
+# host = "192.168.0.10"       # IPv4, IPv6 or hostname
+# share = "media"
+# user = "me"
+# auto_connect = false
+#
+# [[connections]]
+# name = "backup"
+# protocol = "sftp"
+# host = "nas.local"
+# share = "/volume1"          # start directory
+# user = "me"
+# identity_file = "~/.ssh/id_ed25519"
