@@ -43,7 +43,8 @@ pub fn search(root: &Path, pattern: &str, hidden: bool, cancel: &AtomicBool) -> 
         ("ripgrep", c)
     } else if which("grep") {
         let mut c = Command::new("grep");
-        c.args(["-rnIZ", "--exclude-dir=.git", "-e", pattern, "."]);
+        // `--null`, not `-Z`: BSD grep (macOS) reads `-Z` as "decompress".
+        c.args(["-rnI", "--null", "--exclude-dir=.git", "-e", pattern, "."]);
         ("grep", c)
     } else {
         return Err("install ripgrep (rg) to search file contents".into());
@@ -75,7 +76,7 @@ pub fn search(root: &Path, pattern: &str, hidden: bool, cancel: &AtomicBool) -> 
     Ok(GrepResult { hits, truncated, tool })
 }
 
-/// Parses `path\0line:text` (the `--null` output of rg and grep -Z).
+/// Parses `path\0line:text` (the `--null` output of rg and grep).
 fn parse_line(line: &[u8]) -> Option<GrepHit> {
     let nul = line.iter().position(|b| *b == 0)?;
     let path = String::from_utf8_lossy(&line[..nul]).into_owned();
