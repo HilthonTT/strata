@@ -43,34 +43,17 @@ impl PluginHost {
         let plugin_dir = config_dir.join("plugins");
         let package: Table = lua.globals().get("package").map_err(lua_err)?;
         let path: String = package.get("path").map_err(lua_err)?;
-        let extra = format!(
-            "{0}/?.lua;{0}/?/init.lua;{path}",
-            plugin_dir.to_string_lossy().replace('\\', "/")
-        );
+        let extra = format!("{0}/?.lua;{0}/?/init.lua;{path}", plugin_dir.to_string_lossy().replace('\\', "/"));
         package.set("path", extra).map_err(lua_err)?;
-        Ok(Self {
-            lua,
-            reg,
-            loaded: Vec::new(),
-        })
+        Ok(Self { lua, reg, loaded: Vec::new() })
     }
 
     /// Runs a plugin's source. If it returns a table with `setup`, that is
     /// called with the plugin's options from the config.
-    pub fn load(
-        &mut self,
-        name: &str,
-        source: &str,
-        official: bool,
-        options: Option<PluginValue>,
-    ) -> Result<()> {
+    pub fn load(&mut self, name: &str, source: &str, official: bool, options: Option<PluginValue>) -> Result<()> {
         self.reg.borrow_mut().loading = name.to_string();
         let result = (|| -> mlua::Result<()> {
-            let module: Value = self
-                .lua
-                .load(source)
-                .set_name(format!("@{name}.lua"))
-                .eval()?;
+            let module: Value = self.lua.load(source).set_name(format!("@{name}.lua")).eval()?;
             if let Value::Table(t) = module {
                 if let Ok(setup) = t.get::<Function>("setup") {
                     setup.call::<()>(options.unwrap_or(PluginValue::Map(Vec::new())))?;
@@ -79,13 +62,8 @@ impl PluginHost {
             Ok(())
         })();
         self.reg.borrow_mut().loading.clear();
-        result
-            .map_err(lua_err)
-            .with_context(|| format!("plugin '{name}'"))?;
-        self.loaded.push(PluginInfo {
-            name: name.to_string(),
-            official,
-        });
+        result.map_err(lua_err).with_context(|| format!("plugin '{name}'"))?;
+        self.loaded.push(PluginInfo { name: name.to_string(), official });
         Ok(())
     }
 
@@ -139,12 +117,7 @@ impl PluginHost {
     }
 
     pub fn commands(&self) -> Vec<(String, String)> {
-        self.reg
-            .borrow()
-            .commands
-            .iter()
-            .map(|(n, (_, d))| (n.clone(), d.clone()))
-            .collect()
+        self.reg.borrow().commands.iter().map(|(n, (_, d))| (n.clone(), d.clone())).collect()
     }
 
     pub fn has_command(&self, name: &str) -> bool {
@@ -167,11 +140,7 @@ impl PluginHost {
         self.call_ret::<()>(callback, args)
     }
 
-    fn call_ret<R: mlua::FromLuaMulti>(
-        &self,
-        callback: usize,
-        args: impl IntoLuaMulti,
-    ) -> Result<R> {
+    fn call_ret<R: mlua::FromLuaMulti>(&self, callback: usize, args: impl IntoLuaMulti) -> Result<R> {
         // Clone the function out so the callback may register things itself.
         let f = self.reg.borrow().callbacks.get(callback).cloned();
         let f = f.ok_or_else(|| anyhow!("stale plugin callback"))?;
@@ -180,67 +149,33 @@ impl PluginHost {
 
     /// Fires an event (`cd`, `hover`, `startup`, `paste`...) at every handler.
     pub fn emit(&self, event: &str, ctx: &Context) -> Vec<String> {
-        let ids = self
-            .reg
-            .borrow()
-            .handlers
-            .get(event)
-            .cloned()
-            .unwrap_or_default();
-        ids.into_iter()
-            .filter_map(|id| self.call(id, ctx.clone()).err().map(|e| format!("{e:#}")))
-            .collect()
+        let ids = self.reg.borrow().handlers.get(event).cloned().unwrap_or_default();
+        ids.into_iter().filter_map(|id| self.call(id, ctx.clone()).err().map(|e| format!("{e:#}"))).collect()
     }
 
     pub fn has_handlers(&self, event: &str) -> bool {
-        self.reg
-            .borrow()
-            .handlers
-            .get(event)
-            .is_some_and(|h| !h.is_empty())
+        self.reg.borrow().handlers.get(event).is_some_and(|h| !h.is_empty())
     }
 
     /// Status-line segments from every plugin; empty results are dropped.
     pub fn statusline(&self, ctx: &Context) -> Vec<String> {
         let ids = self.reg.borrow().statuslines.clone();
         ids.into_iter()
-            .filter_map(|id| {
-                self.call_ret::<Option<String>>(id, ctx.clone())
-                    .ok()
-                    .flatten()
-            })
+            .filter_map(|id| self.call_ret::<Option<String>>(id, ctx.clone()).ok().flatten())
             .filter(|s| !s.is_empty())
             .collect()
     }
 
     /// Lines for a plugin panel.
-    pub fn render_panel(
-        &self,
-        name: &str,
-        ctx: &Context,
-        width: u16,
-        height: u16,
-    ) -> Result<Vec<String>> {
-        let id = self
-            .reg
-            .borrow()
-            .panels
-            .iter()
-            .find(|p| p.name == name)
-            .map(|p| p.callback);
+    pub fn render_panel(&self, name: &str, ctx: &Context, width: u16, height: u16) -> Result<Vec<String>> {
+        let id = self.reg.borrow().panels.iter().find(|p| p.name == name).map(|p| p.callback);
         let id = id.ok_or_else(|| anyhow!("no panel '{name}'"))?;
         let value: Value = self.call_ret(id, (ctx.clone(), width, height))?;
         Ok(lines_from(value))
     }
 
     /// Text preview from the first previewer claiming this extension.
-    pub fn preview(
-        &self,
-        path: &str,
-        ext: &str,
-        width: u16,
-        height: u16,
-    ) -> Option<Result<Vec<String>>> {
+    pub fn preview(&self, path: &str, ext: &str, width: u16, height: u16) -> Option<Result<Vec<String>>> {
         let ext = ext.to_ascii_lowercase();
         let ids: Vec<usize> = self
             .reg
@@ -262,11 +197,7 @@ impl PluginHost {
 
     pub fn has_previewer(&self, ext: &str) -> bool {
         let ext = ext.to_ascii_lowercase();
-        self.reg
-            .borrow()
-            .previewers
-            .iter()
-            .any(|(exts, _)| exts.iter().any(|e| e == &ext || e == "*"))
+        self.reg.borrow().previewers.iter().any(|(exts, _)| exts.iter().any(|e| e == &ext || e == "*"))
     }
 
     /// Takes the requests queued by plugins since the last drain.
@@ -278,10 +209,7 @@ impl PluginHost {
 fn lines_from(value: Value) -> Vec<String> {
     match value {
         Value::String(s) => s.to_string_lossy().lines().map(str::to_string).collect(),
-        Value::Table(t) => t
-            .sequence_values::<String>()
-            .filter_map(Result::ok)
-            .collect(),
+        Value::Table(t) => t.sequence_values::<String>().filter_map(Result::ok).collect(),
         _ => Vec::new(),
     }
 }
@@ -317,20 +245,14 @@ mod tests {
         assert_eq!(keys[0].keys, "g x");
         assert_eq!(keys[0].plugin, "demo");
 
-        let ctx = Context {
-            cwd: "/tmp".into(),
-            ..Default::default()
-        };
+        let ctx = Context { cwd: "/tmp".into(), ..Default::default() };
         h.call(keys[0].callback, ctx.clone()).unwrap();
         h.run_command("hello", "world", ctx.clone()).unwrap();
         assert_eq!(
             h.drain(),
             vec![
                 Request::Cd("/tmp/sub".into()),
-                Request::Notify {
-                    message: "hi world".into(),
-                    level: crate::Level::Info
-                }
+                Request::Notify { message: "hi world".into(), level: crate::Level::Info }
             ]
         );
         assert_eq!(h.statusline(&ctx), vec!["on /tmp".to_string()]);
@@ -351,10 +273,7 @@ mod tests {
             return M
             "#,
             false,
-            Some(PluginValue::Map(vec![(
-                "greeting".into(),
-                PluginValue::Str("hey".into()),
-            )])),
+            Some(PluginValue::Map(vec![("greeting".into(), PluginValue::Str("hey".into()))])),
         )
         .unwrap();
         let lines = h.render_panel("p", &Context::default(), 10, 5).unwrap();
@@ -365,13 +284,7 @@ mod tests {
     fn errors_are_reported_not_fatal() {
         let mut h = host();
         assert!(h.load("bad", "this is not lua", false, None).is_err());
-        h.load(
-            "ok",
-            "strata.on('cd', function() error('boom') end)",
-            false,
-            None,
-        )
-        .unwrap();
+        h.load("ok", "strata.on('cd', function() error('boom') end)", false, None).unwrap();
         let errors = h.emit("cd", &Context::default());
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("boom"));
@@ -381,8 +294,7 @@ mod tests {
     fn official_plugins_load() {
         let mut h = host();
         for (name, src) in OFFICIAL_PLUGINS {
-            h.load(name, src, true, None)
-                .unwrap_or_else(|e| panic!("{name}: {e:#}"));
+            h.load(name, src, true, None).unwrap_or_else(|e| panic!("{name}: {e:#}"));
         }
         assert_eq!(h.loaded().len(), OFFICIAL_PLUGINS.len());
     }
@@ -390,8 +302,13 @@ mod tests {
     #[test]
     fn previewers_match_extensions() {
         let mut h = host();
-        h.load("pv", r#"strata.previewer({ ext = { "md" }, fn = function(path) return "preview of " .. path end })"#, false, None)
-            .unwrap();
+        h.load(
+            "pv",
+            r#"strata.previewer({ ext = { "md" }, fn = function(path) return "preview of " .. path end })"#,
+            false,
+            None,
+        )
+        .unwrap();
         assert!(h.has_previewer("MD"));
         let lines = h.preview("/a.md", "md", 10, 10).unwrap().unwrap();
         assert_eq!(lines, vec!["preview of /a.md"]);

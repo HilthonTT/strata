@@ -37,6 +37,7 @@ Callbacks receive a `ctx` table that describes the current UI state:
 | `view` | `files`, `dashboard`, `docker` or `nas` |
 | `theme` | active theme name |
 | `scheme` | `local`, `sftp` or `docker` |
+| `icons` | whether Nerd Font icons are enabled |
 
 ## API
 

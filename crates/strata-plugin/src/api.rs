@@ -43,48 +43,33 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
     strata.set("version", paths.version.clone())?;
     strata.set("platform", std::env::consts::OS)?;
     let config_dir = paths.config_dir.clone();
-    strata.set(
-        "config_dir",
-        lua.create_function(move |_, ()| Ok(config_dir.clone()))?,
-    )?;
+    strata.set("config_dir", lua.create_function(move |_, ()| Ok(config_dir.clone()))?)?;
     let data_dir = paths.data_dir.clone();
-    strata.set(
-        "data_dir",
-        lua.create_function(move |_, ()| Ok(data_dir.clone()))?,
-    )?;
+    strata.set("data_dir", lua.create_function(move |_, ()| Ok(data_dir.clone()))?)?;
 
     // --- registration -----------------------------------------------------
     let r = reg.clone();
     strata.set(
         "map",
-        lua.create_function(
-            move |_, (keys, f, desc): (String, Function, Option<String>)| {
-                let mut r = r.borrow_mut();
-                let callback = r.store(f);
-                let plugin = r.loading.clone();
-                let description = desc.unwrap_or_else(|| format!("{plugin}: {keys}"));
-                r.keys.push(PluginKey {
-                    keys,
-                    callback,
-                    description,
-                    plugin,
-                });
-                Ok(())
-            },
-        )?,
+        lua.create_function(move |_, (keys, f, desc): (String, Function, Option<String>)| {
+            let mut r = r.borrow_mut();
+            let callback = r.store(f);
+            let plugin = r.loading.clone();
+            let description = desc.unwrap_or_else(|| format!("{plugin}: {keys}"));
+            r.keys.push(PluginKey { keys, callback, description, plugin });
+            Ok(())
+        })?,
     )?;
 
     let r = reg.clone();
     strata.set(
         "command",
-        lua.create_function(
-            move |_, (name, f, desc): (String, Function, Option<String>)| {
-                let mut r = r.borrow_mut();
-                let id = r.store(f);
-                r.commands.insert(name, (id, desc.unwrap_or_default()));
-                Ok(())
-            },
-        )?,
+        lua.create_function(move |_, (name, f, desc): (String, Function, Option<String>)| {
+            let mut r = r.borrow_mut();
+            let id = r.store(f);
+            r.commands.insert(name, (id, desc.unwrap_or_default()));
+            Ok(())
+        })?,
     )?;
 
     let r = reg.clone();
@@ -120,12 +105,7 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
             let callback = r.store(render);
             let plugin = r.loading.clone();
             r.panels.retain(|p| p.name != name);
-            r.panels.push(PanelDef {
-                title: title.unwrap_or_else(|| name.clone()),
-                name,
-                callback,
-                plugin,
-            });
+            r.panels.push(PanelDef { title: title.unwrap_or_else(|| name.clone()), name, callback, plugin });
             Ok(())
         })?,
     )?;
@@ -138,10 +118,7 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
             let f: Function = spec.get("fn")?;
             let mut r = r.borrow_mut();
             let id = r.store(f);
-            r.previewers.push((
-                exts.into_iter().map(|e| e.to_ascii_lowercase()).collect(),
-                id,
-            ));
+            r.previewers.push((exts.into_iter().map(|e| e.to_ascii_lowercase()).collect(), id));
             Ok(())
         })?,
     )?;
@@ -158,13 +135,7 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
                 Some("error") => Level::Error,
                 _ => Level::Info,
             };
-            push(
-                &r,
-                Request::Notify {
-                    message: msg,
-                    level,
-                },
-            );
+            push(&r, Request::Notify { message: msg, level });
             Ok(())
         })?,
     )?;
@@ -221,39 +192,21 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
     let r = reg.clone();
     strata.set(
         "select",
-        lua.create_function(
-            move |_, (title, items, f): (String, Vec<String>, Function)| {
-                let callback = r.borrow_mut().store(f);
-                push(
-                    &r,
-                    Request::Select {
-                        title,
-                        items,
-                        callback,
-                    },
-                );
-                Ok(())
-            },
-        )?,
+        lua.create_function(move |_, (title, items, f): (String, Vec<String>, Function)| {
+            let callback = r.borrow_mut().store(f);
+            push(&r, Request::Select { title, items, callback });
+            Ok(())
+        })?,
     )?;
 
     let r = reg.clone();
     strata.set(
         "input",
-        lua.create_function(
-            move |_, (prompt, default, f): (String, Option<String>, Function)| {
-                let callback = r.borrow_mut().store(f);
-                push(
-                    &r,
-                    Request::Input {
-                        prompt,
-                        default: default.unwrap_or_default(),
-                        callback,
-                    },
-                );
-                Ok(())
-            },
-        )?,
+        lua.create_function(move |_, (prompt, default, f): (String, Option<String>, Function)| {
+            let callback = r.borrow_mut().store(f);
+            push(&r, Request::Input { prompt, default: default.unwrap_or_default(), callback });
+            Ok(())
+        })?,
     )?;
 
     // --- synchronous helpers ------------------------------------------------
@@ -287,15 +240,9 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
         })?,
     )?;
 
-    strata.set(
-        "mkdir",
-        lua.create_function(|_, path: String| Ok(std::fs::create_dir_all(path).is_ok()))?,
-    )?;
+    strata.set("mkdir", lua.create_function(|_, path: String| Ok(std::fs::create_dir_all(path).is_ok()))?)?;
 
-    strata.set(
-        "which",
-        lua.create_function(|_, program: String| Ok(strata_which(&program)))?,
-    )?;
+    strata.set("which", lua.create_function(|_, program: String| Ok(strata_which(&program)))?)?;
 
     lua.globals().set("strata", strata)?;
     Ok(())

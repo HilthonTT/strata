@@ -50,6 +50,8 @@ pub struct Context {
     pub theme: String,
     /// `local`, `sftp` or `docker`.
     pub scheme: String,
+    /// Whether Nerd Font icons are enabled.
+    pub icons: bool,
 }
 
 impl IntoLua for Context {
@@ -63,6 +65,7 @@ impl IntoLua for Context {
         t.set("view", self.view)?;
         t.set("theme", self.theme)?;
         t.set("scheme", self.scheme)?;
+        t.set("icons", self.icons)?;
         Ok(Value::Table(t))
     }
 }

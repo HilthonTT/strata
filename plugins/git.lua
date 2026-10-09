@@ -33,10 +33,11 @@ function M.setup(opts)
     if not cache.branch then
       return nil
     end
+    local icon = ctx.icons and "\u{e0a0} " or "⎇ "
     if #cache.lines > 0 then
-      return "⎇ " .. cache.branch .. " ±" .. #cache.lines
+      return icon .. cache.branch .. " ±" .. #cache.lines
     end
-    return "⎇ " .. cache.branch
+    return icon .. cache.branch
   end)
 
   strata.panel({
