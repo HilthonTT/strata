@@ -1,0 +1,19 @@
+export const metadata = { title: "Docker" };
+
+# Docker
+
+Press <Kbd>3</Kbd> to list your containers, running ones first, with live CPU and memory use. strata talks to Docker through the `docker` CLI, so it works with Docker Desktop, Podman's Docker shim and remote `DOCKER_HOST`s.
+
+| Key | Action |
+| --- | --- |
+| <Kbd>enter</Kbd> | Browse the container's filesystem in the focused panel |
+| <Kbd>e</Kbd> | Open a shell in the container |
+| <Kbd>L</Kbd> | Show the last 500 log lines |
+| <Kbd>s</Kbd> / <Kbd>S</Kbd> | Start / stop |
+| <Kbd>r</Kbd> | Restart |
+| <Kbd>p</Kbd> | Pause / unpause |
+| <Kbd>x</Kbd> | Remove (asks first) |
+
+## Browsing containers
+
+A container's filesystem behaves like any other location: navigate, preview files, and copy files in and out between panels. strata only needs `sh` and `stat` inside the container, so slim busybox and Alpine images work too. <Kbd>!</Kbd> opens a shell in the container at the current directory.

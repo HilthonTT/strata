@@ -1,0 +1,44 @@
+export const metadata = { title: "File operations" };
+
+# File operations
+
+<Media src="file-operations.gif" alt="Copying, renaming, trashing and undoing" caption="Copy to the next panel, rename, undo, trash and undo again." />
+
+Most actions apply to the **marked** items, or to the item under the cursor when nothing is marked. Mark with <Kbd>space</Kbd>, select a range with <Kbd>v</Kbd>, extend with <Kbd>J</Kbd> / <Kbd>K</Kbd>, mark everything with <Kbd>ctrl+a</Kbd> or by pattern with `:select *.png`.
+
+## Copy and move
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>y y</Kbd> / <Kbd>x</Kbd> then <Kbd>p</Kbd> | Copy / cut, then paste in another directory |
+| <Kbd>c</Kbd> / <Kbd>m</Kbd> | Copy / move straight into the next panel |
+
+Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer; <Kbd>ctrl+x</Kbd> cancels the latest one. Name clashes never overwrite anything: the new item becomes `name (1).ext`. Copies work between any locations — local disk, SFTP servers and Docker containers.
+
+## Create, rename, delete
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>a</Kbd> / <Kbd>A</Kbd> | New file / directory (`docs/notes.md` creates the folder too) |
+| <Kbd>r</Kbd> | Rename |
+| <Kbd>R</Kbd> | Bulk rename the marked items in `$EDITOR` |
+| <Kbd>d d</Kbd> | Move to the trash |
+| <Kbd>D</Kbd> | Delete permanently |
+
+Bulk rename opens one name per line in your editor; change the lines, save and quit. Swapping two names works, and strata refuses to overwrite files that are not part of the rename.
+
+## Undo
+
+Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation. Undo covers:
+
+- renames and bulk renames,
+- new files and directories (they go to the trash),
+- copies (the copies go to the trash),
+- moves (items go back where they came from, even across filesystems),
+- trashing (items are restored from the trash — Linux and Windows).
+
+<Callout type="warn">Permanent deletes (<Kbd>D</Kbd>) cannot be undone. strata asks for confirmation unless you set `confirm_delete = false`.</Callout>
+
+## Open files
+
+<Kbd>enter</Kbd> opens text files in your editor and media or documents with the system app. <Kbd>o</Kbd> always uses the system app, and <Kbd>e</Kbd> / <Kbd>E</Kbd> open the file or the whole directory in your editor. To choose programs per file type, see [`open_with`](/docs/configuration/#open-with).

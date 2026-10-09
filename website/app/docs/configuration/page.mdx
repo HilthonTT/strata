@@ -1,0 +1,87 @@
+export const metadata = { title: "Configuration" };
+
+# Configuration
+
+strata reads `~/.config/strata/config.toml` (`%APPDATA%\strata\config.toml` on Windows). Override the location with `STRATA_CONFIG_DIR` or `strata --config <file>`. Every setting is optional, and unknown keys are reported so typos never go unnoticed.
+
+Start from the documented default:
+
+```sh
+mkdir -p ~/.config/strata
+strata --dump-config > ~/.config/strata/config.toml
+```
+
+Inside strata, `:config` opens the file in your editor.
+
+## General
+
+```toml
+[general]
+theme = "catppuccin-mocha"   # see `strata --list-themes`
+keymap = "vim"               # vim | default (ctrl+c, ctrl+x, ctrl+v…)
+transparent = false          # use the terminal's background
+show_hidden = false
+panels = 2                   # file panels at start
+preview = true
+image_preview = true
+syntax_highlight = true
+git_status = true
+extra_columns = 0            # 0 = names only, 1 = + size, 2 = + size and date
+preview_border = false
+line_numbers = false
+sidebar = true
+footer = true
+icons = true                 # needs a Nerd Font
+border = "rounded"           # plain | rounded | double | thick
+sort = "name"                # name | size | modified | extension
+dirs_first = true
+use_trash = true             # d d trashes; D always deletes permanently
+confirm_delete = true
+editor = ""                  # defaults to $VISUAL, $EDITOR, then vi
+dir_editor = ""              # used by E; defaults to editor
+opener = ""                  # defaults to xdg-open, open or start
+cd_on_quit = false           # see Shell integration
+md5_checksum = false
+date_format = "%Y-%m-%d %H:%M"
+metrics_interval_ms = 1000
+```
+
+## Pinned directories
+
+```toml
+pinned = ["~/projects", "~/Documents/notes"]
+```
+
+Directories you pin with <Kbd>P</Kbd> are stored separately and added to these.
+
+## Open with
+
+Choose programs per file extension. They are used by <Kbd>enter</Kbd> and <Kbd>o</Kbd>, with the file's path appended. Quotes work as in a shell.
+
+```toml
+[open_with]
+md = "glow -p"                                  # runs in the terminal
+png = { command = "feh", detach = true }        # GUI app, started in the background
+pdf = { command = "zathura", detach = true }
+```
+
+## Keys
+
+See [key bindings](/docs/keybindings/).
+
+## Plugins
+
+```toml
+[plugins]
+enabled = ["git", "bookmarks", "archive", "zoxide"]   # official plugins
+disabled = []                                          # user plugins to skip
+
+[plugins.options.git]
+panel = true
+```
+
+See [plugins](/docs/plugins/).
+
+## Connections
+
+See [NAS connections](/docs/nas/).

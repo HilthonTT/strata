@@ -1,0 +1,45 @@
+export const metadata = { title: "Quick start" };
+
+# Quick start
+
+Start strata in the current directory, or give it one directory per panel:
+
+```sh
+strata
+strata ~/projects ~/Downloads
+```
+
+<Media src="main.png" alt="The strata files view" caption="Sidebar, two file panels, the preview, and processes, metadata and clipboard in the footer." />
+
+## The first keys to learn
+
+The default preset is vim-style. Prefer `ctrl+c` / `ctrl+v`? See [key bindings](/docs/keybindings/).
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>h</Kbd> <Kbd>j</Kbd> <Kbd>k</Kbd> <Kbd>l</Kbd> | Parent, down, up, open |
+| <Kbd>g g</Kbd> / <Kbd>G</Kbd> | First / last item |
+| <Kbd>space</Kbd> / <Kbd>v</Kbd> | Mark an item / select a range |
+| <Kbd>y y</Kbd> <Kbd>x</Kbd> <Kbd>p</Kbd> | Copy, cut, paste |
+| <Kbd>c</Kbd> / <Kbd>m</Kbd> | Copy / move to the next panel |
+| <Kbd>d d</Kbd> / <Kbd>D</Kbd> | Move to trash / delete permanently |
+| <Kbd>u</Kbd> | Undo |
+| <Kbd>/</Kbd> / <Kbd>f</Kbd> / <Kbd>ctrl+g</Kbd> | Filter / fuzzy find / search contents |
+| <Kbd>tab</Kbd> / <Kbd>n</Kbd> / <Kbd>t</Kbd> | Next panel / new panel / new tab |
+| <Kbd>1</Kbd> – <Kbd>4</Kbd> | Files, dashboard, Docker, NAS |
+| <Kbd>T</Kbd> / <Kbd>:</Kbd> / <Kbd>?</Kbd> | Themes / command palette / every key |
+| <Kbd>q</Kbd> / <Kbd>Q</Kbd> | Quit / quit and `cd` your shell there |
+
+When you press the first key of a sequence such as <Kbd>g</Kbd>, a small popup shows what can follow.
+
+## The command palette
+
+<Kbd>:</Kbd> opens a prompt with tab completion. A few useful commands:
+
+```text
+:cd ~/projects          :theme nord             :grep TODO
+:mkdir assets           :sort size rev          :select *.log
+:connect homelab        :sh cargo build         :undo
+```
+
+Run `:help` or press <Kbd>?</Kbd> for the full list.

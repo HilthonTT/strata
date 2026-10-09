@@ -1,0 +1,33 @@
+export const metadata = { title: "Introduction" };
+
+# Introduction
+
+strata is a terminal file explorer written in Rust. It aims to be the only file manager you need in a terminal: fast, keyboard-driven, good-looking, and extensible with Lua.
+
+<Media src="overview.gif" alt="strata in action" caption="Browsing a project: previews, git markers, filtering and the dashboard." />
+
+## What you get
+
+- **Multiple panels and tabs** — browse several directories side by side, and copy or move between them with one key.
+- **Complete file operations** — copy, move, trash, delete, rename, bulk rename in your editor, and **undo** for all of them except permanent deletes.
+- **Search** — filter the current folder, fuzzy-find files across a project, or search inside files with ripgrep.
+- **Previews** — syntax-highlighted code, images (kitty, sixel, iTerm2 or half blocks), directories and archives.
+- **Git status** — modified, added, untracked and ignored markers next to every file.
+- **Dashboard** — disk space, per-device I/O (IOPS, throughput, latency), memory pressure and disk usage.
+- **Docker** — manage containers and browse their filesystems like local folders.
+- **NAS connections** — SMB, NFS and SFTP with reachability checks, diagnostics and keychain-stored passwords.
+- **27 themes**, two key presets (vim and classic) and **Lua plugins**.
+
+## How it is built
+
+strata is a Cargo workspace with one crate per concern, so each part stays small and testable:
+
+| Crate | What it does |
+| --- | --- |
+| `strata-core` | Filesystem backends (local, SFTP, Docker), file operations, jobs, search, git, undo support, NAS |
+| `strata-sys` | Disks, I/O, memory pressure, disk usage and the Docker CLI |
+| `strata-config` | `config.toml`, keymaps and themes |
+| `strata-plugin` | The Lua plugin host |
+| `strata` | The terminal UI, built on [ratatui](https://ratatui.rs) |
+
+Ready? Head to [installation](/docs/installation/).

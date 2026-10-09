@@ -1,0 +1,30 @@
+export const metadata = { title: "Preview & metadata" };
+
+# Preview & metadata
+
+The preview on the right follows the cursor. Toggle it with <Kbd>w</Kbd>.
+
+| Item | Preview |
+| --- | --- |
+| Directories | Their contents, with icons |
+| Source code | Syntax highlighting coloured from your theme |
+| Images | PNG, JPEG, GIF, WebP, BMP and ICO |
+| Archives | The list of files (via the `archive` plugin) |
+| Binary files | Size, and a hint to open them with the system app |
+
+Images use the best protocol your terminal supports — kitty, sixel or iTerm2 — and a half-block approximation everywhere else.
+
+```toml
+[general]
+preview = true
+image_preview = true
+syntax_highlight = true
+preview_border = false   # superfile-style borderless preview
+line_numbers = false
+```
+
+## Metadata
+
+The **Metadata** box in the footer shows the hovered item's name, type, size, modification date, permissions and path. For executables it also shows the architecture — for example `ELF 64-bit x86-64`, `PE32+ ARM64` or `Mach-O 64-bit arm64`.
+
+Turn on `md5_checksum = true` to see each file's MD5 as well. It is computed in the background and stops as soon as you move on, so large files never slow you down.

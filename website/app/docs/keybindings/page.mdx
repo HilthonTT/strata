@@ -1,0 +1,60 @@
+export const metadata = { title: "Key bindings" };
+
+# Key bindings
+
+Press <Kbd>?</Kbd> inside strata to see every key, including those added by plugins.
+
+## Presets
+
+strata ships two layouts. Choose one with `keymap` under `[general]`:
+
+- **`vim`** (default) — `h j k l`, sequences like <Kbd>g g</Kbd>, <Kbd>y y</Kbd> and <Kbd>d d</Kbd>.
+- **`default`** — superfile-style: <Kbd>ctrl+c</Kbd> copy, <Kbd>ctrl+x</Kbd> cut, <Kbd>ctrl+v</Kbd> paste, <Kbd>ctrl+d</Kbd> delete, <Kbd>ctrl+n</Kbd> create, <Kbd>ctrl+r</Kbd> rename, <Kbd>ctrl+z</Kbd> undo, <Kbd>o</Kbd> sort menu and no multi-key sequences.
+
+| Action | vim | default |
+| --- | --- | --- |
+| Copy / cut / paste | <Kbd>y y</Kbd> <Kbd>x</Kbd> <Kbd>p</Kbd> | <Kbd>ctrl+c</Kbd> <Kbd>ctrl+x</Kbd> <Kbd>ctrl+v</Kbd> |
+| Trash / delete | <Kbd>d d</Kbd> / <Kbd>D</Kbd> | <Kbd>ctrl+d</Kbd> / <Kbd>D</Kbd> |
+| Rename / bulk rename | <Kbd>r</Kbd> / <Kbd>R</Kbd> | <Kbd>ctrl+r</Kbd> / <Kbd>alt+r</Kbd> |
+| New file / directory | <Kbd>a</Kbd> / <Kbd>A</Kbd> | <Kbd>ctrl+n</Kbd> (end the name with `/` for a directory) |
+| Undo | <Kbd>u</Kbd> | <Kbd>ctrl+z</Kbd> |
+| Sort menu | <Kbd>s</Kbd> | <Kbd>o</Kbd> |
+| Fuzzy find | <Kbd>f</Kbd> | <Kbd>ctrl+f</Kbd> |
+| Toggle preview | <Kbd>w</Kbd> | <Kbd>f</Kbd> |
+| New tab | <Kbd>t</Kbd> | <Kbd>ctrl+t</Kbd> |
+| Copy path / current directory | <Kbd>y p</Kbd> / <Kbd>y d</Kbd> | <Kbd>ctrl+p</Kbd> / <Kbd>c</Kbd> |
+
+Both presets share <Kbd>tab</Kbd>, the arrow keys, <Kbd>/</Kbd>, <Kbd>.</Kbd>, <Kbd>:</Kbd>, <Kbd>?</Kbd>, <Kbd>T</Kbd>, <Kbd>1</Kbd>–<Kbd>4</Kbd>, <Kbd>ctrl+g</Kbd>, <Kbd>e</Kbd>, <Kbd>E</Kbd>, <Kbd>q</Kbd> and <Kbd>Q</Kbd>.
+
+## Remapping
+
+Map keys to an action name, to a `:command`, or to `"none"` to unbind them:
+
+```toml
+[keys]
+"ctrl+e" = "edit"
+"g p" = ":cd ~/projects"
+"g w" = ":theme rose-pine"
+"x" = "none"
+```
+
+Keys are written as `j`, `G`, `space`, `enter`, `esc`, `tab`, `backtab`, `backspace`, `delete`, `up`, `pageup`, `home`, `f5`, with `ctrl+`, `alt+` or `shift+` in front. Separate keys in a sequence with spaces. Your mappings override both the preset and plugins.
+
+## Actions
+
+| Action | Description |
+| --- | --- |
+| `up`, `down`, `top`, `bottom`, `page_up`, `page_down`, `half_page_up`, `half_page_down` | Movement |
+| `parent`, `open`, `back`, `forward`, `home`, `root` | Navigation |
+| `next_panel`, `prev_panel`, `new_panel`, `close_panel`, `focus_sidebar`, `focus_panels` | Panels |
+| `new_tab`, `close_tab`, `next_tab`, `prev_tab` | Tabs |
+| `toggle_select`, `select_all`, `invert_selection`, `visual_mode`, `select_down`, `select_up`, `clear` | Selection |
+| `copy`, `cut`, `paste`, `copy_to_other`, `move_to_other` | Clipboard and transfers |
+| `delete`, `delete_permanent`, `rename`, `bulk_rename`, `new_file`, `new_dir`, `undo` | File operations |
+| `copy_path`, `copy_cwd`, `cancel_job` | Misc |
+| `filter`, `fuzzy_find`, `content_search` | Search |
+| `toggle_hidden`, `toggle_preview`, `toggle_sidebar`, `toggle_footer`, `cycle_sort`, `reverse_sort`, `sort_menu`, `refresh` | View |
+| `view_files`, `view_dashboard`, `view_docker`, `view_connections` | Views |
+| `theme_picker`, `help`, `command_palette` | Popups |
+| `edit`, `edit_dir`, `open_with`, `shell`, `pin` | Open and external programs |
+| `quit`, `quit_cd` | Quit |

@@ -1,0 +1,61 @@
+export const metadata = { title: "NAS connections" };
+
+# NAS connections
+
+Press <Kbd>4</Kbd> for your NAS connections. strata supports **SMB**, **NFS** and **SFTP**.
+
+<Media src="nas.png" alt="NAS connections" />
+
+Each connection shows whether it is mounted or connected, whether the server answers (and how fast), and when it was last reachable. Status is re-checked every 15 seconds; the sidebar's **Network** section shows the same coloured dots.
+
+## Adding a connection
+
+Press <Kbd>a</Kbd> and enter a URL, then a name:
+
+```text
+smb://me@192.168.0.10/media
+nfs://nas.local/export/backup
+sftp://me@nas.local:2222/volume1
+```
+
+The host can be an IPv4 or IPv6 address or a name. Connections are saved to `config.toml`:
+
+```toml
+[[connections]]
+name = "homelab"
+protocol = "smb"          # smb | nfs | sftp
+host = "192.168.0.10"
+share = "media"           # share (SMB), export (NFS) or start directory (SFTP)
+user = "me"
+domain = "WORKGROUP"      # SMB only, optional
+mount_point = "~/mnt/homelab"   # optional
+identity_file = "~/.ssh/id_ed25519"   # SFTP only, optional
+auto_connect = false
+```
+
+## Keys
+
+| Key | Action |
+| --- | --- |
+| <Kbd>enter</Kbd> | Connect (SFTP) or mount (SMB/NFS), then open it |
+| <Kbd>t</Kbd> | Diagnose step by step |
+| <Kbd>u</Kbd> | Disconnect or unmount |
+| <Kbd>p</Kbd> / <Kbd>f</Kbd> | Save / forget the password in the system keychain |
+| <Kbd>r</Kbd> | Re-check every connection |
+| <Kbd>e</Kbd> | Edit `config.toml` |
+
+## How connections work
+
+- **SFTP** runs inside strata: no mounting, no root. strata tries your SSH agent, then your keys in `~/.ssh` (or `identity_file`), then a password saved in the keychain, and finally asks you. After a successful password login it offers to save it.
+- **SMB** mounts with `gio mount` on Linux desktops (no root needed), `mount -t cifs` otherwise, `mount_smbfs` on macOS and `net use` on Windows.
+- **NFS** mounts with `mount -t nfs`.
+
+Mounting hands the terminal to the mount command, so `sudo` and the server can ask for passwords as usual.
+
+## Passwords and the keychain
+
+Passwords are never written to strata's own files. They live in your operating system's keychain: Keychain on macOS, Credential Manager on Windows, and the Secret Service (GNOME Keyring or KWallet) on Linux. When mounting, strata passes a saved password through stdin or a private, temporary credentials file where the platform allows it — never on the command line on Linux.
+
+## Diagnosing a connection
+
+<Kbd>t</Kbd> walks the chain a connection takes and reports each step: resolving the server's name, reaching it (falling back from port 445 to 139 for SMB), the mount point, and the share. Steps that cannot run because an earlier one failed are marked as skipped instead of guessed at.

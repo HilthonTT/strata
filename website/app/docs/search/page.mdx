@@ -1,0 +1,21 @@
+export const metadata = { title: "Search" };
+
+# Search
+
+<Media src="search.gif" alt="Fuzzy finding and content search" caption="Fuzzy-find a file, then search inside files and jump to a match." />
+
+## Filter the current directory
+
+<Kbd>/</Kbd> filters the focused panel as you type, with fuzzy matching — `rdm` finds `README.md`. Matched letters are highlighted. <Kbd>enter</Kbd> keeps the filter, <Kbd>esc</Kbd> clears it.
+
+## Fuzzy-find files
+
+<Kbd>f</Kbd> (<Kbd>ctrl+f</Kbd> in the classic preset) indexes every file below the current directory and opens a picker. Type to narrow it down, then <Kbd>enter</Kbd> jumps to the file — or into the directory. Hidden files are included when they are shown in the panel; `.git`, `node_modules` and `target` are always skipped.
+
+## Search file contents
+
+<Kbd>ctrl+g</Kbd> asks for a pattern and searches every file below the current directory with [ripgrep](https://github.com/BurntSushi/ripgrep) — falling back to `grep` when ripgrep is not installed. You can also run `:grep <pattern>`.
+
+Results open in a picker showing `path:line` and the matching text. Pick one to reveal the file in the panel and open your editor **at that line**. strata knows the line syntax of vim, neovim, nano, emacs, Helix, Zed, Sublime Text and VS Code.
+
+Ripgrep uses smart case (lowercase patterns ignore case) and respects your `.gitignore`. Results stop at 2,000 matches.

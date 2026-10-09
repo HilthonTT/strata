@@ -1,0 +1,49 @@
+export const metadata = { title: "Shell integration" };
+
+# Shell integration
+
+## Quit into a directory
+
+A program cannot change its parent shell's directory, so strata comes with a small shell function. Once it is installed, <Kbd>Q</Kbd> quits and leaves your shell in the directory you were browsing. Plain <Kbd>q</Kbd> leaves it where it was — or set `cd_on_quit = true` to always follow.
+
+Add one line to your shell's config:
+
+```sh
+# bash — ~/.bashrc
+eval "$(strata --shell-init bash)"
+
+# zsh — ~/.zshrc
+eval "$(strata --shell-init zsh)"
+```
+
+```fish
+# fish — ~/.config/fish/config.fish
+strata --shell-init fish | source
+```
+
+```powershell
+# PowerShell — $PROFILE
+Invoke-Expression (& strata --shell-init powershell | Out-String)
+```
+
+The function is called `strata` and wraps the real binary, so you keep typing `strata` as usual.
+
+## Running commands
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>!</Kbd> | Open your `$SHELL` in the current directory (in a Docker container or over SSH for remote locations) |
+| `:sh <command>` or `:!<command>` | Run a command here and see its output |
+| `:git <args>` | Run git here (from the `git` plugin) |
+
+## Other flags
+
+```text
+strata [DIR...]           one panel per directory
+  -c, --config <FILE>     use another config file
+  -t, --theme <THEME>     override the theme
+      --no-plugins        start without plugins
+      --list-themes       print every theme
+      --dump-config       print a documented config
+      --shell-init <SH>   print the shell function (bash, zsh, fish, powershell)
+```

@@ -1,0 +1,100 @@
+export const metadata = { title: "Plugins" };
+
+# Plugins
+
+Plugins are Lua 5.4 files. strata loads every `*.lua` file and every `*/init.lua` in `~/.config/strata/plugins/` when it starts. List names under `plugins.disabled` to skip some.
+
+```lua
+-- ~/.config/strata/plugins/hello.lua
+strata.map("g p", function(ctx)
+  strata.cd(os.getenv("HOME") .. "/projects")
+end, "Go to projects")
+
+strata.command("hello", function(ctx, args)
+  strata.notify("hello " .. args .. " from " .. ctx.cwd)
+end, "Say hello")
+```
+
+## Official plugins
+
+| Plugin | What it adds |
+| --- | --- |
+| `git` | Branch and change count in the top bar, a Git panel (<Kbd>g s</Kbd>) and `:git <args>` |
+| `bookmarks` | <Kbd>B</Kbd> to bookmark a directory, <Kbd>'</Kbd> to jump, `:bookmark-remove` |
+| `archive` | Archive previews, <Kbd>X</Kbd> / `:extract` and `:compress <name>` |
+| `zoxide` | <Kbd>z</Kbd> to jump by query, <Kbd>Z</Kbd> to pick, and visited directories are recorded |
+
+Enable them with `plugins.enabled` in the config. All four are on by default.
+
+## Options
+
+If a plugin returns a table with a `setup` function, strata calls it with the plugin's options:
+
+```lua
+local M = {}
+function M.setup(opts)          -- [plugins.options.hello] greeting = "hi"
+  strata.statusline(function() return opts.greeting end)
+end
+return M
+```
+
+## Context
+
+Callbacks receive a `ctx` table:
+
+| Field | Description |
+| --- | --- |
+| `cwd` | Directory of the focused panel |
+| `hovered` | Path under the cursor, or `nil` |
+| `hovered_is_dir` | Whether `hovered` is a directory |
+| `selected` | List of marked paths |
+| `panel` | Focused panel number (1-based) |
+| `view` | `files`, `dashboard`, `docker` or `nas` |
+| `theme` | Active theme |
+| `scheme` | `local`, `sftp` or `docker` |
+| `icons` | Whether Nerd Font icons are enabled |
+
+## API
+
+### Registration
+
+| Function | Description |
+| --- | --- |
+| `strata.map(keys, fn(ctx), desc?)` | Bind a key sequence such as `"g p"` or `"ctrl+e"` |
+| `strata.command(name, fn(ctx, args), desc?)` | Add a `:name` command |
+| `strata.on(event, fn(ctx))` | Events: `startup`, `cd`, `paste`, `job_done`, `quit` |
+| `strata.statusline(fn(ctx) -> string?)` | Add a segment to the top bar |
+| `strata.panel{ name, title?, render = fn(ctx, w, h) -> lines }` | Draw a panel next to the file panels |
+| `strata.previewer{ ext = {...}, fn = fn(path, w, h) -> lines? }` | Preview these extensions; return `nil` to pass |
+
+### Actions
+
+| Function | Description |
+| --- | --- |
+| `strata.cd(path)` | Change directory |
+| `strata.action(name)` | Run a built-in [action](/docs/keybindings/#actions) |
+| `strata.run(line)` | Run a command-palette line, e.g. `"theme nord"` |
+| `strata.notify(msg, level?)` | Show a message: `"info"`, `"warn"` or `"error"` |
+| `strata.select(title, items, fn(item?))` | Show a fuzzy picker |
+| `strata.input(prompt, default?, fn(text?))` | Ask for text |
+| `strata.toggle_panel(name)` | Show or hide a plugin panel |
+| `strata.exec(cmd)` | Run an interactive command with the terminal handed over |
+| `strata.refresh()` | Reload the listings |
+
+### Helpers
+
+| Function | Description |
+| --- | --- |
+| `strata.shell(cmd, cwd?) -> stdout, code, stderr` | Run a command and capture its output |
+| `strata.which(program) -> bool` | Whether a program is on `PATH` |
+| `strata.mkdir(path) -> bool` | Create a directory and its parents |
+| `strata.config_dir()`, `strata.data_dir()` | Where to read config and keep state |
+| `strata.version`, `strata.platform` | strata's version and the OS |
+
+Lua's `io`, `os` and `string` libraries are available too.
+
+<Callout>
+  Callbacks run on the UI thread, so keep them quick. `statusline` and `panel` callbacks run every couple of seconds — cache anything expensive. Errors appear as notifications and never crash strata.
+</Callout>
+
+The [official plugins](https://github.com/HilthonTT/strata/tree/main/plugins) are good examples to start from.

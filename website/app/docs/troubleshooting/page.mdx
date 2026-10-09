@@ -1,0 +1,35 @@
+export const metadata = { title: "Troubleshooting" };
+
+# Troubleshooting
+
+### Icons show as boxes or question marks
+
+Your terminal font has no Nerd Font icons. Install a [Nerd Font](https://www.nerdfonts.com) and select it in your terminal, or set `icons = false`.
+
+### Images look blocky
+
+Your terminal (or tmux) does not support kitty, sixel or iTerm2 graphics, so strata draws images with half blocks. Use a terminal such as kitty, WezTerm, Ghostty, iTerm2, Konsole, foot or Windows Terminal 1.22+, outside of tmux.
+
+### "system keychain unavailable"
+
+On Linux, saving NAS passwords needs a Secret Service such as GNOME Keyring or KWallet. WSL has none by default; install `gnome-keyring` and start it, or let strata ask for the password each time.
+
+### The Docker view says Docker is unavailable
+
+strata runs the `docker` CLI. Check that `docker ps` works in the same terminal. On WSL, enable your distro under Docker Desktop → Settings → Resources → WSL Integration.
+
+### Content search is slow
+
+Install [ripgrep](https://github.com/BurntSushi/ripgrep). Without it strata falls back to `grep`, which does not skip ignored files.
+
+### Mounting a share fails
+
+Press <Kbd>t</Kbd> on the connection in the NAS view. The diagnosis shows which step fails: name resolution, reaching the server, the mount point or the share. Mount commands run in your terminal, so their own error messages are shown too, and `:messages` keeps a history of strata's notifications.
+
+### My config is ignored
+
+strata stops with an error when the config has a typo — run it from a terminal to see the message. Check the location with `strata --dump-config` and compare, or set `STRATA_CONFIG_DIR`.
+
+### Something else
+
+Open an issue on [GitHub](https://github.com/HilthonTT/strata/issues) with your OS, terminal and the output of `strata --version`.

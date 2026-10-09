@@ -1,0 +1,44 @@
+export const metadata = { title: "Installation" };
+
+# Installation
+
+## With Cargo
+
+You need [Rust](https://rustup.rs) 1.95 or newer.
+
+```sh
+cargo install --locked --git https://github.com/HilthonTT/strata strata
+```
+
+On Linux and macOS, SFTP support also needs the OpenSSL headers (`libssl-dev` on Debian and Ubuntu, `openssl-devel` on Fedora, `openssl` from Homebrew on macOS).
+
+## From source
+
+```sh
+git clone https://github.com/HilthonTT/strata
+cd strata
+make install     # builds a release binary into ~/.local/bin
+```
+
+Run `make help` to see the other tasks (`make check` runs everything CI runs).
+
+## Prebuilt binaries
+
+Every tagged release has binaries for Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel) and Windows on the [releases page](https://github.com/HilthonTT/strata/releases), with SHA-256 checksums.
+
+## Recommended extras
+
+| Tool | Why |
+| --- | --- |
+| A [Nerd Font](https://www.nerdfonts.com) | File and UI icons. Without one, set `icons = false`. |
+| [ripgrep](https://github.com/BurntSushi/ripgrep) | Faster content search (strata falls back to `grep`). |
+| `git` | Status markers in the panels. |
+| [zoxide](https://github.com/ajeetdsouza/zoxide) | Jump to frequent directories with `z`. |
+| `docker` | The Docker view. |
+| A terminal with kitty, sixel or iTerm2 graphics | Full-resolution image previews. |
+
+<Callout>
+  Image previews use real graphics in kitty, WezTerm, Ghostty, iTerm2, Konsole, foot and Windows Terminal. Other terminals — and tmux — get a half-block approximation.
+</Callout>
+
+Next: the [quick start](/docs/quick-start/).

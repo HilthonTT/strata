@@ -1,0 +1,20 @@
+export const metadata = { title: "Git status" };
+
+# Git status
+
+Inside a git repository, every file gets a marker at the right edge of its row:
+
+| Marker | Meaning |
+| --- | --- |
+| **M** | Modified (staged or not) |
+| **A** | Added to the index |
+| **?** | Untracked |
+| **R** | Renamed |
+| **D** | Deleted |
+| **U** | Merge conflict |
+
+Ignored files are dimmed. A directory shows the most important marker of anything inside it, so you can follow changes down the tree.
+
+The `git` plugin adds the current branch and the number of changes to the top bar, and a **Git** panel with `git status` — toggle it with <Kbd>g s</Kbd>. Run any git command in the current directory with `:git <args>`.
+
+Status is refreshed in the background every few seconds and after every file operation. Turn it off with `git_status = false`.

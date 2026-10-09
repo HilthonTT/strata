@@ -1,13 +1,21 @@
-# strata
+<p align="center">
+  <img src="website/public/logo.svg" width="96" alt="strata logo">
+</p>
 
-A fast, extensible terminal file explorer written in Rust.
+<h1 align="center">strata</h1>
+
+<p align="center">A fast, extensible terminal file explorer written in Rust.</p>
+
+![strata](website/public/media/overview.gif)
 
 Everything you need, nothing you don't.
 
-- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR`, fuzzy find
+- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR`, and undo for all of them
+- **Search**: filter, fuzzy find, and content search with ripgrep
+- **Git status** markers next to every file, and **tabs** on top of multiple panels
 - **Preview**: syntax-highlighted code, images, archives and directories; executable architecture and optional MD5 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
-- **NAS connections**: SMB, NFS and SFTP, with live reachability checks and a step-by-step connection test
+- **NAS connections**: SMB, NFS and SFTP, with live reachability checks, a step-by-step connection test and passwords in your system keychain
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **27 themes**: Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
@@ -37,6 +45,8 @@ strata [DIR...]           # one panel per directory
 | `a` / `A` | new file / directory | `/` / `f` | filter / fuzzy find |
 | `tab` / `n` | next / new panel | `1`–`4` | files, dashboard, Docker, NAS |
 | `T` | theme picker | `:` | command palette |
+| `u` | undo | `ctrl+g` | search file contents |
+| `t` | new tab | `g t` | next tab |
 | `s` | sort menu | `E` | open the directory in your editor |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
 | `?` | all keys | `q` | quit |
@@ -59,6 +69,10 @@ Run `strata --dump-config > ~/.config/strata/config.toml` to start from a docume
 
 Plugins are Lua files in `~/.config/strata/plugins/`. strata ships four official ones: `git`, `bookmarks`, `archive` and `zoxide`. See [docs/plugins.md](docs/plugins.md) for the API.
 
+## Documentation
+
+Full docs, screenshots and GIFs live in [`website/`](website), a Next.js site deployed to GitHub Pages. Run `make website-dev` to preview it locally.
+
 ## Development
 
 ```sh
@@ -70,11 +84,12 @@ The code is a Cargo workspace:
 
 | Crate | Purpose |
 | --- | --- |
-| `strata-core` | filesystem backends (local, SFTP, Docker), file operations, jobs, search, NAS |
+| `strata-core` | filesystem backends (local, SFTP, Docker), file operations, undo, jobs, search, git, NAS, keychain |
 | `strata-sys` | disks, I/O, memory pressure, disk usage, Docker CLI |
 | `strata-config` | config file, keymap, themes |
 | `strata-plugin` | Lua plugin host |
 | `strata` | the TUI |
+| `xtask` | dev tasks: `cargo xtask media` records the docs screenshots and GIFs |
 
 ## License
 
