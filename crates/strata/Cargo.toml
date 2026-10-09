@@ -1,0 +1,33 @@
+[package]
+name = "strata"
+description = "A fast, extensible terminal file explorer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "strata"
+path = "src/main.rs"
+
+[features]
+default = ["sftp"]
+sftp = ["strata-core/sftp"]
+
+[dependencies]
+strata-core.workspace = true
+strata-config.workspace = true
+strata-plugin.workspace = true
+strata-sys.workspace = true
+anyhow.workspace = true
+ratatui.workspace = true
+ratatui-image.workspace = true
+image.workspace = true
+clap.workspace = true
+unicode-width.workspace = true
+chrono.workspace = true
+tempfile.workspace = true
+dirs.workspace = true
+syntect.workspace = true
