@@ -11,17 +11,14 @@ use strata_core::{Vfs, VfsRef};
 use strata_plugin::Level;
 use strata_sys::docker::ContainerAction;
 
-use super::external::{After, External, Wait};
+use super::external::{After, External};
 use super::overlay::{Confirm, ConfirmState, InputPurpose, InputState, Overlay, TextPopup};
 use super::{workers, App, View};
 
 impl App {
     /// View-specific single keys, checked before the global keymap.
     pub(super) fn on_view_key(&mut self, key: KeyPress) -> bool {
-        if key
-            .mods
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-        {
+        if key.mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) {
             return false;
         }
         let KeyCode::Char(c) = key.code else {
@@ -47,10 +44,8 @@ impl App {
             'p' => ContainerAction::Pause,
             'x' => {
                 let message = format!("Remove container '{name}'?");
-                self.overlay = Some(Overlay::Confirm(ConfirmState {
-                    message,
-                    action: Confirm::DockerRemove { id, name },
-                }));
+                self.overlay =
+                    Some(Overlay::Confirm(ConfirmState { message, action: Confirm::DockerRemove { id, name } }));
                 return true;
             }
             'L' => {
@@ -59,10 +54,7 @@ impl App {
             }
             'e' if container.is_running() => {
                 let shell = DockerVfs::new(id, name).shell_command(std::path::Path::new("/"));
-                self.queue_external(External::Shell {
-                    cwd: PathBuf::from("/"),
-                    remote: shell,
-                });
+                self.queue_external(External::Shell { cwd: PathBuf::from("/"), remote: shell });
                 return true;
             }
             _ => return false,
@@ -75,11 +67,7 @@ impl App {
     fn connections_key(&mut self, c: char) -> bool {
         match c {
             'a' => {
-                let input = InputState::new(
-                    "URL (smb://, nfs://, sftp://)",
-                    "",
-                    InputPurpose::AddConnectionUrl,
-                );
+                let input = InputState::new("URL (smb://, nfs://, sftp://)", "", InputPurpose::AddConnectionUrl);
                 self.overlay = Some(Overlay::Input(input));
             }
             't' | 'u' => {
@@ -93,6 +81,14 @@ impl App {
                 }
             }
             'e' => self.run_command("config"),
+            'p' | 'f' => {
+                let Some(conn) = self.config.connections.get(self.nas.cursor).cloned() else { return false };
+                if c == 'p' {
+                    self.prompt_save_password(conn.name);
+                } else {
+                    self.forget_password(&conn.name);
+                }
+            }
             'r' => {
                 self.probe_connections();
                 self.info("checking connections…");
@@ -141,10 +137,7 @@ impl App {
                     return;
                 };
                 if !c.is_running() {
-                    return self.notify(
-                        format!("{} is not running — press s to start it", c.name),
-                        Level::Warn,
-                    );
+                    return self.notify(format!("{} is not running — press s to start it", c.name), Level::Warn);
                 }
                 let vfs: VfsRef = Arc::new(DockerVfs::new(c.id, c.name.clone()));
                 self.view = View::Files;
@@ -157,12 +150,7 @@ impl App {
                 }
             }
             View::Dashboard => {
-                let item = self
-                    .dashboard
-                    .usage
-                    .as_ref()
-                    .and_then(|u| u.items.get(self.dashboard.cursor))
-                    .cloned();
+                let item = self.dashboard.usage.as_ref().and_then(|u| u.items.get(self.dashboard.cursor)).cloned();
                 if let Some(item) = item {
                     if item.is_dir {
                         self.cd_local(item.path);
@@ -181,11 +169,7 @@ impl App {
     pub fn open_connection(&mut self, conn: Connection) {
         if conn.protocol == Protocol::Sftp {
             if let Some(vfs) = self.nas.sessions.get(&conn.name).cloned() {
-                let path = if conn.share.is_empty() {
-                    vfs.home()
-                } else {
-                    PathBuf::from(&conn.share)
-                };
+                let path = if conn.share.is_empty() { vfs.home() } else { PathBuf::from(&conn.share) };
                 self.view = View::Files;
                 self.panel_mut().switch_vfs(vfs, path);
                 return;
@@ -195,23 +179,41 @@ impl App {
         if let Some(path) = conn.mounted_at() {
             return self.cd_local(path);
         }
-        let Some(argv) = conn.mount_command() else {
+        let password = if conn.protocol == Protocol::Smb { strata_core::secrets::get(&conn.name) } else { None };
+        let Some(plan) = conn.mount_plan(password.as_deref()) else {
             return;
         };
         if conn.needs_mount_dir() {
             if let Err(e) = std::fs::create_dir_all(conn.mount_point()) {
-                return self.error(format!(
-                    "cannot create {}: {e}",
-                    conn.mount_point().display()
-                ));
+                return self.error(format!("cannot create {}: {e}", conn.mount_point().display()));
             }
         }
         self.info(format!("mounting {}…", conn.name));
-        self.queue_external(External::Run {
-            argv,
-            cwd: None,
-            wait: Wait::OnFailure,
-            after: After::Mounted(conn.name.clone()),
+        self.queue_external(External::Mount { plan, after: After::Mounted(conn.name.clone()) });
+    }
+
+    pub(super) fn prompt_save_password(&mut self, name: String) {
+        let prompt = format!("Password for {name} (saved in the system keychain)");
+        self.overlay = Some(Overlay::Input(InputState::new(prompt, "", InputPurpose::SavePassword(name)).masked()));
+    }
+
+    pub(super) fn forget_password(&mut self, name: &str) {
+        match strata_core::secrets::delete(name) {
+            Ok(()) => {
+                self.nas.saved_passwords.remove(name);
+                self.info(format!("removed the saved password for {name}"));
+            }
+            Err(e) => self.error(format!("{e:#}")),
+        }
+    }
+
+    /// Checks which connections have a keychain password, off the UI thread.
+    pub(super) fn refresh_keychain(&mut self) {
+        let names: Vec<String> = self.config.connections.iter().map(|c| c.name.clone()).collect();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let saved = names.into_iter().filter(|n| strata_core::secrets::get(n).is_some()).collect();
+            let _ = tx.send(crate::event::AppEvent::Keychain(saved));
         });
     }
 
@@ -228,18 +230,21 @@ impl App {
         }
     }
 
-    pub(super) fn on_connected(
-        &mut self,
-        name: String,
-        result: Result<VfsRef, String>,
-        path: PathBuf,
-    ) {
+    pub(super) fn on_connected(&mut self, name: String, result: Result<VfsRef, String>, path: PathBuf) {
         match result {
             Ok(vfs) => {
                 self.nas.sessions.insert(name.clone(), vfs.clone());
                 self.view = View::Files;
                 self.panel_mut().switch_vfs(vfs, path);
                 self.info(format!("connected to {name}"));
+                // Offer to remember a password the user just typed.
+                if let Some((pending, password)) = self.pending_password.take() {
+                    if pending == name && self.connection(&name).is_some() {
+                        let message = format!("Save the password for {name} in the system keychain?");
+                        let action = Confirm::SavePassword { name, password };
+                        self.overlay = Some(Overlay::Confirm(ConfirmState { message, action }));
+                    }
+                }
             }
             Err(e) if e.contains("authentication failed") => {
                 let conn = self
@@ -248,11 +253,7 @@ impl App {
                     .filter(|c| c.protocol == Protocol::Sftp);
                 match conn {
                     Some(conn) => {
-                        let prompt = format!(
-                            "Password for {}@{}",
-                            conn.user.clone().unwrap_or_default(),
-                            conn.host
-                        );
+                        let prompt = format!("Password for {}@{}", conn.user.clone().unwrap_or_default(), conn.host);
                         self.overlay = Some(Overlay::Input(
                             InputState::new(prompt, "", InputPurpose::SftpPassword(conn)).masked(),
                         ));
@@ -260,7 +261,10 @@ impl App {
                     None => self.error(format!("{name}: {e}")),
                 }
             }
-            Err(e) => self.error(format!("{name}: {e}")),
+            Err(e) => {
+                self.pending_password = None;
+                self.error(format!("{name}: {e}"));
+            }
         }
     }
 
@@ -282,24 +286,14 @@ impl App {
         }
         lines.push(String::new());
         lines.push("✓ ok   ! warning   ✗ failed   – skipped (an earlier step failed)".into());
-        self.overlay = Some(Overlay::Text(TextPopup {
-            title: "Diagnose".into(),
-            lines,
-            scroll: 0,
-        }));
+        self.overlay = Some(Overlay::Text(TextPopup { title: "Diagnose".into(), lines, scroll: 0 }));
     }
 
     /// Mounts SMB shares marked `auto_connect` through GVFS, which needs no
     /// terminal. Mounts that may prompt for a password (sudo, SFTP) are
     /// left for the user to open.
     pub(super) fn auto_connect(&mut self) {
-        let pending: Vec<Connection> = self
-            .config
-            .connections
-            .iter()
-            .filter(|c| c.auto_connect)
-            .cloned()
-            .collect();
+        let pending: Vec<Connection> = self.config.connections.iter().filter(|c| c.auto_connect).cloned().collect();
         for conn in pending {
             match conn.mount_command() {
                 Some(argv) if argv[0] == "gio" && conn.mounted_at().is_none() => {

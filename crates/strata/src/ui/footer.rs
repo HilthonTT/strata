@@ -1,177 +1,130 @@
-//! Footer: running jobs, metadata of the hovered item and the clipboard.
+//! Footer: processes with progress bars, metadata of the hovered item and
+//! the clipboard, laid out like superfile's.
 
 use std::sync::atomic::Ordering;
 
 use chrono::{DateTime, Local};
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use strata_config::Action;
 use strata_core::jobs::JobState;
 use strata_core::ops::TransferMode;
 use strata_core::util::{human_size, permissions_string};
 use strata_core::EntryKind;
 
-use super::{bar, block, truncate};
+use super::{block, gradient_bar, icons, truncate, truncate_left};
 use crate::app::App;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
-    let [jobs, meta, clip] = Layout::horizontal([
-        Constraint::Percentage(40),
-        Constraint::Percentage(35),
-        Constraint::Percentage(25),
-    ])
-    .areas(area);
+    let [jobs, meta, clip] =
+        Layout::horizontal([Constraint::Percentage(34), Constraint::Percentage(33), Constraint::Percentage(33)])
+            .areas(area);
     draw_jobs(frame, app, jobs);
     draw_metadata(frame, app, meta);
     draw_clipboard(frame, app, clip);
 }
 
+fn counter(text: String, app: &App) -> Line<'static> {
+    Line::styled(text, Style::default().fg(app.theme.muted)).right_aligned()
+}
+
 fn draw_jobs(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    let running = app.jobs.running();
-    let title = if running > 0 {
-        format!("Processes ({running})")
-    } else {
-        "Processes".into()
-    };
-    let b = block(theme, app.config.general.border, &title, false);
+    let jobs = app.jobs.jobs();
+    let mut b = block(theme, app.config.general.border, "Processes", false);
+    if !jobs.is_empty() {
+        b = b.title_bottom(counter(format!(" {}/{} ", app.jobs.running(), jobs.len()), app));
+    }
     let inner = b.inner(area);
     frame.render_widget(b, area);
+    if jobs.is_empty() {
+        let hint = match app.keymap.keys_for(Action::CancelJob) {
+            Some(k) => format!(" no running processes · {k} cancels the latest"),
+            None => " no running processes".into(),
+        };
+        return frame.render_widget(Paragraph::new(Line::styled(hint, Style::default().fg(theme.muted))), inner);
+    }
+
+    // Each job takes two lines (name, then progress bar) and a spacer.
     let width = inner.width as usize;
-    let lines: Vec<Line> = app
-        .jobs
-        .jobs()
-        .iter()
-        .rev()
-        .take(inner.height as usize)
-        .map(|job| {
-            let p = &job.progress;
-            let (icon, color) = match job.state() {
-                JobState::Running => ("●", theme.info),
-                JobState::Done => ("✓", theme.success),
-                JobState::Failed(_) => ("✗", theme.error),
-                JobState::Cancelled => ("■", theme.warning),
-            };
-            let ratio = if job.state() == JobState::Done {
-                1.0
-            } else {
-                p.ratio()
-            };
-            let bar_w = 10.min(width / 4);
-            let (done, rest) = bar(ratio, bar_w);
-            let detail = if job.is_running() {
+    let mut lines = Vec::new();
+    for job in jobs.iter().rev().take((inner.height as usize + 1) / 3) {
+        let p = &job.progress;
+        let state = job.state();
+        let (icon, color) = match state {
+            JobState::Running => ("\u{f110}", theme.info),
+            JobState::Done => ("\u{f05d}", theme.success),
+            JobState::Failed(_) => ("\u{f057}", theme.error),
+            JobState::Cancelled => ("\u{f05e}", theme.warning),
+        };
+        let icon = if app.config.general.icons { icon } else { "●" };
+        let ratio = if state == JobState::Done { 1.0 } else { p.ratio() };
+        let detail = match &state {
+            JobState::Running => {
                 let total = p.total_bytes.load(Ordering::Relaxed);
                 if total > 0 {
-                    format!(
-                        " {}/{}",
-                        human_size(p.done_bytes.load(Ordering::Relaxed)),
-                        human_size(total)
-                    )
+                    format!("  {}/{}", human_size(p.done_bytes.load(Ordering::Relaxed)), human_size(total))
                 } else {
-                    format!(" {}", p.current())
+                    String::new()
                 }
-            } else {
-                String::new()
-            };
-            let label_w = width.saturating_sub(bar_w + 9);
-            Line::from(vec![
-                Span::styled(format!(" {icon} "), Style::default().fg(color)),
-                Span::styled(
-                    truncate(&format!("{}{detail}", job.label), label_w),
-                    Style::default().fg(theme.fg),
-                ),
-                Span::raw(
-                    " ".repeat(
-                        label_w.saturating_sub(
-                            truncate(&format!("{}{detail}", job.label), label_w)
-                                .chars()
-                                .count(),
-                        ),
-                    ),
-                ),
-                Span::styled(done, Style::default().fg(color)),
-                Span::styled(rest, Style::default().fg(theme.border)),
-                Span::styled(
-                    format!(" {:>3.0}%", ratio * 100.0),
-                    Style::default().fg(theme.muted),
-                ),
-            ])
-        })
-        .collect();
-    if lines.is_empty() {
-        let hint = Line::styled(
-            match app.keymap.keys_for(strata_config::Action::CancelJob) {
-                Some(k) => format!(" no running processes · {k} cancels the latest"),
-                None => " no running processes".into(),
-            },
-            Style::default().fg(theme.muted),
-        );
-        frame.render_widget(Paragraph::new(hint), inner);
-    } else {
-        frame.render_widget(Paragraph::new(lines), inner);
+            }
+            JobState::Failed(e) => format!("  {e}"),
+            _ => String::new(),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                truncate(&format!(" {}{detail}", job.label), width.saturating_sub(3)),
+                Style::default().fg(theme.fg),
+            ),
+            Span::styled(format!(" {icon}"), Style::default().fg(color)),
+        ]));
+        let bar_w = width.saturating_sub(7);
+        let mut bar = vec![Span::raw(" ")];
+        bar.extend(gradient_bar(ratio, bar_w, theme.palette.blue, theme.palette.accent, theme.surface));
+        bar.push(Span::styled(format!(" {:>3.0}%", ratio * 100.0), Style::default().fg(theme.muted)));
+        lines.push(Line::from(bar));
+        lines.push(Line::raw(""));
     }
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_metadata(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    let b = block(theme, app.config.general.border, "Metadata", false);
-    let inner = b.inner(area);
-    frame.render_widget(b, area);
+    let mut b = block(theme, app.config.general.border, "Metadata", false);
     let Some(e) = app.panel().hovered() else {
-        return;
+        let inner = b.inner(area);
+        frame.render_widget(b, area);
+        return frame
+            .render_widget(Paragraph::new(Line::styled(" nothing selected", Style::default().fg(theme.muted))), inner);
     };
-    let kind = match e.kind {
-        EntryKind::Dir => "directory".to_string(),
-        EntryKind::File => {
-            let ext = e.extension();
-            if ext.is_empty() {
-                "file".into()
-            } else {
-                format!("{ext} file")
-            }
-        }
-        EntryKind::Symlink { to_dir: true } => "link → directory".into(),
-        EntryKind::Symlink { .. } => "link".into(),
-        EntryKind::Other => "special".into(),
-    };
-    let modified = e
-        .modified
-        .map(|t| {
-            DateTime::<Local>::from(t)
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string()
-        })
-        .unwrap_or_else(|| "—".into());
     let inspected = app.inspection.path.as_ref() == Some(&e.path);
+    let kind = match e.kind {
+        EntryKind::Dir => "Directory".to_string(),
+        EntryKind::Symlink { to_dir: true } => "Link to directory".into(),
+        EntryKind::Symlink { .. } => "Link".into(),
+        EntryKind::Other => "Special file".into(),
+        EntryKind::File => match e.extension().as_str() {
+            "" => "File".into(),
+            ext => format!("{} file", ext.to_uppercase()),
+        },
+    };
     let kind = match app.inspection.arch.as_ref().filter(|_| inspected) {
         Some(arch) => format!("{kind} · {arch}"),
         None => kind,
     };
+    let modified = e
+        .modified
+        .map(|t| DateTime::<Local>::from(t).format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| "—".into());
     let mut rows = vec![
-        ("Name", e.name.clone()),
-        ("Type", kind),
-        (
-            "Size",
-            if e.is_dir() {
-                "—".into()
-            } else {
-                if e.size < 1024 {
-                    human_size(e.size)
-                } else {
-                    format!("{} ({} B)", human_size(e.size), e.size)
-                }
-            },
-        ),
-        ("Modified", modified),
-        (
-            "Mode",
-            e.mode
-                .map(|m| format!("{} {:o}", permissions_string(m), m))
-                .unwrap_or_else(|| "—".into()),
-        ),
-        ("Path", e.path.to_string_lossy().into_owned()),
+        ("FileName", e.name.clone()),
+        ("FileType", kind),
+        ("FileSize", if e.is_dir() { "—".into() } else { human_size(e.size) }),
+        ("FileModifyDate", modified),
+        ("Permissions", e.mode.map(|m| format!("{} ({:o})", permissions_string(m), m)).unwrap_or_else(|| "—".into())),
     ];
     if app.config.general.md5_checksum && !e.is_dir() {
         let md5 = match app.inspection.md5.as_ref().filter(|_| inspected) {
@@ -179,15 +132,23 @@ fn draw_metadata(frame: &mut Frame, app: &App, area: Rect) {
             Some(Err(err)) => format!("error: {err}"),
             None => "computing…".into(),
         };
-        rows.insert(5, ("MD5", md5));
+        rows.push(("MD5Checksum", md5));
     }
-    let value_w = inner.width.saturating_sub(11) as usize;
+    rows.push(("Path", e.path.to_string_lossy().into_owned()));
+    let inner = b.inner(area);
+    let shown = rows.len().min(inner.height as usize);
+    b = b.title_bottom(counter(format!(" {shown}/{} ", rows.len()), app));
+    frame.render_widget(b, area);
+
+    let key_w = 16;
+    let value_w = (inner.width as usize).saturating_sub(key_w + 1);
     let lines: Vec<Line> = rows
         .into_iter()
         .map(|(k, v)| {
+            let value = if k == "Path" { truncate_left(&v, value_w) } else { truncate(&v, value_w) };
             Line::from(vec![
-                Span::styled(format!(" {k:<9} "), Style::default().fg(theme.muted)),
-                Span::styled(truncate(&v, value_w), Style::default().fg(theme.fg)),
+                Span::styled(format!(" {k:<width$}", width = key_w - 1), Style::default().fg(theme.fg)),
+                Span::styled(value, Style::default().fg(theme.muted)),
             ])
         })
         .collect();
@@ -196,53 +157,45 @@ fn draw_metadata(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_clipboard(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    let title = match &app.clipboard {
-        Some(c) if c.mode == TransferMode::Move => format!("Clipboard · cut {}", c.paths.len()),
-        Some(c) => format!("Clipboard · copy {}", c.paths.len()),
-        None => "Clipboard".into(),
+    let mut b = block(theme, app.config.general.border, "Clipboard", false);
+    let Some(clip) = &app.clipboard else {
+        let inner = b.inner(area);
+        frame.render_widget(b, area);
+        let key = |a| app.keymap.keys_for(a).unwrap_or_else(|| "?".into());
+        let hint = format!(" empty · {} copy · {} cut", key(Action::Copy), key(Action::Cut));
+        return frame.render_widget(Paragraph::new(Line::styled(hint, Style::default().fg(theme.muted))), inner);
     };
-    let b = block(theme, app.config.general.border, &title, false);
+    let verb = if clip.mode == TransferMode::Move { "cut" } else { "copy" };
+    b = b.title_bottom(counter(format!(" {verb} · {} ", clip.paths.len()), app));
     let inner = b.inner(area);
     frame.render_widget(b, area);
-    let Some(clip) = &app.clipboard else {
-        let hint = Line::styled(
-            {
-                let key = |a| app.keymap.keys_for(a).unwrap_or_else(|| "?".into());
-                format!(
-                    " empty · {} copy · {} cut",
-                    key(strata_config::Action::Copy),
-                    key(strata_config::Action::Cut)
-                )
-            },
-            Style::default().fg(theme.muted),
-        );
-        return frame.render_widget(Paragraph::new(hint), inner);
-    };
-    let color = if clip.mode == TransferMode::Move {
-        theme.warning
-    } else {
-        theme.success
-    };
+
+    let height = inner.height as usize;
+    let overflow = clip.paths.len() > height;
+    let shown = if overflow { height.saturating_sub(1) } else { clip.paths.len() };
     let mut lines: Vec<Line> = clip
         .paths
         .iter()
-        .take(inner.height as usize)
+        .take(shown)
         .map(|p| {
-            let name = p
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            Line::styled(
-                truncate(&format!(" {name}"), inner.width as usize),
-                Style::default().fg(color),
-            )
+            let entry = clip.vfs.stat(p).ok();
+            let (icon, color) = match &entry {
+                Some(e) => (icons::icon(e, app.config.general.icons), icons::color(e, theme)),
+                None => ("", theme.muted),
+            };
+            Line::from(vec![
+                Span::styled(format!(" {icon} "), Style::default().fg(color)),
+                Span::styled(
+                    truncate_left(&p.to_string_lossy(), (inner.width as usize).saturating_sub(4)),
+                    Style::default().fg(theme.fg),
+                ),
+            ])
         })
         .collect();
-    if clip.paths.len() > inner.height as usize {
-        lines.pop();
+    if overflow {
         lines.push(Line::styled(
-            format!(" … {} more", clip.paths.len() + 1 - inner.height as usize),
-            Style::default().fg(theme.muted),
+            format!(" {} item left....", clip.paths.len() - shown),
+            Style::default().fg(theme.muted).add_modifier(Modifier::ITALIC),
         ));
     }
     frame.render_widget(Paragraph::new(lines), inner);

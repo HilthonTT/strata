@@ -8,9 +8,7 @@ use anyhow::Result;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use ratatui::crossterm::execute;
-use ratatui::crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
+use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::Terminal;
 use ratatui_image::picker::cap_parser::QueryStdioOptions;
 use ratatui_image::picker::Picker;
@@ -45,10 +43,7 @@ pub fn image_picker() -> Picker {
     if !graphics_capable_terminal() {
         return Picker::halfblocks();
     }
-    let options = QueryStdioOptions {
-        timeout: Duration::from_millis(600),
-        ..Default::default()
-    };
+    let options = QueryStdioOptions { timeout: Duration::from_millis(600), ..Default::default() };
     Picker::from_query_stdio_with_options(options).unwrap_or_else(|_| Picker::halfblocks())
 }
 
@@ -59,18 +54,10 @@ fn graphics_capable_terminal() -> bool {
     }
     let term = var("TERM");
     let program = var("TERM_PROGRAM");
-    [
-        "KITTY_WINDOW_ID",
-        "WEZTERM_EXECUTABLE",
-        "WT_SESSION",
-        "KONSOLE_VERSION",
-        "GHOSTTY_RESOURCES_DIR",
-    ]
-    .iter()
-    .any(|k| std::env::var_os(k).is_some())
-        || ["kitty", "foot", "mlterm", "contour", "ghostty", "wezterm"]
-            .iter()
-            .any(|t| term.contains(t))
+    ["KITTY_WINDOW_ID", "WEZTERM_EXECUTABLE", "WT_SESSION", "KONSOLE_VERSION", "GHOSTTY_RESOURCES_DIR"]
+        .iter()
+        .any(|k| std::env::var_os(k).is_some())
+        || ["kitty", "foot", "mlterm", "contour", "ghostty", "wezterm"].iter().any(|t| term.contains(t))
         || ["iterm.app", "wezterm", "ghostty", "vscode", "rio"].contains(&program.as_str())
 }
 
@@ -78,6 +65,26 @@ fn graphics_capable_terminal() -> bool {
 pub fn run_external(terminal: &mut Term, cmd: &mut Command) -> Result<ExitStatus> {
     restore()?;
     let status = cmd.status();
+    enable_raw_mode()?;
+    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    terminal.clear()?;
+    Ok(status?)
+}
+
+/// Like [`run_external`], writing `input` to the command's stdin when given.
+pub fn run_external_with_input(terminal: &mut Term, cmd: &mut Command, input: Option<&str>) -> Result<ExitStatus> {
+    let Some(input) = input else {
+        return run_external(terminal, cmd);
+    };
+    restore()?;
+    let status = (|| -> std::io::Result<ExitStatus> {
+        let mut child = cmd.stdin(std::process::Stdio::piped()).spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(input.as_bytes())?;
+        }
+        child.wait()
+    })();
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     terminal.clear()?;

@@ -16,11 +16,7 @@ use super::{App, View};
 impl App {
     pub(super) fn load_plugins(&mut self) {
         let config_dir = strata_config::config_dir();
-        let mut host = match PluginHost::new(
-            env!("CARGO_PKG_VERSION"),
-            &config_dir,
-            &strata_config::data_dir(),
-        ) {
+        let mut host = match PluginHost::new(env!("CARGO_PKG_VERSION"), &config_dir, &strata_config::data_dir()) {
             Ok(h) => h,
             Err(e) => return self.error(format!("plugins disabled: {e:#}")),
         };
@@ -34,11 +30,7 @@ impl App {
                 }
             }
         }
-        for unknown in cfg
-            .enabled
-            .iter()
-            .filter(|n| !OFFICIAL_PLUGINS.iter().any(|(o, _)| o == n))
-        {
+        for unknown in cfg.enabled.iter().filter(|n| !OFFICIAL_PLUGINS.iter().any(|(o, _)| o == n)) {
             self.notify(format!("unknown official plugin '{unknown}'"), Level::Warn);
         }
         for e in host.load_dir(&config_dir.join("plugins"), &cfg.disabled, options) {
@@ -46,13 +38,9 @@ impl App {
         }
         for key in host.keys() {
             match parse_sequence(&key.keys) {
-                Ok(seq) => self.keymap.bind(
-                    seq,
-                    Binding::Plugin {
-                        callback: key.callback,
-                        description: key.description,
-                    },
-                ),
+                Ok(seq) => {
+                    self.keymap.bind(seq, Binding::Plugin { callback: key.callback, description: key.description })
+                }
                 Err(e) => self.error(format!("plugin {}: {e}", key.plugin)),
             }
         }
@@ -68,15 +56,12 @@ impl App {
             cwd: p.cwd.to_string_lossy().into_owned(),
             hovered: hovered.map(|e| e.path.to_string_lossy().into_owned()),
             hovered_is_dir: hovered.is_some_and(Entry::is_dir),
-            selected: p
-                .marked
-                .iter()
-                .map(|m| m.to_string_lossy().into_owned())
-                .collect(),
+            selected: p.marked.iter().map(|m| m.to_string_lossy().into_owned()).collect(),
             panel: self.active,
             view: self.view.title().to_lowercase(),
             theme: self.theme.name.clone(),
             scheme: p.vfs.scheme().to_string(),
+            icons: self.config.general.icons,
         }
     }
 
@@ -147,36 +132,16 @@ impl App {
                 None => self.error(format!("plugin asked for unknown action '{name}'")),
             },
             Request::Command(line) => self.run_command(&line),
-            Request::Select {
-                title,
-                items,
-                callback,
-            } => {
-                self.overlay = Some(Overlay::Picker(PickerState::new(
-                    title,
-                    items,
-                    PickerPurpose::Plugin(callback),
-                )));
+            Request::Select { title, items, callback } => {
+                self.overlay = Some(Overlay::Picker(PickerState::new(title, items, PickerPurpose::Plugin(callback))));
             }
-            Request::Input {
-                prompt,
-                default,
-                callback,
-            } => {
-                self.overlay = Some(Overlay::Input(InputState::new(
-                    prompt,
-                    default,
-                    InputPurpose::Plugin(callback),
-                )));
+            Request::Input { prompt, default, callback } => {
+                self.overlay = Some(Overlay::Input(InputState::new(prompt, default, InputPurpose::Plugin(callback))));
             }
             Request::TogglePanel(name) => {
                 if let Some(i) = self.open_plugin_panels.iter().position(|n| *n == name) {
                     self.open_plugin_panels.remove(i);
-                } else if self
-                    .plugins
-                    .as_ref()
-                    .is_some_and(|h| h.panels().iter().any(|p| p.name == name))
-                {
+                } else if self.plugins.as_ref().is_some_and(|h| h.panels().iter().any(|p| p.name == name)) {
                     self.open_plugin_panels.push(name);
                     self.refresh_plugin_ui();
                 } else {
@@ -189,17 +154,8 @@ impl App {
                 } else {
                     vec!["sh".into(), "-c".into(), cmd]
                 };
-                let cwd = self
-                    .panel()
-                    .vfs
-                    .is_local()
-                    .then(|| self.panel().cwd.clone());
-                self.queue_external(External::Run {
-                    argv,
-                    cwd,
-                    wait: Wait::Always,
-                    after: After::Reload,
-                });
+                let cwd = self.panel().vfs.is_local().then(|| self.panel().cwd.clone());
+                self.queue_external(External::Run { argv, cwd, wait: Wait::Always, after: After::Reload });
             }
             Request::Refresh => self.reload_all(),
         }
@@ -213,9 +169,7 @@ impl App {
         self.plugin_status = host.statusline(&ctx);
         let mut lines = std::collections::HashMap::new();
         for name in &self.open_plugin_panels {
-            let rendered = host
-                .render_panel(name, &ctx, 40, 50)
-                .unwrap_or_else(|e| vec![format!("error: {e:#}")]);
+            let rendered = host.render_panel(name, &ctx, 40, 50).unwrap_or_else(|e| vec![format!("error: {e:#}")]);
             lines.insert(name.clone(), rendered);
         }
         self.plugin_panel_lines = lines;
@@ -238,22 +192,13 @@ impl App {
     }
 
     pub(super) fn show_plugins(&mut self) {
-        let mut lines = vec![
-            format!(
-                "Plugin directory: {}",
-                strata_config::config_dir().join("plugins").display()
-            ),
-            String::new(),
-        ];
+        let mut lines =
+            vec![format!("Plugin directory: {}", strata_config::config_dir().join("plugins").display()), String::new()];
         match &self.plugins {
             None => lines.push("plugins are disabled".into()),
             Some(host) => {
                 for p in host.loaded() {
-                    lines.push(format!(
-                        "  {} {}",
-                        if p.official { "●" } else { "○" },
-                        p.name
-                    ));
+                    lines.push(format!("  {} {}", if p.official { "●" } else { "○" }, p.name));
                 }
                 lines.push(String::new());
                 lines.push("● official   ○ user".into());
@@ -267,19 +212,11 @@ impl App {
                 if !panels.is_empty() {
                     lines.push(String::new());
                     lines.push("Panels:".into());
-                    lines.extend(
-                        panels
-                            .into_iter()
-                            .map(|p| format!("  {:<19} from {}", p.name, p.plugin)),
-                    );
+                    lines.extend(panels.into_iter().map(|p| format!("  {:<19} from {}", p.name, p.plugin)));
                 }
             }
         }
-        self.overlay = Some(Overlay::Text(TextPopup {
-            title: "Plugins".into(),
-            lines,
-            scroll: 0,
-        }));
+        self.overlay = Some(Overlay::Text(TextPopup { title: "Plugins".into(), lines, scroll: 0 }));
     }
 
     /// Plugin panels shown next to the file panels.
@@ -287,24 +224,13 @@ impl App {
         if self.view != View::Files {
             return Vec::new();
         }
-        let titles = self
-            .plugins
-            .as_ref()
-            .map(|h| h.panels())
-            .unwrap_or_default();
+        let titles = self.plugins.as_ref().map(|h| h.panels()).unwrap_or_default();
         self.open_plugin_panels
             .iter()
             .map(|name| {
-                let title = titles
-                    .iter()
-                    .find(|p| p.name == *name)
-                    .map(|p| p.title.clone())
-                    .unwrap_or_else(|| name.clone());
-                let lines = self
-                    .plugin_panel_lines
-                    .get(name)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]);
+                let title =
+                    titles.iter().find(|p| p.name == *name).map(|p| p.title.clone()).unwrap_or_else(|| name.clone());
+                let lines = self.plugin_panel_lines.get(name).map(Vec::as_slice).unwrap_or(&[]);
                 (title, lines)
             })
             .collect()
@@ -319,10 +245,6 @@ fn to_plugin_value(v: &TomlValue) -> PluginValue {
         TomlValue::Boolean(b) => PluginValue::Bool(*b),
         TomlValue::Datetime(d) => PluginValue::Str(d.to_string()),
         TomlValue::Array(items) => PluginValue::List(items.iter().map(to_plugin_value).collect()),
-        TomlValue::Table(t) => PluginValue::Map(
-            t.iter()
-                .map(|(k, v)| (k.clone(), to_plugin_value(v)))
-                .collect(),
-        ),
+        TomlValue::Table(t) => PluginValue::Map(t.iter().map(|(k, v)| (k.clone(), to_plugin_value(v))).collect()),
     }
 }

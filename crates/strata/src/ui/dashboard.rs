@@ -13,16 +13,10 @@ use super::{bar, block, fit, truncate};
 use crate::app::{short_path, App};
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
-    let [top, middle, bottom] = Layout::vertical([
-        Constraint::Percentage(34),
-        Constraint::Percentage(33),
-        Constraint::Min(6),
-    ])
-    .areas(area);
-    let [disks, memory] =
-        Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(top);
-    let [chart, io] =
-        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(middle);
+    let [top, middle, bottom] =
+        Layout::vertical([Constraint::Percentage(34), Constraint::Percentage(33), Constraint::Min(6)]).areas(area);
+    let [disks, memory] = Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)]).areas(top);
+    let [chart, io] = Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(middle);
     draw_disks(frame, app, disks);
     draw_memory(frame, app, memory);
     draw_free_chart(frame, app, chart);
@@ -54,31 +48,19 @@ fn draw_disks(frame: &mut Frame, app: &App, area: Rect) {
                 ""
             };
             Line::from(vec![
-                Span::styled(
-                    fit(&format!(" {}", d.mount_point.display()), name_w),
-                    Style::default().fg(theme.fg),
-                ),
+                Span::styled(fit(&format!(" {}", d.mount_point.display()), name_w), Style::default().fg(theme.fg)),
                 Span::styled(done, Style::default().fg(theme.level(ratio))),
                 Span::styled(rest, Style::default().fg(theme.border)),
                 Span::styled(
-                    format!(
-                        " {:>3.0}% {:>9} free{tag}",
-                        ratio * 100.0,
-                        human_size(d.available)
-                    ),
+                    format!(" {:>3.0}% {:>9} free{tag}", ratio * 100.0, human_size(d.available)),
                     Style::default().fg(theme.muted),
                 ),
             ])
         })
         .collect();
     if lines.is_empty() {
-        return frame.render_widget(
-            Paragraph::new(Line::styled(
-                " collecting…",
-                Style::default().fg(theme.muted),
-            )),
-            inner,
-        );
+        return frame
+            .render_widget(Paragraph::new(Line::styled(" collecting…", Style::default().fg(theme.muted))), inner);
     }
     frame.render_widget(Paragraph::new(lines), inner);
 }
@@ -95,13 +77,8 @@ fn draw_memory(frame: &mut Frame, app: &App, area: Rect) {
     let inner = b.inner(area);
     frame.render_widget(b, area);
     if m.total == 0 {
-        return frame.render_widget(
-            Paragraph::new(Line::styled(
-                " collecting…",
-                Style::default().fg(theme.muted),
-            )),
-            inner,
-        );
+        return frame
+            .render_widget(Paragraph::new(Line::styled(" collecting…", Style::default().fg(theme.muted))), inner);
     }
     let [text, spark] = Layout::vertical([Constraint::Length(5), Constraint::Min(1)]).areas(inner);
     let bar_w = (inner.width as usize).saturating_sub(30).max(5);
@@ -112,12 +89,7 @@ fn draw_memory(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled(done, Style::default().fg(theme.level(ratio))),
             Span::styled(rest, Style::default().fg(theme.border)),
             Span::styled(
-                format!(
-                    " {:>3.0}% {}/{}",
-                    ratio * 100.0,
-                    human_size(used),
-                    human_size(total)
-                ),
+                format!(" {:>3.0}% {}/{}", ratio * 100.0, human_size(used), human_size(total)),
                 Style::default().fg(theme.muted),
             ),
         ])
@@ -128,12 +100,7 @@ fn draw_memory(frame: &mut Frame, app: &App, area: Rect) {
     }
     lines.push(Line::from(vec![
         Span::styled(" Pressure ", Style::default().fg(theme.fg)),
-        Span::styled(
-            m.pressure.label(),
-            Style::default()
-                .fg(pressure_color)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(m.pressure.label(), Style::default().fg(pressure_color).add_modifier(Modifier::BOLD)),
     ]));
     match m.psi {
         Some(psi) => lines.push(Line::styled(
@@ -143,19 +110,15 @@ fn draw_memory(frame: &mut Frame, app: &App, area: Rect) {
             ),
             Style::default().fg(theme.muted),
         )),
-        None => lines.push(Line::styled(
-            " PSI unavailable — estimated from free memory",
-            Style::default().fg(theme.muted),
-        )),
+        None => {
+            lines.push(Line::styled(" PSI unavailable — estimated from free memory", Style::default().fg(theme.muted)))
+        }
     }
     frame.render_widget(Paragraph::new(lines), text);
     let history = m.usage_history.as_vec();
     let start = history.len().saturating_sub(spark.width as usize);
     frame.render_widget(
-        Sparkline::default()
-            .data(&history[start..])
-            .max(100)
-            .style(Style::default().fg(theme.chart[1])),
+        Sparkline::default().data(&history[start..]).max(100).style(Style::default().fg(theme.chart[1])),
         spark,
     );
 }
@@ -165,13 +128,7 @@ fn draw_free_chart(frame: &mut Frame, app: &App, area: Rect) {
     let b = block(theme, app.config.general.border, "Free space (GiB)", false);
     let inner = b.inner(area);
     frame.render_widget(b, area);
-    let disks: Vec<_> = app
-        .metrics
-        .disks
-        .iter()
-        .filter(|d| d.total > 0)
-        .take(8)
-        .collect();
+    let disks: Vec<_> = app.metrics.disks.iter().filter(|d| d.total > 0).take(8).collect();
     if disks.is_empty() {
         return;
     }
@@ -181,20 +138,13 @@ fn draw_free_chart(frame: &mut Frame, app: &App, area: Rect) {
         .enumerate()
         .map(|(i, d)| {
             let gib = d.available / (1024 * 1024 * 1024);
-            let label = d
-                .mount_point
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "/".into());
+            let label =
+                d.mount_point.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "/".into());
             Bar::default()
                 .value(gib)
                 .label(Line::from(truncate(&label, bar_width as usize)))
                 .style(Style::default().fg(theme.chart[i % theme.chart.len()]))
-                .value_style(
-                    Style::default()
-                        .fg(theme.bg)
-                        .bg(theme.chart[i % theme.chart.len()]),
-                )
+                .value_style(Style::default().fg(theme.bg).bg(theme.chart[i % theme.chart.len()]))
         })
         .collect();
     let chart = BarChart::default()
@@ -213,10 +163,7 @@ fn draw_io(frame: &mut Frame, app: &App, area: Rect) {
     let io = &app.metrics.io;
     if io.is_empty() {
         let msg = " no block devices reported";
-        return frame.render_widget(
-            Paragraph::new(Line::styled(msg, Style::default().fg(theme.muted))),
-            inner,
-        );
+        return frame.render_widget(Paragraph::new(Line::styled(msg, Style::default().fg(theme.muted))), inner);
     }
     let detailed = io.iter().any(|s| s.detailed);
     let header = if detailed {
@@ -228,14 +175,8 @@ fn draw_io(frame: &mut Frame, app: &App, area: Rect) {
         format!(" {:<10}{:>11}{:>11}", "device", "read", "write")
     };
     let table_h = (io.len() as u16 + 1).min(inner.height.saturating_sub(4).max(2));
-    let [table, sparks] =
-        Layout::vertical([Constraint::Length(table_h), Constraint::Min(0)]).areas(inner);
-    let mut lines = vec![Line::styled(
-        header,
-        Style::default()
-            .fg(theme.muted)
-            .add_modifier(Modifier::BOLD),
-    )];
+    let [table, sparks] = Layout::vertical([Constraint::Length(table_h), Constraint::Min(0)]).areas(inner);
+    let mut lines = vec![Line::styled(header, Style::default().fg(theme.muted).add_modifier(Modifier::BOLD))];
     for s in io.iter().take(table_h.saturating_sub(1) as usize) {
         let rate = |b: f64| format!("{}/s", human_size(b as u64));
         let text = if detailed {
@@ -259,21 +200,14 @@ fn draw_io(frame: &mut Frame, app: &App, area: Rect) {
             )
         };
         let busy = s.utilization > 80.0;
-        lines.push(Line::styled(
-            text,
-            Style::default().fg(if busy { theme.warning } else { theme.fg }),
-        ));
+        lines.push(Line::styled(text, Style::default().fg(if busy { theme.warning } else { theme.fg })));
     }
     frame.render_widget(Paragraph::new(lines), table);
 
     // Sparklines for the busiest device.
     if sparks.height >= 2 && detailed {
-        let busiest = io
-            .iter()
-            .max_by_key(|s| s.iops_history.max())
-            .expect("non-empty");
-        let [a, b] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .areas(sparks);
+        let busiest = io.iter().max_by_key(|s| s.iops_history.max()).expect("non-empty");
+        let [a, b] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(sparks);
         let iops = busiest.iops_history.as_vec();
         let lat = busiest.latency_history.as_vec();
         let label_style = Style::default().fg(theme.muted);
@@ -281,36 +215,25 @@ fn draw_io(frame: &mut Frame, app: &App, area: Rect) {
         let [bl, bd] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(b);
         frame.render_widget(
             Paragraph::new(Line::styled(
-                format!(
-                    " {} IOPS (peak {})",
-                    busiest.device,
-                    busiest.iops_history.max()
-                ),
+                format!(" {} IOPS (peak {})", busiest.device, busiest.iops_history.max()),
                 label_style,
             )),
             al,
         );
         frame.render_widget(
             Paragraph::new(Line::styled(
-                format!(
-                    " latency (peak {:.2} ms)",
-                    busiest.latency_history.max() as f64 / 1000.0
-                ),
+                format!(" latency (peak {:.2} ms)", busiest.latency_history.max() as f64 / 1000.0),
                 label_style,
             )),
             bl,
         );
         let tail = |v: &Vec<u64>, w: u16| v[v.len().saturating_sub(w as usize)..].to_vec();
         frame.render_widget(
-            Sparkline::default()
-                .data(tail(&iops, ad.width))
-                .style(Style::default().fg(theme.chart[0])),
+            Sparkline::default().data(tail(&iops, ad.width)).style(Style::default().fg(theme.chart[0])),
             ad,
         );
         frame.render_widget(
-            Sparkline::default()
-                .data(tail(&lat, bd.width))
-                .style(Style::default().fg(theme.chart[5])),
+            Sparkline::default().data(tail(&lat, bd.width)).style(Style::default().fg(theme.chart[5])),
             bd,
         );
     }
@@ -321,22 +244,16 @@ fn draw_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     let root = app.panel().cwd.clone();
     let title = match (&app.dashboard.usage, &app.dashboard.scanning) {
         (_, Some(scanning)) => format!("Disk usage · scanning {}…", short_path(scanning)),
-        (Some(u), None) => format!(
-            "Disk usage · {} · {} in {} files",
-            short_path(&u.root),
-            human_size(u.total),
-            u.files
-        ),
+        (Some(u), None) => {
+            format!("Disk usage · {} · {} in {} files", short_path(&u.root), human_size(u.total), u.files)
+        }
         (None, None) if !app.panel().vfs.is_local() => "Disk usage · local directories only".into(),
         (None, None) => format!("Disk usage · {}", short_path(&root)),
     };
     let b = block(&theme, app.config.general.border, &title, true);
     let inner = b.inner(area);
     frame.render_widget(b, area);
-    app.layout.list = Some(Rect {
-        y: area.y.saturating_sub(1),
-        ..area
-    });
+    app.layout.list = Some(Rect { y: area.y.saturating_sub(1), ..area });
     let Some(usage) = &app.dashboard.usage else {
         return;
     };
@@ -353,11 +270,7 @@ fn draw_usage(frame: &mut Frame, app: &mut App, area: Rect) {
         .skip(offset)
         .take(height)
         .map(|(i, item)| {
-            let ratio = if usage.total > 0 {
-                item.size as f64 / usage.total as f64
-            } else {
-                0.0
-            };
+            let ratio = if usage.total > 0 { item.size as f64 / usage.total as f64 } else { 0.0 };
             let (done, rest) = bar(ratio, bar_w);
             let mut style = Style::default().fg(if item.is_dir { theme.dir } else { theme.fg });
             if i == cursor {
@@ -366,16 +279,10 @@ fn draw_usage(frame: &mut Frame, app: &mut App, area: Rect) {
             let name = format!(" {}{}", item.name, if item.is_dir { "/" } else { "" });
             Line::from(vec![
                 Span::styled(fit(&name, name_w), style),
-                Span::styled(
-                    format!("{:>10} ", human_size(item.size)),
-                    style.fg(theme.muted),
-                ),
+                Span::styled(format!("{:>10} ", human_size(item.size)), style.fg(theme.muted)),
                 Span::styled(done, Style::default().fg(theme.chart[0])),
                 Span::styled(rest, Style::default().fg(theme.border)),
-                Span::styled(
-                    format!(" {:>5.1}%", ratio * 100.0),
-                    Style::default().fg(theme.muted),
-                ),
+                Span::styled(format!(" {:>5.1}%", ratio * 100.0), Style::default().fg(theme.muted)),
             ])
         })
         .collect();

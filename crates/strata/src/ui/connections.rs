@@ -15,40 +15,22 @@ use crate::app::App;
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme.clone();
-    let [summary, list, hint] = Layout::vertical([
-        Constraint::Length(4),
-        Constraint::Min(3),
-        Constraint::Length(1),
-    ])
-    .areas(area);
+    let [summary, list, hint] =
+        Layout::vertical([Constraint::Length(4), Constraint::Min(3), Constraint::Length(1)]).areas(area);
 
     let conns = &app.config.connections;
     let reachable = conns
         .iter()
-        .filter(|c| {
-            app.nas
-                .statuses
-                .get(&c.name)
-                .is_some_and(|s| matches!(s.reach, Reachability::Up { .. }))
-        })
+        .filter(|c| app.nas.statuses.get(&c.name).is_some_and(|s| matches!(s.reach, Reachability::Up { .. })))
         .count();
     let mounted = conns
         .iter()
         .filter(|c| {
-            app.nas.sessions.contains_key(&c.name)
-                || app
-                    .nas
-                    .statuses
-                    .get(&c.name)
-                    .is_some_and(|s| s.mounted.is_some())
+            app.nas.sessions.contains_key(&c.name) || app.nas.statuses.get(&c.name).is_some_and(|s| s.mounted.is_some())
         })
         .count();
-    let (total, free) = app
-        .metrics
-        .disks
-        .iter()
-        .filter(|d| d.network)
-        .fold((0, 0), |(t, f), d| (t + d.total, f + d.available));
+    let (total, free) =
+        app.metrics.disks.iter().filter(|d| d.network).fold((0, 0), |(t, f), d| (t + d.total, f + d.available));
 
     let b = block(&theme, app.config.general.border, "Overview", false);
     let inner = b.inner(summary);
@@ -56,10 +38,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let stat = |label: &str, value: String, color| {
         vec![
             Span::styled(format!(" {label} "), Style::default().fg(theme.muted)),
-            Span::styled(
-                value,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(value, Style::default().fg(color).add_modifier(Modifier::BOLD)),
             Span::raw("   "),
         ]
     };
@@ -82,10 +61,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         " Network storage: no mounted shares".into()
     };
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(spans),
-            Line::styled(storage, Style::default().fg(theme.muted)),
-        ]),
+        Paragraph::new(vec![Line::from(spans), Line::styled(storage, Style::default().fg(theme.muted))]),
         inner,
     );
 
@@ -98,7 +74,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         let lines = vec![
             Line::styled(" No connections yet.", Style::default().fg(theme.fg)),
             Line::raw(""),
-            Line::styled(" Press a to add one: smb://user@nas/share, nfs://nas/export or sftp://user@nas/path", Style::default().fg(theme.muted)),
+            Line::styled(
+                " Press a to add one: smb://user@nas/share, nfs://nas/export or sftp://user@nas/path",
+                Style::default().fg(theme.muted),
+            ),
             Line::styled(" or add [[connections]] entries to config.toml (press e).", Style::default().fg(theme.muted)),
         ];
         frame.render_widget(Paragraph::new(lines), inner);
@@ -114,39 +93,25 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             fit("STATUS", status_w),
             fit("LAST SEEN", seen_w)
         );
-        let mut lines = vec![Line::styled(
-            header,
-            Style::default()
-                .fg(theme.muted)
-                .add_modifier(Modifier::BOLD),
-        )];
+        let mut lines = vec![Line::styled(header, Style::default().fg(theme.muted).add_modifier(Modifier::BOLD))];
         for (i, c) in conns.iter().enumerate() {
             let status = app.nas.statuses.get(&c.name);
             let session = app.nas.sessions.contains_key(&c.name);
             let (dot, color, text) = match (session, status) {
                 (true, _) => ("●", theme.success, "connected (sftp)".to_string()),
-                (_, Some(s)) if s.mounted.is_some() => (
-                    "●",
-                    theme.success,
-                    format!("mounted at {}", s.mounted.as_ref().unwrap().display()),
-                ),
+                (_, Some(s)) if s.mounted.is_some() => {
+                    ("●", theme.success, format!("mounted at {}", s.mounted.as_ref().unwrap().display()))
+                }
                 (_, Some(s)) => match &s.reach {
-                    Reachability::Up { latency, port } => (
-                        "●",
-                        theme.info,
-                        format!("reachable :{port} · {} ms", latency.as_millis()),
-                    ),
+                    Reachability::Up { latency, port } => {
+                        ("●", theme.info, format!("reachable :{port} · {} ms", latency.as_millis()))
+                    }
                     Reachability::Down(e) => ("●", theme.error, format!("unreachable · {e}")),
                     Reachability::Unknown => ("○", theme.muted, "unknown".into()),
                 },
                 (_, None) => ("○", theme.muted, "checking…".into()),
             };
-            let seen = app
-                .nas
-                .last_up
-                .get(&c.name)
-                .map(|t| ago(*t))
-                .unwrap_or_else(|| "never".into());
+            let seen = app.nas.last_up.get(&c.name).map(|t| ago(*t)).unwrap_or_else(|| "never".into());
             let mut style = Style::default().fg(theme.fg);
             if i == app.nas.cursor {
                 style = style.bg(theme.cursor_bg).add_modifier(Modifier::BOLD);
@@ -156,24 +121,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(fit(&c.name, name_w), style),
                 Span::styled(fit(c.protocol.as_str(), proto_w), style),
                 Span::styled(fit(&c.url(), url_w), style.fg(theme.muted)),
-                Span::styled(fit(&text, status_w), style.fg(color)),
+                Span::styled(format!("{} ", fit(&text, status_w - 1)), style.fg(color)),
                 Span::styled(fit(&seen, seen_w), style.fg(theme.muted)),
             ]));
         }
         frame.render_widget(Paragraph::new(lines), inner);
     }
     let keys = " enter connect/open · a add · t diagnose · u disconnect · r recheck · e edit config · 1 files";
-    frame.render_widget(
-        Paragraph::new(Line::styled(keys, Style::default().fg(theme.muted))),
-        hint,
-    );
+    frame.render_widget(Paragraph::new(Line::styled(keys, Style::default().fg(theme.muted))), hint);
 }
 
 fn ago(t: SystemTime) -> String {
-    let secs = SystemTime::now()
-        .duration_since(t)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let secs = SystemTime::now().duration_since(t).map(|d| d.as_secs()).unwrap_or(0);
     match secs {
         0..=59 => "just now".into(),
         60..=3599 => format!("{} min ago", secs / 60),

@@ -56,9 +56,7 @@ impl Panel {
     }
 
     pub fn entry_at(&self, row: usize) -> Option<&Entry> {
-        self.visible
-            .get(row)
-            .and_then(|(i, _)| self.entries.get(*i))
+        self.visible.get(row).and_then(|(i, _)| self.entries.get(*i))
     }
 
     pub fn hovered(&self) -> Option<&Entry> {
@@ -97,19 +95,14 @@ impl Panel {
     }
 
     pub fn refilter(&mut self) {
-        let candidates: Vec<usize> = (0..self.entries.len())
-            .filter(|&i| self.show_hidden || !self.entries[i].is_hidden())
-            .collect();
+        let candidates: Vec<usize> =
+            (0..self.entries.len()).filter(|&i| self.show_hidden || !self.entries[i].is_hidden()).collect();
         self.visible = if self.filter.is_empty() {
             candidates.into_iter().map(|i| (i, Vec::new())).collect()
         } else {
             let mut fuzzy = Fuzzy::default();
             let names = candidates.iter().map(|&i| self.entries[i].name.as_str());
-            fuzzy
-                .filter(&self.filter, names)
-                .into_iter()
-                .map(|m| (candidates[m.index], m.positions))
-                .collect()
+            fuzzy.filter(&self.filter, names).into_iter().map(|m| (candidates[m.index], m.positions)).collect()
         };
         self.clamp();
     }
@@ -191,11 +184,7 @@ impl Panel {
     }
 
     pub fn focus_name(&mut self, name: &str) {
-        if let Some(row) = self
-            .visible
-            .iter()
-            .position(|(i, _)| self.entries[*i].name == name)
-        {
+        if let Some(row) = self.visible.iter().position(|(i, _)| self.entries[*i].name == name) {
             self.cursor = row;
             self.clamp();
         }
@@ -240,16 +229,12 @@ impl Panel {
     }
 
     pub fn mark_all(&mut self) {
-        let paths: Vec<PathBuf> = (0..self.len())
-            .filter_map(|r| self.entry_at(r).map(|e| e.path.clone()))
-            .collect();
+        let paths: Vec<PathBuf> = (0..self.len()).filter_map(|r| self.entry_at(r).map(|e| e.path.clone())).collect();
         self.marked.extend(paths);
     }
 
     pub fn invert_marks(&mut self) {
-        let paths: Vec<PathBuf> = (0..self.len())
-            .filter_map(|r| self.entry_at(r).map(|e| e.path.clone()))
-            .collect();
+        let paths: Vec<PathBuf> = (0..self.len()).filter_map(|r| self.entry_at(r).map(|e| e.path.clone())).collect();
         for p in paths {
             if !self.marked.remove(&p) {
                 self.marked.insert(p);
@@ -281,25 +266,17 @@ impl Panel {
             return;
         };
         let (lo, hi) = (anchor.min(self.cursor), anchor.max(self.cursor));
-        let paths: Vec<PathBuf> = (lo..=hi)
-            .filter_map(|r| self.entry_at(r).map(|e| e.path.clone()))
-            .collect();
+        let paths: Vec<PathBuf> = (lo..=hi).filter_map(|r| self.entry_at(r).map(|e| e.path.clone())).collect();
         self.marked = paths.into_iter().collect();
     }
 
     /// Marked items, or the hovered one when nothing is marked.
     pub fn targets(&self) -> Vec<PathBuf> {
         if self.marked.is_empty() {
-            self.hovered()
-                .map(|e| vec![e.path.clone()])
-                .unwrap_or_default()
+            self.hovered().map(|e| vec![e.path.clone()]).unwrap_or_default()
         } else {
-            let mut v: Vec<PathBuf> = self
-                .entries
-                .iter()
-                .filter(|e| self.marked.contains(&e.path))
-                .map(|e| e.path.clone())
-                .collect();
+            let mut v: Vec<PathBuf> =
+                self.entries.iter().filter(|e| self.marked.contains(&e.path)).map(|e| e.path.clone()).collect();
             v.sort();
             v
         }
@@ -340,12 +317,7 @@ mod tests {
     use strata_core::vfs::LocalVfs;
 
     fn panel_in(dir: &Path) -> Panel {
-        Panel::new(
-            Arc::new(LocalVfs),
-            dir.to_path_buf(),
-            SortOptions::default(),
-            false,
-        )
+        Panel::new(Arc::new(LocalVfs), dir.to_path_buf(), SortOptions::default(), false)
     }
 
     #[test]
@@ -367,11 +339,7 @@ mod tests {
 
         assert!(p.cd(dir.path().join("sub")));
         assert!(p.parent());
-        assert_eq!(
-            p.hovered().unwrap().name,
-            "sub",
-            "cursor returns to the child"
-        );
+        assert_eq!(p.hovered().unwrap().name, "sub", "cursor returns to the child");
 
         p.move_by(1);
         p.toggle_mark();

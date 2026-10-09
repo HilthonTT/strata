@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+use strata_core::git::GitStatus;
 use strata_core::jobs::JobFinished;
 use strata_core::nas::{Reachability, Step};
 use strata_core::VfsRef;
@@ -11,6 +12,7 @@ use strata_sys::docker::Container;
 use strata_sys::du::UsageReport;
 use strata_sys::{DiskInfo, IoStats, MemorySnapshot};
 
+use crate::app::grep::GrepResult;
 use crate::app::preview::PreviewContent;
 
 #[derive(Debug, Clone, Default)]
@@ -70,4 +72,15 @@ pub enum AppEvent {
         path: PathBuf,
         md5: Result<String, String>,
     },
+    Git {
+        dir: PathBuf,
+        status: Option<GitStatus>,
+    },
+    Grep {
+        root: PathBuf,
+        pattern: String,
+        result: Result<GrepResult, String>,
+    },
+    /// Connections that have a password in the keychain.
+    Keychain(std::collections::HashSet<String>),
 }

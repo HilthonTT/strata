@@ -25,11 +25,13 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("set", "set hidden|preview|sidebar|footer [on|off]"),
     ("connect", "connect <name|url> — open a NAS connection"),
     ("disconnect", "disconnect <name> — unmount a share"),
-    (
-        "diagnose",
-        "diagnose <name> — test a connection step by step",
-    ),
+    ("diagnose", "diagnose <name> — test a connection step by step"),
     ("sh", "sh <command> — run a shell command here"),
+    ("grep", "grep <pattern> — search file contents"),
+    ("tab", "tab <n> — go to tab n (or open a new one)"),
+    ("undo", "undo — undo the last file operation"),
+    ("password", "password <name> — save a NAS password in the keychain"),
+    ("forget", "forget <name> — remove a saved NAS password"),
     ("config", "config — edit config.toml"),
     ("plugins", "plugins — list loaded plugins"),
     ("messages", "messages — notification history"),
@@ -50,10 +52,7 @@ impl App {
         if let Some(rest) = line.strip_prefix('!') {
             return self.run_shell_line(rest.trim());
         }
-        let (cmd, args) = line
-            .split_once(char::is_whitespace)
-            .map(|(c, a)| (c, a.trim()))
-            .unwrap_or((line, ""));
+        let (cmd, args) = line.split_once(char::is_whitespace).map(|(c, a)| (c, a.trim())).unwrap_or((line, ""));
         match cmd {
             "cd" => {
                 let target = if args.is_empty() { "~" } else { args };
@@ -61,11 +60,7 @@ impl App {
                 self.cd(path);
             }
             "local" => {
-                let path = if args.is_empty() {
-                    dirs::home_dir().unwrap_or_default()
-                } else {
-                    expand_tilde(args)
-                };
+                let path = if args.is_empty() { dirs::home_dir().unwrap_or_default() } else { expand_tilde(args) };
                 self.cd_local(path);
             }
             "mkdir" if !args.is_empty() => self.create(args, true),
@@ -76,9 +71,7 @@ impl App {
                 }
             }
             "select" => {
-                let n = self
-                    .panel_mut()
-                    .mark_glob(if args.is_empty() { "*" } else { args });
+                let n = self.panel_mut().mark_glob(if args.is_empty() { "*" } else { args });
                 self.info(format!("marked {n} item(s)"));
             }
             "theme" if args.is_empty() => self.open_theme_picker(),
@@ -99,6 +92,26 @@ impl App {
                 None => self.error(format!("no connection named '{args}'")),
             },
             "sh" | "shell" if !args.is_empty() => self.run_shell_line(args),
+            "grep" | "rg" | "search" => {
+                if args.is_empty() {
+                    self.dispatch(Action::ContentSearch);
+                } else {
+                    self.start_content_search(args);
+                }
+            }
+            "tab" => match args.parse::<usize>() {
+                Ok(n) if n >= 1 => self.switch_tab(n - 1, false),
+                _ => self.dispatch(Action::NewTab),
+            },
+            "undo" => self.dispatch(Action::Undo),
+            "password" => match self.connection(args) {
+                Some(conn) => self.prompt_save_password(conn.name),
+                None => self.error(format!("no connection named '{args}'")),
+            },
+            "forget" => match self.connection(args) {
+                Some(conn) => self.forget_password(&conn.name),
+                None => self.error(format!("no connection named '{args}'")),
+            },
             "config" => {
                 let path = self.config_path.clone();
                 if !path.exists() {
@@ -113,20 +126,10 @@ impl App {
                 let lines = self
                     .notifications
                     .iter()
-                    .map(|n| {
-                        format!(
-                            "{:>5}  {}",
-                            format!("{:?}", n.level).to_lowercase(),
-                            n.message
-                        )
-                    })
+                    .map(|n| format!("{:>5}  {}", format!("{:?}", n.level).to_lowercase(), n.message))
                     .collect::<Vec<_>>();
                 let scroll = lines.len().saturating_sub(10);
-                self.overlay = Some(Overlay::Text(TextPopup {
-                    title: "Messages".into(),
-                    lines,
-                    scroll,
-                }));
+                self.overlay = Some(Overlay::Text(TextPopup { title: "Messages".into(), lines, scroll }));
             }
             "files" => self.dispatch(Action::ViewFiles),
             "dashboard" => self.dispatch(Action::ViewDashboard),
@@ -227,31 +230,31 @@ impl App {
     }
 
     pub(super) fn connection(&self, name: &str) -> Option<Connection> {
-        self.config
-            .connections
-            .iter()
-            .find(|c| c.name == name)
-            .cloned()
+        self.config.connections.iter().find(|c| c.name == name).cloned()
     }
 
     fn create(&mut self, name: &str, dir: bool) {
         let p = self.panel();
         let path = p.vfs.join(&p.cwd, name);
         let vfs = p.vfs.clone();
+        // The outermost path that does not exist yet is what undo removes.
+        let first = name.split(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(name);
+        let created = vfs.join(&p.cwd, first);
+        let created = (!vfs.exists(&created)).then_some(created);
         let result = if dir {
             vfs.create_dir(&path)
         } else {
             let parent = vfs.parent(&path).filter(|parent| !vfs.exists(parent));
-            parent
-                .map(|parent| vfs.create_dir(&parent))
-                .transpose()
-                .and_then(|_| vfs.create_file(&path))
+            parent.map(|parent| vfs.create_dir(&parent)).transpose().and_then(|_| vfs.create_file(&path))
         };
         match result {
             Ok(()) => {
                 self.panel_mut().reload();
                 let first = name.split(['/', '\\']).next().unwrap_or(name).to_string();
                 self.panel_mut().focus_name(&first);
+                if let Some(path) = created {
+                    self.push_undo(format!("create {first}"), vec![super::undo::UndoOp::Created { vfs, path }]);
+                }
             }
             Err(e) => self.error(format!("{e:#}")),
         }
@@ -274,6 +277,7 @@ impl App {
             Ok(()) => {
                 self.panel_mut().reload();
                 self.panel_mut().focus_name(new_name);
+                self.push_undo(format!("rename to {new_name}"), vec![super::undo::UndoOp::Rename { vfs, from, to }]);
             }
             Err(e) => self.error(format!("{e:#}")),
         }
@@ -288,13 +292,20 @@ impl App {
             InputPurpose::Filter => {}
             InputPurpose::Command => self.run_command(&input.value),
             InputPurpose::Rename(path) if !value.is_empty() => self.rename(path, &value),
-            InputPurpose::NewFile if !value.is_empty() => self.create(&value, false),
+            InputPurpose::NewFile if !value.is_empty() => {
+                self.create(value.trim_end_matches('/'), value.ends_with('/'))
+            }
             InputPurpose::NewDir if !value.is_empty() => self.create(&value, true),
             InputPurpose::Plugin(callback) => self.call_plugin(callback, Some(Some(input.value))),
-            InputPurpose::SftpPassword(conn) => self.connect_sftp(conn, Some(input.value)),
-            InputPurpose::AddConnectionUrl if !value.is_empty() => match Connection::from_url(
-                "", &value,
-            ) {
+            InputPurpose::SftpPassword(conn) => {
+                self.pending_password = Some((conn.name.clone(), input.value.clone()));
+                self.connect_sftp(conn, Some(input.value));
+            }
+            InputPurpose::Grep => self.start_content_search(&value),
+            InputPurpose::SavePassword(name) if !input.value.is_empty() => {
+                self.confirmed(super::overlay::Confirm::SavePassword { name, password: input.value });
+            }
+            InputPurpose::AddConnectionUrl if !value.is_empty() => match Connection::from_url("", &value) {
                 Some(conn) => {
                     let name = conn.name.clone();
                     self.overlay = Some(Overlay::Input(InputState::new(
@@ -303,9 +314,7 @@ impl App {
                         InputPurpose::AddConnectionName(conn),
                     )));
                 }
-                None => self.error(
-                    "use smb://user@host/share, nfs://host/export or sftp://user@host:port/path",
-                ),
+                None => self.error("use smb://user@host/share, nfs://host/export or sftp://user@host:port/path"),
             },
             InputPurpose::AddConnectionName(mut conn) if !value.is_empty() => {
                 conn.name = value;
@@ -320,6 +329,7 @@ impl App {
             return;
         };
         let selected = picker.selected().map(str::to_string);
+        let selected_index = picker.selected_index();
         match picker.purpose {
             PickerPurpose::Theme { original } => match selected {
                 Some(name) => {
@@ -341,6 +351,11 @@ impl App {
                 }
             }
             PickerPurpose::Plugin(callback) => self.call_plugin(callback, Some(selected)),
+            PickerPurpose::Grep { root, hits } => {
+                if let Some(hit) = selected_index.and_then(|i| hits.get(i)) {
+                    self.open_hit(&root, hit);
+                }
+            }
             PickerPurpose::Sort => {
                 if let Some(index) = picker.selected_index() {
                     self.apply_sort_choice(index);
@@ -358,17 +373,12 @@ impl App {
         let candidates: Vec<String> = match input.purpose {
             InputPurpose::Command => match value.split_once(' ') {
                 None => {
-                    let mut names: Vec<String> =
-                        COMMANDS.iter().map(|(c, _)| c.to_string()).collect();
+                    let mut names: Vec<String> = COMMANDS.iter().map(|(c, _)| c.to_string()).collect();
                     names.extend(Action::ALL.iter().map(|a| a.name().to_string()));
                     if let Some(p) = &self.plugins {
                         names.extend(p.commands().into_iter().map(|(n, _)| n));
                     }
-                    names
-                        .into_iter()
-                        .filter(|n| n.starts_with(&value))
-                        .map(|n| format!("{n} "))
-                        .collect()
+                    names.into_iter().filter(|n| n.starts_with(&value)).map(|n| format!("{n} ")).collect()
                 }
                 Some(("theme", arg)) => self
                     .themes
@@ -377,18 +387,16 @@ impl App {
                     .filter(|n| n.starts_with(arg))
                     .map(|n| format!("theme {n}"))
                     .collect(),
-                Some((cmd @ ("connect" | "disconnect" | "diagnose"), arg)) => self
+                Some((cmd @ ("connect" | "disconnect" | "diagnose" | "password" | "forget"), arg)) => self
                     .config
                     .connections
                     .iter()
                     .filter(|c| c.name.starts_with(arg))
                     .map(|c| format!("{cmd} {}", c.name))
                     .collect(),
-                Some((cmd @ ("cd" | "local"), arg)) => self
-                    .complete_path(arg)
-                    .into_iter()
-                    .map(|p| format!("{cmd} {p}"))
-                    .collect(),
+                Some((cmd @ ("cd" | "local"), arg)) => {
+                    self.complete_path(arg).into_iter().map(|p| format!("{cmd} {p}")).collect()
+                }
                 _ => Vec::new(),
             },
             _ => Vec::new(),
@@ -411,21 +419,13 @@ impl App {
             Some(i) => (&partial[..=i], &partial[i + 1..]),
             None => ("", partial),
         };
-        let dir = if dir_part.is_empty() {
-            p.cwd.clone()
-        } else {
-            self.resolve(dir_part)
-        };
+        let dir = if dir_part.is_empty() { p.cwd.clone() } else { self.resolve(dir_part) };
         let Ok(entries) = p.vfs.read_dir(&dir) else {
             return Vec::new();
         };
         let mut out: Vec<String> = entries
             .into_iter()
-            .filter(|e| {
-                e.is_dir()
-                    && e.name.starts_with(name_part)
-                    && (name_part.starts_with('.') || !e.is_hidden())
-            })
+            .filter(|e| e.is_dir() && e.name.starts_with(name_part) && (name_part.starts_with('.') || !e.is_hidden()))
             .map(|e| format!("{dir_part}{}/", e.name))
             .collect();
         out.sort();
@@ -438,11 +438,7 @@ impl App {
         }
         match strata_config::Config::append_connection(&self.config_path, &conn) {
             Ok(()) => {
-                self.info(format!(
-                    "saved connection '{}' to {}",
-                    conn.name,
-                    self.config_path.display()
-                ));
+                self.info(format!("saved connection '{}' to {}", conn.name, self.config_path.display()));
                 self.config.connections.push(conn);
                 self.rebuild_sidebar();
                 self.probe_connections();
@@ -484,13 +480,7 @@ fn common_prefix(items: &[String]) -> String {
     let first = &items[0];
     let mut len = first.len();
     for item in &items[1..] {
-        len = len.min(
-            first
-                .bytes()
-                .zip(item.bytes())
-                .take_while(|(a, b)| a == b)
-                .count(),
-        );
+        len = len.min(first.bytes().zip(item.bytes()).take_while(|(a, b)| a == b).count());
     }
     while !first.is_char_boundary(len) {
         len -= 1;

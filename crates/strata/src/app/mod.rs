@@ -9,6 +9,7 @@ pub use actions::short_path;
 mod commands;
 pub use commands::COMMANDS;
 mod external;
+pub mod grep;
 mod highlight;
 mod input;
 pub mod overlay;
@@ -16,6 +17,9 @@ pub mod panel;
 mod plugins;
 pub mod preview;
 pub mod sidebar;
+mod tabs;
+mod undo;
+mod vcs;
 mod views;
 mod workers;
 
@@ -64,12 +68,7 @@ pub enum View {
 }
 
 impl View {
-    pub const ALL: [View; 4] = [
-        View::Files,
-        View::Dashboard,
-        View::Docker,
-        View::Connections,
-    ];
+    pub const ALL: [View; 4] = [View::Files, View::Dashboard, View::Docker, View::Connections];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -115,6 +114,8 @@ pub struct NasState {
     pub last_probe: Option<Instant>,
     /// Live SFTP sessions by connection name.
     pub sessions: HashMap<String, VfsRef>,
+    /// Connections with a password in the keychain.
+    pub saved_passwords: std::collections::HashSet<String>,
 }
 
 pub struct DashboardState {
@@ -152,6 +153,13 @@ pub struct App {
 
     pub panels: Vec<Panel>,
     pub active: usize,
+    /// All tabs; the current one's panels live in `panels` (see `tabs.rs`).
+    pub tabs: Vec<tabs::Tab>,
+    pub tab: usize,
+    git: vcs::GitCache,
+    undo: undo::UndoHistory,
+    /// Password typed for an SFTP login, offered for the keychain on success.
+    pending_password: Option<(String, String)>,
     pub view: View,
     pub focus: Focus,
     pub sidebar: Sidebar,
@@ -205,28 +213,14 @@ impl App {
         let theme = match themes.get(&config.general.theme) {
             Some(t) => t.clone(),
             None => {
-                theme_error = Some(format!(
-                    "unknown theme '{}', using the default",
-                    config.general.theme
-                ));
-                themes
-                    .get("catppuccin-mocha")
-                    .cloned()
-                    .expect("built-in theme exists")
+                theme_error = Some(format!("unknown theme '{}', using the default", config.general.theme));
+                themes.get("catppuccin-mocha").cloned().expect("built-in theme exists")
             }
         };
-        let theme = if config.general.transparent {
-            theme.transparent()
-        } else {
-            theme
-        };
+        let theme = if config.general.transparent { theme.transparent() } else { theme };
 
         let local: VfsRef = Arc::new(LocalVfs);
-        let sort = SortOptions {
-            key: config.general.sort,
-            reverse: false,
-            dirs_first: config.general.dirs_first,
-        };
+        let sort = SortOptions { key: config.general.sort, reverse: false, dirs_first: config.general.dirs_first };
         let start_dirs = start_directories(&opts.paths, config.general.panels.clamp(1, 6));
         let panels = start_dirs
             .into_iter()
@@ -237,10 +231,8 @@ impl App {
         let picker = config.general.image_preview.then_some(picker);
         let jobs = JobManager::new(tx.clone(), AppEvent::Job);
 
-        let highlighter = config
-            .general
-            .syntax_highlight
-            .then(|| Arc::new(highlight::Highlighter::new(&theme.palette)));
+        let highlighter =
+            config.general.syntax_highlight.then(|| Arc::new(highlight::Highlighter::new(&theme.palette)));
         let mut app = Self {
             keymap: Keymap::preset(config.general.keymap),
             config_path: opts.config_path,
@@ -249,6 +241,11 @@ impl App {
             local,
             panels,
             active: 0,
+            tabs: vec![tabs::Tab::default()],
+            tab: 0,
+            git: vcs::GitCache::default(),
+            undo: undo::UndoHistory::default(),
+            pending_password: None,
             view: View::Files,
             focus: Focus::Panels,
             sidebar: Sidebar::default(),
@@ -275,6 +272,7 @@ impl App {
                 cursor: 0,
                 last_probe: None,
                 sessions: HashMap::new(),
+                saved_passwords: Default::default(),
             },
             dashboard: DashboardState {
                 usage: None,
@@ -299,10 +297,7 @@ impl App {
             config,
         };
 
-        theme_errors
-            .into_iter()
-            .chain(theme_error)
-            .for_each(|e| app.notify(e, Level::Warn));
+        theme_errors.into_iter().chain(theme_error).for_each(|e| app.notify(e, Level::Warn));
         if opts.load_plugins {
             app.load_plugins();
         }
@@ -367,11 +362,7 @@ impl App {
     }
 
     pub fn notify(&mut self, message: impl Into<String>, level: Level) {
-        self.notifications.push(Notification {
-            message: message.into(),
-            level,
-            at: Instant::now(),
-        });
+        self.notifications.push(Notification { message: message.into(), level, at: Instant::now() });
         if self.notifications.len() > 200 {
             self.notifications.remove(0);
         }
@@ -412,6 +403,7 @@ impl App {
     pub fn reload_all(&mut self) {
         self.panels.iter_mut().for_each(Panel::reload);
         self.preview_for = None;
+        self.invalidate_git();
     }
 
     fn drain_events(&mut self) {
@@ -423,12 +415,11 @@ impl App {
     fn on_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::Job(done) => {
+                self.job_finished_for_undo(done.id, &done.state);
                 match &done.state {
                     JobState::Done => self.info(format!("✓ {}", done.label)),
                     JobState::Failed(e) => self.error(format!("{} failed: {e}", done.label)),
-                    JobState::Cancelled => {
-                        self.notify(format!("{} cancelled", done.label), Level::Warn)
-                    }
+                    JobState::Cancelled => self.notify(format!("{} cancelled", done.label), Level::Warn),
                     JobState::Running => {}
                 }
                 self.reload_all();
@@ -436,19 +427,13 @@ impl App {
             }
             AppEvent::Metrics(m) => {
                 let disks_changed = m.disks.len() != self.metrics.disks.len()
-                    || m.disks
-                        .iter()
-                        .zip(&self.metrics.disks)
-                        .any(|(a, b)| a.mount_point != b.mount_point);
+                    || m.disks.iter().zip(&self.metrics.disks).any(|(a, b)| a.mount_point != b.mount_point);
                 self.metrics = *m;
                 if disks_changed {
                     self.rebuild_sidebar();
                 }
             }
-            AppEvent::Preview {
-                generation,
-                content,
-            } => {
+            AppEvent::Preview { generation, content } => {
                 if generation == self.preview_generation {
                     self.preview = content;
                 }
@@ -463,10 +448,7 @@ impl App {
                     }
                     Err(e) => self.docker.error = Some(e),
                 }
-                self.docker.cursor = self
-                    .docker
-                    .cursor
-                    .min(self.docker.containers.len().saturating_sub(1));
+                self.docker.cursor = self.docker.cursor.min(self.docker.containers.len().saturating_sub(1));
             }
             AppEvent::DockerChanged => self.refresh_docker(),
             AppEvent::Nas(statuses) => {
@@ -490,11 +472,7 @@ impl App {
             AppEvent::Text { title, body } => {
                 let lines = body.lines().map(str::to_string).collect::<Vec<_>>();
                 let scroll = lines.len().saturating_sub(10);
-                self.overlay = Some(Overlay::Text(overlay::TextPopup {
-                    title,
-                    lines,
-                    scroll,
-                }));
+                self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll }));
             }
             AppEvent::Notify { message, level } => self.notify(message, level),
             AppEvent::Inspected { path, arch } => {
@@ -502,6 +480,9 @@ impl App {
                     self.inspection.arch = arch;
                 }
             }
+            AppEvent::Git { dir, status } => self.on_git_status(dir, status),
+            AppEvent::Grep { root, pattern, result } => self.on_grep_results(root, pattern, result),
+            AppEvent::Keychain(names) => self.nas.saved_passwords = names,
             AppEvent::Checksum { path, md5 } => {
                 if self.inspection.path.as_ref() == Some(&path) {
                     self.inspection.md5 = Some(md5);
@@ -513,32 +494,24 @@ impl App {
     /// Periodic work: key-sequence timeouts, previews, plugin refresh and
     /// polling views.
     fn tick(&mut self) {
-        if !self.pending_keys.is_empty()
-            && self.pending_since.elapsed() > Duration::from_millis(900)
-        {
+        if !self.pending_keys.is_empty() && self.pending_since.elapsed() > Duration::from_millis(900) {
             self.flush_pending_keys();
         }
         self.track_location();
         self.update_preview();
         self.update_inspection();
+        self.update_git();
 
         if self.plugin_refreshed.elapsed() > Duration::from_secs(2) {
             self.refresh_plugin_ui();
         }
         if self.view == View::Docker
             && !self.docker.loading
-            && self
-                .docker
-                .last
-                .is_none_or(|t| t.elapsed() > Duration::from_secs(3))
+            && self.docker.last.is_none_or(|t| t.elapsed() > Duration::from_secs(3))
         {
             self.refresh_docker();
         }
-        if self
-            .nas
-            .last_probe
-            .is_some_and(|t| t.elapsed() > Duration::from_secs(15))
-        {
+        if self.nas.last_probe.is_some_and(|t| t.elapsed() > Duration::from_secs(15)) {
             self.probe_connections();
         }
         if self.view == View::Dashboard {
@@ -571,10 +544,7 @@ impl App {
         let key = (entry.path.clone(), self.preview_area);
         if self.preview_for.as_ref() != Some(&key) {
             // Only a resize of a non-image does not need a new preview.
-            let same_path = self
-                .preview_for
-                .as_ref()
-                .is_some_and(|(p, _)| *p == entry.path);
+            let same_path = self.preview_for.as_ref().is_some_and(|(p, _)| *p == entry.path);
             self.preview_for = Some(key);
             if same_path && !preview::is_image(&entry) {
                 return;
@@ -608,31 +578,16 @@ impl App {
         if !self.config.general.footer || self.view != View::Files {
             return;
         }
-        let hovered = self
-            .panel()
-            .hovered()
-            .filter(|e| !e.is_dir())
-            .map(|e| e.path.clone());
+        let hovered = self.panel().hovered().filter(|e| !e.is_dir()).map(|e| e.path.clone());
         if hovered == self.inspection.path {
             return;
         }
         self.inspection.progress.cancel();
         let progress = Arc::new(Progress::default());
-        self.inspection = Inspection {
-            path: hovered.clone(),
-            arch: None,
-            md5: None,
-            progress: progress.clone(),
-        };
+        self.inspection = Inspection { path: hovered.clone(), arch: None, md5: None, progress: progress.clone() };
         if let Some(path) = hovered {
             let md5 = self.config.general.md5_checksum;
-            workers::inspect(
-                self.tx.clone(),
-                self.panel().vfs.clone(),
-                path,
-                md5,
-                progress,
-            );
+            workers::inspect(self.tx.clone(), self.panel().vfs.clone(), path, md5, progress);
         }
     }
 
@@ -670,18 +625,11 @@ impl App {
 
 /// One directory per panel: CLI paths first, then the current directory.
 fn start_directories(paths: &[PathBuf], count: usize) -> Vec<PathBuf> {
-    let cwd = std::env::current_dir()
-        .unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")));
     let mut dirs: Vec<PathBuf> = paths
         .iter()
         .filter_map(|p| std::fs::canonicalize(p).ok())
-        .map(|p| {
-            if p.is_dir() {
-                p
-            } else {
-                p.parent().map(PathBuf::from).unwrap_or(p)
-            }
-        })
+        .map(|p| if p.is_dir() { p } else { p.parent().map(PathBuf::from).unwrap_or(p) })
         .collect();
     while dirs.len() < count.max(paths.len().min(6)) {
         dirs.push(cwd.clone());
@@ -694,11 +642,7 @@ fn pins_file() -> PathBuf {
 }
 
 fn load_pins(config: &Config) -> Vec<PathBuf> {
-    let mut pins: Vec<PathBuf> = config
-        .pinned
-        .iter()
-        .map(|p| strata_core::util::expand_tilde(p))
-        .collect();
+    let mut pins: Vec<PathBuf> = config.pinned.iter().map(|p| strata_core::util::expand_tilde(p)).collect();
     if let Ok(text) = std::fs::read_to_string(pins_file()) {
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
             let p = PathBuf::from(line);

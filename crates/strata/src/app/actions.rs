@@ -5,18 +5,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use strata_config::Action;
-use strata_core::ops::{self, Conflict, Transfer, TransferMode};
+use strata_core::ops::{self, Conflict, Transfer, TransferLog, TransferMode};
 use strata_core::sort::SortKey;
 use strata_core::util::posix;
 use strata_core::VfsRef;
 use strata_plugin::Level;
 
 use super::external::External;
-use super::overlay::{
-    Confirm, ConfirmState, InputPurpose, InputState, Overlay, PickerPurpose, PickerState,
-};
+use super::overlay::{Confirm, ConfirmState, InputPurpose, InputState, Overlay, PickerPurpose, PickerState};
 use super::panel::Panel;
 use super::sidebar::SidebarItem;
+use super::undo::PendingUndo;
 use super::{App, Clipboard, Focus, View};
 
 impl App {
@@ -32,11 +31,7 @@ impl App {
             ThemePicker => return self.open_theme_picker(),
             Help => return self.overlay = Some(Overlay::Help { scroll: 0 }),
             CommandPalette => {
-                return self.overlay = Some(Overlay::Input(InputState::new(
-                    ":",
-                    "",
-                    InputPurpose::Command,
-                )));
+                return self.overlay = Some(Overlay::Input(InputState::new(":", "", InputPurpose::Command)));
             }
             ToggleSidebar => return self.config.general.sidebar = !self.config.general.sidebar,
             ToggleFooter => return self.config.general.footer = !self.config.general.footer,
@@ -65,14 +60,8 @@ impl App {
             }
             Quit => {
                 if self.jobs.running() > 0 {
-                    let message = format!(
-                        "{} job(s) still running. Quit and cancel them?",
-                        self.jobs.running()
-                    );
-                    self.overlay = Some(Overlay::Confirm(ConfirmState {
-                        message,
-                        action: Confirm::Quit,
-                    }));
+                    let message = format!("{} job(s) still running. Quit and cancel them?", self.jobs.running());
+                    self.overlay = Some(Overlay::Confirm(ConfirmState { message, action: Confirm::Quit }));
                 } else {
                     self.quit();
                 }
@@ -125,16 +114,24 @@ impl App {
                 self.cd(home);
             }
             Root => {
-                let root = if self.panel().vfs.is_local() {
-                    super::sidebar::root_dir()
-                } else {
-                    PathBuf::from("/")
-                };
+                let root = if self.panel().vfs.is_local() { super::sidebar::root_dir() } else { PathBuf::from("/") };
                 self.cd(root);
             }
             NextPanel => self.focus_panel(self.active as isize + 1),
             PrevPanel => self.focus_panel(self.active as isize - 1),
             NewPanel => self.new_panel(),
+            NewTab => self.new_tab(),
+            CloseTab => self.close_tab(),
+            NextTab => self.cycle_tab(1),
+            PrevTab => self.cycle_tab(-1),
+            Undo => self.undo(),
+            ContentSearch => {
+                if !self.panel().vfs.is_local() {
+                    return self.notify("content search works on local directories", Level::Warn);
+                }
+                let input = InputState::new("Search contents", "", InputPurpose::Grep);
+                self.overlay = Some(Overlay::Input(input));
+            }
             ClosePanel => self.close_panel(),
             FocusSidebar => {
                 if self.config.general.sidebar {
@@ -176,37 +173,17 @@ impl App {
             DeletePermanent => self.delete(true),
             Rename => {
                 if let Some(e) = self.panel().hovered() {
-                    let input = InputState::new(
-                        "Rename",
-                        e.name.clone(),
-                        InputPurpose::Rename(e.path.clone()),
-                    );
+                    let input = InputState::new("Rename", e.name.clone(), InputPurpose::Rename(e.path.clone()));
                     self.overlay = Some(Overlay::Input(input.cursor_before_extension()));
                 }
             }
             BulkRename => self.bulk_rename(),
-            NewFile => {
-                self.overlay = Some(Overlay::Input(InputState::new(
-                    "New file",
-                    "",
-                    InputPurpose::NewFile,
-                )))
-            }
-            NewDir => {
-                self.overlay = Some(Overlay::Input(InputState::new(
-                    "New directory",
-                    "",
-                    InputPurpose::NewDir,
-                )))
-            }
+            NewFile => self.overlay = Some(Overlay::Input(InputState::new("New file", "", InputPurpose::NewFile))),
+            NewDir => self.overlay = Some(Overlay::Input(InputState::new("New directory", "", InputPurpose::NewDir))),
             CopyPath => self.copy_path(),
             Filter => {
                 let current = self.panel().filter.clone();
-                self.overlay = Some(Overlay::Input(InputState::new(
-                    "Filter",
-                    current,
-                    InputPurpose::Filter,
-                )));
+                self.overlay = Some(Overlay::Input(InputState::new("Filter", current, InputPurpose::Filter)));
             }
             FuzzyFind => self.start_find(),
             ToggleHidden => {
@@ -216,11 +193,7 @@ impl App {
                     p.show_hidden = show;
                     p.refilter();
                 }
-                self.info(if show {
-                    "showing hidden files"
-                } else {
-                    "hiding hidden files"
-                });
+                self.info(if show { "showing hidden files" } else { "hiding hidden files" });
             }
             CycleSort => {
                 let p = self.panel_mut();
@@ -246,7 +219,10 @@ impl App {
         self.view = view;
         match view {
             View::Docker => self.refresh_docker(),
-            View::Connections => self.probe_connections(),
+            View::Connections => {
+                self.probe_connections();
+                self.refresh_keychain();
+            }
             View::Files => self.invalidate_preview(),
             View::Dashboard => {}
         }
@@ -296,10 +272,7 @@ impl App {
             return self.cd(entry.path);
         }
         if !self.panel().vfs.is_local() {
-            self.notify(
-                "remote files open in the preview only; copy them locally to edit",
-                Level::Warn,
-            );
+            self.notify("remote files open in the preview only; copy them locally to edit", Level::Warn);
         } else if self.open_with_rule(&entry) {
             // Handled by an `[open_with]` rule.
         } else if super::external::prefers_system_open(&entry.extension()) {
@@ -362,13 +335,7 @@ impl App {
             SidebarItem::Place { path, .. } | SidebarItem::Pinned(path) => self.cd_local(path),
             SidebarItem::Disk { mount, .. } => self.cd_local(mount),
             SidebarItem::Connection(name) => {
-                if let Some(conn) = self
-                    .config
-                    .connections
-                    .iter()
-                    .find(|c| c.name == name)
-                    .cloned()
-                {
+                if let Some(conn) = self.config.connections.iter().find(|c| c.name == name).cloned() {
                     self.open_connection(conn);
                 }
             }
@@ -377,8 +344,7 @@ impl App {
     }
 
     pub fn rebuild_sidebar(&mut self) {
-        self.sidebar
-            .rebuild(&self.pinned, &self.metrics.disks, &self.config.connections);
+        self.sidebar.rebuild(&self.pinned, &self.metrics.disks, &self.config.connections);
     }
 
     fn toggle_pin(&mut self) {
@@ -398,24 +364,11 @@ impl App {
     }
 
     fn save_pins(&mut self) {
-        let from_config: Vec<PathBuf> = self
-            .config
-            .pinned
-            .iter()
-            .map(|p| strata_core::util::expand_tilde(p))
-            .collect();
-        let text: String = self
-            .pinned
-            .iter()
-            .filter(|p| !from_config.contains(p))
-            .map(|p| format!("{}\n", p.display()))
-            .collect();
+        let from_config: Vec<PathBuf> = self.config.pinned.iter().map(|p| strata_core::util::expand_tilde(p)).collect();
+        let text: String =
+            self.pinned.iter().filter(|p| !from_config.contains(p)).map(|p| format!("{}\n", p.display())).collect();
         let file = super::pins_file();
-        let result = file
-            .parent()
-            .map(std::fs::create_dir_all)
-            .transpose()
-            .and_then(|_| std::fs::write(&file, text));
+        let result = file.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&file, text));
         if let Err(e) = result {
             self.error(format!("saving pins: {e}"));
         }
@@ -428,26 +381,15 @@ impl App {
         if paths.is_empty() {
             return;
         }
-        let verb = if mode == TransferMode::Copy {
-            "copied"
-        } else {
-            "cut"
-        };
+        let verb = if mode == TransferMode::Copy { "copied" } else { "cut" };
         self.info(format!("{verb} {} item(s)", paths.len()));
-        self.clipboard = Some(Clipboard {
-            vfs: self.panel().vfs.clone(),
-            paths,
-            mode,
-        });
+        self.clipboard = Some(Clipboard { vfs: self.panel().vfs.clone(), paths, mode });
         self.panel_mut().clear_marks();
     }
 
     fn paste(&mut self) {
         let Some(clip) = self.clipboard.as_ref() else {
-            return self.notify(
-                "clipboard is empty — mark items and press y y or x",
-                Level::Warn,
-            );
+            return self.notify("clipboard is empty — mark items and press y y or x", Level::Warn);
         };
         let transfer = Transfer {
             mode: clip.mode,
@@ -486,21 +428,22 @@ impl App {
     }
 
     fn start_transfer(&mut self, transfer: Transfer) {
-        let verb = if transfer.mode == TransferMode::Copy {
-            "Copy"
-        } else {
-            "Move"
-        };
+        let verb = if transfer.mode == TransferMode::Copy { "Copy" } else { "Move" };
         let what = match transfer.sources.as_slice() {
-            [one] => one
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default(),
+            [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
             many => format!("{} items", many.len()),
         };
         let label = format!("{verb} {what} → {}", short_path(&transfer.dest_dir));
-        self.jobs
-            .spawn(label, move |progress| transfer.run(progress));
+        let log = Arc::new(TransferLog::default());
+        let pending = PendingUndo::Transfer {
+            mode: transfer.mode,
+            src: transfer.src.clone(),
+            dst: transfer.dst.clone(),
+            log: log.clone(),
+        };
+        let undo_label = format!("{} {what}", verb.to_lowercase());
+        let job = self.jobs.spawn(label, move |progress| transfer.run_logged(progress, &log));
+        self.track_job(job, undo_label, pending);
     }
 
     fn delete(&mut self, permanent: bool) {
@@ -514,12 +457,7 @@ impl App {
             return self.start_delete(vfs, paths, permanent);
         }
         let what = match paths.as_slice() {
-            [one] => format!(
-                "'{}'",
-                one.file_name()
-                    .map(|n| n.to_string_lossy())
-                    .unwrap_or_default()
-            ),
+            [one] => format!("'{}'", one.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()),
             many => format!("{} items", many.len()),
         };
         let message = if permanent {
@@ -527,37 +465,26 @@ impl App {
         } else {
             format!("Move {what} to the trash?")
         };
-        self.overlay = Some(Overlay::Confirm(ConfirmState {
-            message,
-            action: Confirm::Delete {
-                vfs,
-                paths,
-                permanent,
-            },
-        }));
+        self.overlay =
+            Some(Overlay::Confirm(ConfirmState { message, action: Confirm::Delete { vfs, paths, permanent } }));
     }
 
     pub(super) fn start_delete(&mut self, vfs: VfsRef, paths: Vec<PathBuf>, permanent: bool) {
-        let label = format!(
-            "{} {} item(s)",
-            if permanent { "Delete" } else { "Trash" },
-            paths.len()
-        );
+        let label = format!("{} {} item(s)", if permanent { "Delete" } else { "Trash" }, paths.len());
         self.panel_mut().clear_marks();
-        self.jobs.spawn(label, move |progress| {
-            ops::delete(&vfs, &paths, !permanent, progress)
-        });
+        let undo =
+            (!permanent).then(|| PendingUndo::Trash { paths: paths.clone(), since: std::time::SystemTime::now() });
+        let undo_label = format!("trash {} item(s)", paths.len());
+        let job = self.jobs.spawn(label, move |progress| ops::delete(&vfs, &paths, !permanent, progress));
+        if let Some(pending) = undo {
+            self.track_job(job, undo_label, pending);
+        }
     }
 
     // --- misc -----------------------------------------------------------------
 
     fn copy_path(&mut self) {
-        let paths: Vec<String> = self
-            .panel()
-            .targets()
-            .iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
+        let paths: Vec<String> = self.panel().targets().iter().map(|p| p.to_string_lossy().into_owned()).collect();
         if paths.is_empty() {
             return;
         }
@@ -567,21 +494,13 @@ impl App {
 
     fn start_find(&mut self) {
         if !self.panel().vfs.is_local() {
-            return self.notify(
-                "fuzzy find works on local directories; use / to filter",
-                Level::Warn,
-            );
+            return self.notify("fuzzy find works on local directories; use / to filter", Level::Warn);
         }
         self.find_cancel.store(true, Ordering::Relaxed);
         let cancel = Arc::new(AtomicBool::new(false));
         self.find_cancel = cancel.clone();
         self.info("indexing…");
-        super::workers::find_files(
-            self.tx.clone(),
-            self.panel().cwd.clone(),
-            self.panel().show_hidden,
-            cancel,
-        );
+        super::workers::find_files(self.tx.clone(), self.panel().cwd.clone(), self.panel().show_hidden, cancel);
     }
 
     pub(super) fn open_find_picker(&mut self, root: PathBuf, files: Vec<PathBuf>) {
@@ -589,26 +508,15 @@ impl App {
             return;
         }
         let items = files.iter().map(|p| posix(p)).collect();
-        let purpose = PickerPurpose::Find {
-            vfs: self.panel().vfs.clone(),
-            root: root.clone(),
-        };
-        self.overlay = Some(Overlay::Picker(PickerState::new(
-            format!("Find in {}", short_path(&root)),
-            items,
-            purpose,
-        )));
+        let purpose = PickerPurpose::Find { vfs: self.panel().vfs.clone(), root: root.clone() };
+        self.overlay =
+            Some(Overlay::Picker(PickerState::new(format!("Find in {}", short_path(&root)), items, purpose)));
     }
 
     pub fn open_theme_picker(&mut self) {
         let original = self.theme.name.clone();
-        let mut picker = PickerState::new(
-            "Theme",
-            self.themes.names(),
-            PickerPurpose::Theme {
-                original: original.clone(),
-            },
-        );
+        let mut picker =
+            PickerState::new("Theme", self.themes.names(), PickerPurpose::Theme { original: original.clone() });
         picker.focus(&original);
         self.overlay = Some(Overlay::Picker(picker));
     }
@@ -619,11 +527,7 @@ impl App {
             self.error(format!("unknown theme '{name}'"));
             return false;
         };
-        self.theme = if self.config.general.transparent {
-            theme.transparent()
-        } else {
-            theme
-        };
+        self.theme = if self.config.general.transparent { theme.transparent() } else { theme };
         if persist_name {
             self.config.general.theme = name.to_string();
         }
@@ -641,10 +545,8 @@ impl App {
     fn open_sort_menu(&mut self) {
         let sort = self.panel().sort;
         let check = |on: bool| if on { "●" } else { "○" };
-        let mut items: Vec<String> = Self::SORT_KEYS
-            .iter()
-            .map(|(key, label)| format!("{} {label}", check(sort.key == *key)))
-            .collect();
+        let mut items: Vec<String> =
+            Self::SORT_KEYS.iter().map(|(key, label)| format!("{} {label}", check(sort.key == *key))).collect();
         items.push(format!("{} Reverse order", check(sort.reverse)));
         items.push(format!("{} Directories first", check(sort.dirs_first)));
         let mut picker = PickerState::new("Sort by", items, PickerPurpose::Sort);
@@ -669,11 +571,7 @@ impl App {
 pub fn short_path(path: &std::path::Path) -> String {
     if let Some(home) = dirs::home_dir() {
         if let Ok(rest) = path.strip_prefix(&home) {
-            return if rest.as_os_str().is_empty() {
-                "~".into()
-            } else {
-                format!("~/{}", posix(rest))
-            };
+            return if rest.as_os_str().is_empty() { "~".into() } else { format!("~/{}", posix(rest)) };
         }
     }
     path.to_string_lossy().into_owned()
@@ -692,11 +590,7 @@ fn base64(input: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
         let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
         for i in 0..4 {
             if i <= chunk.len() {

@@ -8,18 +8,9 @@ use strata_sys::DiskInfo;
 #[derive(Debug, Clone)]
 pub enum SidebarItem {
     Header(&'static str),
-    Place {
-        label: String,
-        path: PathBuf,
-        icon: &'static str,
-    },
+    Place { label: String, path: PathBuf, icon: &'static str },
     Pinned(PathBuf),
-    Disk {
-        label: String,
-        mount: PathBuf,
-        ratio: f64,
-        network: bool,
-    },
+    Disk { label: String, mount: PathBuf, ratio: f64, network: bool },
     Connection(String),
 }
 
@@ -55,19 +46,11 @@ impl Sidebar {
         }
         if !connections.is_empty() {
             items.push(SidebarItem::Header("Network"));
-            items.extend(
-                connections
-                    .iter()
-                    .map(|c| SidebarItem::Connection(c.name.clone())),
-            );
+            items.extend(connections.iter().map(|c| SidebarItem::Connection(c.name.clone())));
         }
         self.items = items;
         self.cursor = self.cursor.min(self.items.len().saturating_sub(1));
-        if !self
-            .items
-            .get(self.cursor)
-            .is_some_and(SidebarItem::selectable)
-        {
+        if !self.items.get(self.cursor).is_some_and(SidebarItem::selectable) {
             self.move_by(1);
         }
     }
@@ -113,21 +96,14 @@ fn disk_label(d: &DiskInfo) -> String {
     if mount == "/" {
         return "/".into();
     }
-    d.mount_point
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| mount.into_owned())
+    d.mount_point.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| mount.into_owned())
 }
 
 fn places() -> Vec<SidebarItem> {
     let mut out = Vec::new();
     let mut add = |label: &str, path: Option<PathBuf>, icon: &'static str| {
         if let Some(path) = path.filter(|p| p.is_dir()) {
-            out.push(SidebarItem::Place {
-                label: label.into(),
-                path,
-                icon,
-            });
+            out.push(SidebarItem::Place { label: label.into(), path, icon });
         }
     };
     add("Home", dirs::home_dir(), "\u{f015}");
@@ -138,11 +114,7 @@ fn places() -> Vec<SidebarItem> {
     add("Music", dirs::audio_dir(), "\u{f001}");
     add("Videos", dirs::video_dir(), "\u{f03d}");
     #[cfg(target_os = "linux")]
-    add(
-        "Trash",
-        dirs::data_dir().map(|d| d.join("Trash/files")),
-        "\u{f1f8}",
-    );
+    add("Trash", dirs::data_dir().map(|d| d.join("Trash/files")), "\u{f1f8}");
     add("Root", Some(root_dir()), "\u{f0a0}");
     out
 }

@@ -18,6 +18,9 @@ pub enum InputPurpose {
     SftpPassword(Connection),
     AddConnectionUrl,
     AddConnectionName(Connection),
+    Grep,
+    /// Save a password for this connection in the keychain.
+    SavePassword(String),
 }
 
 pub struct InputState {
@@ -32,13 +35,7 @@ pub struct InputState {
 impl InputState {
     pub fn new(prompt: impl Into<String>, value: impl Into<String>, purpose: InputPurpose) -> Self {
         let value = value.into();
-        Self {
-            prompt: prompt.into(),
-            cursor: value.chars().count(),
-            value,
-            masked: false,
-            purpose,
-        }
+        Self { prompt: prompt.into(), cursor: value.chars().count(), value, masked: false, purpose }
     }
 
     pub fn masked(mut self) -> Self {
@@ -57,11 +54,7 @@ impl InputState {
     }
 
     fn byte_index(&self, char_idx: usize) -> usize {
-        self.value
-            .char_indices()
-            .nth(char_idx)
-            .map(|(i, _)| i)
-            .unwrap_or(self.value.len())
+        self.value.char_indices().nth(char_idx).map(|(i, _)| i).unwrap_or(self.value.len())
     }
 
     pub fn insert(&mut self, c: char) {
@@ -127,6 +120,7 @@ pub enum PickerPurpose {
     Find { vfs: VfsRef, root: PathBuf },
     Plugin(usize),
     Sort,
+    Grep { root: PathBuf, hits: Vec<super::grep::GrepHit> },
 }
 
 pub struct PickerState {
@@ -157,9 +151,7 @@ impl PickerState {
     }
 
     pub fn refilter(&mut self) {
-        self.matches = self
-            .fuzzy
-            .filter(&self.query, self.items.iter().map(String::as_str));
+        self.matches = self.fuzzy.filter(&self.query, self.items.iter().map(String::as_str));
         self.cursor = 0;
         self.offset = 0;
     }
@@ -170,9 +162,7 @@ impl PickerState {
     }
 
     pub fn selected(&self) -> Option<&str> {
-        self.matches
-            .get(self.cursor)
-            .map(|m| self.items[m.index].as_str())
+        self.matches.get(self.cursor).map(|m| self.items[m.index].as_str())
     }
 
     pub fn move_by(&mut self, delta: isize) {
@@ -184,11 +174,7 @@ impl PickerState {
     }
 
     pub fn focus(&mut self, item: &str) {
-        if let Some(pos) = self
-            .matches
-            .iter()
-            .position(|m| self.items[m.index] == item)
-        {
+        if let Some(pos) = self.matches.iter().position(|m| self.items[m.index] == item) {
             self.cursor = pos;
         }
     }
@@ -204,6 +190,11 @@ pub enum Confirm {
     DockerRemove {
         id: String,
         name: String,
+    },
+    /// Store a password that just worked in the keychain.
+    SavePassword {
+        name: String,
+        password: String,
     },
     Quit,
 }
@@ -233,8 +224,7 @@ mod tests {
 
     #[test]
     fn input_edits_unicode_safely() {
-        let mut i =
-            InputState::new("x", "héllo.txt", InputPurpose::NewFile).cursor_before_extension();
+        let mut i = InputState::new("x", "héllo.txt", InputPurpose::NewFile).cursor_before_extension();
         assert_eq!(i.cursor, 5);
         i.insert('!');
         assert_eq!(i.value, "héllo!.txt");

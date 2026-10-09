@@ -12,11 +12,7 @@ use clap::Parser;
 use strata_config::{Config, ThemeRegistry};
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "strata",
-    version,
-    about = "A fast, extensible terminal file explorer"
-)]
+#[command(name = "strata", version, about = "A fast, extensible terminal file explorer")]
 struct Cli {
     /// Directories to open, one panel each.
     paths: Vec<PathBuf>,
@@ -123,11 +119,8 @@ fn main() -> Result<()> {
     };
 
     let mut terminal = tui::init()?;
-    let picker = if config.general.image_preview {
-        tui::image_picker()
-    } else {
-        ratatui_image::picker::Picker::halfblocks()
-    };
+    let picker =
+        if config.general.image_preview { tui::image_picker() } else { ratatui_image::picker::Picker::halfblocks() };
     let result = app::App::new(config, options, picker).and_then(|mut app| {
         app.run(&mut terminal)?;
         Ok(app.last_dir())

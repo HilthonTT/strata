@@ -72,13 +72,11 @@ pub fn color(entry: &Entry, theme: &Theme) -> Color {
     }
     match entry.extension().as_str() {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "ico" | "svg" | "tiff" => theme.image,
-        "mp4" | "mkv" | "webm" | "mov" | "avi" | "mp3" | "flac" | "wav" | "ogg" | "m4a" => {
-            theme.media
+        "mp4" | "mkv" | "webm" | "mov" | "avi" | "mp3" | "flac" | "wav" | "ogg" | "m4a" => theme.media,
+        "zip" | "tar" | "gz" | "tgz" | "xz" | "bz2" | "7z" | "rar" | "zst" | "iso" | "deb" | "rpm" => theme.archive,
+        "rs" | "py" | "js" | "ts" | "tsx" | "go" | "c" | "h" | "cpp" | "java" | "lua" | "rb" | "cs" | "php" => {
+            theme.code
         }
-        "zip" | "tar" | "gz" | "tgz" | "xz" | "bz2" | "7z" | "rar" | "zst" | "iso" | "deb"
-        | "rpm" => theme.archive,
-        "rs" | "py" | "js" | "ts" | "tsx" | "go" | "c" | "h" | "cpp" | "java" | "lua" | "rb"
-        | "cs" | "php" => theme.code,
         _ if entry.is_executable() => theme.exec,
         _ if entry.is_hidden() => theme.muted,
         _ => theme.file,

@@ -52,10 +52,7 @@ impl PreviewJob {
         std::thread::spawn(move || {
             let generation = self.generation;
             let content = self.build();
-            let _ = tx.send(AppEvent::Preview {
-                generation,
-                content,
-            });
+            let _ = tx.send(AppEvent::Preview { generation, content });
         });
     }
 
@@ -71,21 +68,15 @@ impl PreviewJob {
                 Err(e) => PreviewContent::Error(format!("{e:#}")),
             };
         }
-        if let Some(picker) = self
-            .picker
-            .as_ref()
-            .filter(|_| is_image(entry) && entry.size <= MAX_IMAGE_BYTES)
-        {
+        if let Some(picker) = self.picker.as_ref().filter(|_| is_image(entry) && entry.size <= MAX_IMAGE_BYTES) {
             return match load_image(&self.vfs, &entry.path, picker, self.size) {
                 Ok(p) => PreviewContent::Image(Box::new(p)),
                 Err(e) => PreviewContent::Error(e),
             };
         }
         let mut buf = Vec::with_capacity(MAX_TEXT_BYTES.min(entry.size as usize + 1));
-        let read = self
-            .vfs
-            .reader(&entry.path)
-            .and_then(|r| Ok(r.take(MAX_TEXT_BYTES as u64).read_to_end(&mut buf)?));
+        let read =
+            self.vfs.reader(&entry.path).and_then(|r| Ok(r.take(MAX_TEXT_BYTES as u64).read_to_end(&mut buf)?));
         if let Err(e) = read {
             return PreviewContent::Error(format!("{e:#}"));
         }
@@ -97,19 +88,11 @@ impl PreviewJob {
         }
         let text = String::from_utf8_lossy(&buf);
         let max_lines = self.size.height as usize * 4;
-        if let Some(lines) = self
-            .highlighter
-            .as_ref()
-            .and_then(|h| h.highlight(&entry.name, &text, max_lines.max(200)))
+        if let Some(lines) = self.highlighter.as_ref().and_then(|h| h.highlight(&entry.name, &text, max_lines.max(200)))
         {
             return PreviewContent::Code(lines);
         }
-        PreviewContent::Text(
-            text.lines()
-                .take(max_lines.max(200))
-                .map(|l| l.replace('\t', "    "))
-                .collect(),
-        )
+        PreviewContent::Text(text.lines().take(max_lines.max(200)).map(|l| l.replace('\t', "    ")).collect())
     }
 }
 
@@ -120,16 +103,9 @@ fn looks_binary(buf: &[u8]) -> bool {
             && String::from_utf8_lossy(sample).matches('\u{FFFD}').count() > sample.len() / 20
 }
 
-fn load_image(
-    vfs: &VfsRef,
-    path: &std::path::Path,
-    picker: &Picker,
-    size: Size,
-) -> Result<Protocol, String> {
+fn load_image(vfs: &VfsRef, path: &std::path::Path, picker: &Picker, size: Size) -> Result<Protocol, String> {
     let mut bytes = Vec::new();
-    vfs.reader(path)
-        .and_then(|mut r| Ok(r.read_to_end(&mut bytes)?))
-        .map_err(|e| format!("{e:#}"))?;
+    vfs.reader(path).and_then(|mut r| Ok(r.read_to_end(&mut bytes)?)).map_err(|e| format!("{e:#}"))?;
     let img = image::load_from_memory(&bytes).map_err(|e| format!("cannot decode image: {e}"))?;
     picker
         .new_protocol(img, size, Resize::Scale(Some(FilterType::Triangle)))

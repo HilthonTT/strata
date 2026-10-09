@@ -27,11 +27,7 @@ pub fn spawn_metrics(tx: Sender<AppEvent>, interval: Duration) {
                 disks = strata_sys::list_disks();
                 disks_at = Instant::now();
             }
-            let metrics = Metrics {
-                disks: disks.clone(),
-                io: io.sample(),
-                memory: memory.sample(),
-            };
+            let metrics = Metrics { disks: disks.clone(), io: io.sample(), memory: memory.sample() };
             if tx.send(AppEvent::Metrics(Box::new(metrics))).is_err() {
                 return;
             }
@@ -49,10 +45,9 @@ pub fn list_containers(tx: Sender<AppEvent>) {
 pub fn container_action(tx: Sender<AppEvent>, id: String, name: String, action: ContainerAction) {
     thread::spawn(move || {
         let event = match docker::act(&id, action) {
-            Ok(()) => AppEvent::Notify {
-                message: format!("{} {name}", action.verb()),
-                level: strata_plugin::Level::Info,
-            },
+            Ok(()) => {
+                AppEvent::Notify { message: format!("{} {name}", action.verb()), level: strata_plugin::Level::Info }
+            }
             Err(e) => AppEvent::Notify {
                 message: format!("docker {}: {e:#}", action.verb()),
                 level: strata_plugin::Level::Error,
@@ -66,10 +61,7 @@ pub fn container_action(tx: Sender<AppEvent>, id: String, name: String, action: 
 pub fn container_logs(tx: Sender<AppEvent>, id: String, name: String) {
     thread::spawn(move || {
         let body = docker::logs(&id, 500).unwrap_or_else(|e| format!("{e:#}"));
-        let _ = tx.send(AppEvent::Text {
-            title: format!("logs: {name}"),
-            body,
-        });
+        let _ = tx.send(AppEvent::Text { title: format!("logs: {name}"), body });
     });
 }
 
@@ -99,10 +91,7 @@ pub fn probe_connections(tx: Sender<AppEvent>, connections: Vec<Connection>) {
 pub fn diagnose(tx: Sender<AppEvent>, conn: Connection) {
     thread::spawn(move || {
         let steps = nas::diagnose(&conn);
-        let _ = tx.send(AppEvent::Diagnosed {
-            name: conn.name,
-            steps,
-        });
+        let _ = tx.send(AppEvent::Diagnosed { name: conn.name, steps });
     });
 }
 
@@ -110,29 +99,25 @@ pub fn diagnose(tx: Sender<AppEvent>, conn: Connection) {
 pub fn connect_sftp(tx: Sender<AppEvent>, conn: Connection, password: Option<String>) {
     use strata_core::vfs::{SftpAuth, SftpVfs};
     thread::spawn(move || {
-        let user = conn
-            .user
-            .clone()
-            .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "root".into()));
+        let user = conn.user.clone().unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "root".into()));
         let auth = match (password, &conn.identity_file) {
             (Some(pw), _) => SftpAuth::Password(pw),
-            (None, Some(key)) => {
-                SftpAuth::Key(strata_core::util::expand_tilde(&key.to_string_lossy()))
-            }
+            (None, Some(key)) => SftpAuth::Key(strata_core::util::expand_tilde(&key.to_string_lossy())),
             (None, None) => SftpAuth::Auto,
         };
-        let result = SftpVfs::connect(&conn.host, conn.port(), &user, &auth)
-            .map(|v| Arc::new(v) as strata_core::VfsRef)
-            .map_err(|e| format!("{e:#}"));
+        let mut result = SftpVfs::connect(&conn.host, conn.port(), &user, &auth);
+        // Keys and agent failed: try the password saved in the keychain.
+        if result.is_err() && !matches!(auth, SftpAuth::Password(_)) {
+            if let Some(saved) = strata_core::secrets::get(&conn.name) {
+                result = SftpVfs::connect(&conn.host, conn.port(), &user, &SftpAuth::Password(saved));
+            }
+        }
+        let result = result.map(|v| Arc::new(v) as strata_core::VfsRef).map_err(|e| format!("{e:#}"));
         let path = match (&result, conn.share.is_empty()) {
             (Ok(vfs), true) => vfs.home(),
             _ => PathBuf::from(&conn.share),
         };
-        let _ = tx.send(AppEvent::Connected {
-            name: conn.name,
-            result,
-            path,
-        });
+        let _ = tx.send(AppEvent::Connected { name: conn.name, result, path });
     });
 }
 
@@ -154,18 +139,12 @@ pub fn inspect(
 ) {
     thread::spawn(move || {
         let arch = strata_core::inspect::file_arch(&*vfs, &path);
-        let _ = tx.send(AppEvent::Inspected {
-            path: path.clone(),
-            arch,
-        });
+        let _ = tx.send(AppEvent::Inspected { path: path.clone(), arch });
         if md5 {
             match strata_core::inspect::md5(&*vfs, &path, &progress) {
                 Err(e) if e.is::<strata_core::jobs::Cancelled>() => {}
                 result => {
-                    let _ = tx.send(AppEvent::Checksum {
-                        path,
-                        md5: result.map_err(|e| format!("{e:#}")),
-                    });
+                    let _ = tx.send(AppEvent::Checksum { path, md5: result.map_err(|e| format!("{e:#}")) });
                 }
             }
         }
