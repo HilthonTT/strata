@@ -20,30 +20,17 @@ pub struct Fuzzy {
 
 impl Default for Fuzzy {
     fn default() -> Self {
-        Self {
-            matcher: Matcher::new(Config::DEFAULT.match_paths()),
-        }
+        Self { matcher: Matcher::new(Config::DEFAULT.match_paths()) }
     }
 }
 
 impl Fuzzy {
     /// Returns the items matching `query`, best first. An empty query keeps
     /// every item in its original order.
-    pub fn filter<'a>(
-        &mut self,
-        query: &str,
-        items: impl IntoIterator<Item = &'a str>,
-    ) -> Vec<Match> {
+    pub fn filter<'a>(&mut self, query: &str, items: impl IntoIterator<Item = &'a str>) -> Vec<Match> {
         let items = items.into_iter();
         if query.trim().is_empty() {
-            return items
-                .enumerate()
-                .map(|(index, _)| Match {
-                    index,
-                    score: 0,
-                    positions: Vec::new(),
-                })
-                .collect();
+            return items.enumerate().map(|(index, _)| Match { index, score: 0, positions: Vec::new() }).collect();
         }
         let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
         let mut buf = Vec::new();
@@ -51,18 +38,10 @@ impl Fuzzy {
             .enumerate()
             .filter_map(|(index, item)| {
                 let mut positions = Vec::new();
-                let score = pattern.indices(
-                    Utf32Str::new(item, &mut buf),
-                    &mut self.matcher,
-                    &mut positions,
-                )?;
+                let score = pattern.indices(Utf32Str::new(item, &mut buf), &mut self.matcher, &mut positions)?;
                 positions.sort_unstable();
                 positions.dedup();
-                Some(Match {
-                    index,
-                    score,
-                    positions,
-                })
+                Some(Match { index, score, positions })
             })
             .collect();
         matches.sort_by(|a, b| b.score.cmp(&a.score).then(a.index.cmp(&b.index)));
@@ -71,29 +50,16 @@ impl Fuzzy {
 }
 
 /// Directories never worth descending into when searching.
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    "node_modules",
-    "target",
-    ".cache",
-    "__pycache__",
-    ".venv",
-];
+const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", ".cache", "__pycache__", ".venv"];
 
 /// Recursively lists files below `root` (relative paths), for fuzzy finding.
-pub fn walk_files(
-    root: &Path,
-    limit: usize,
-    show_hidden: bool,
-    cancel: &AtomicBool,
-) -> Vec<PathBuf> {
+pub fn walk_files(root: &Path, limit: usize, show_hidden: bool, cancel: &AtomicBool) -> Vec<PathBuf> {
     walkdir::WalkDir::new(root)
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            e.depth() == 0
-                || !(SKIP_DIRS.contains(&name.as_ref()) || (!show_hidden && name.starts_with('.')))
+            e.depth() == 0 || !(SKIP_DIRS.contains(&name.as_ref()) || (!show_hidden && name.starts_with('.')))
         })
         .filter_map(Result::ok)
         .take_while(|_| !cancel.load(Ordering::Relaxed))

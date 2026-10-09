@@ -5,11 +5,13 @@
 
 pub mod bulk;
 pub mod entry;
+pub mod git;
 pub mod inspect;
 pub mod jobs;
 pub mod nas;
 pub mod ops;
 pub mod search;
+pub mod secrets;
 pub mod sort;
 pub mod util;
 pub mod vfs;

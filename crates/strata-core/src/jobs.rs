@@ -41,10 +41,7 @@ impl Progress {
     }
 
     pub fn current(&self) -> String {
-        self.current
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        self.current.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn cancel(&self) {
@@ -127,12 +124,7 @@ pub struct JobManager<E> {
 impl<E: Send + 'static> JobManager<E> {
     /// `wrap` turns a completion notice into the caller's event type.
     pub fn new(notify: Sender<E>, wrap: fn(JobFinished) -> E) -> Self {
-        Self {
-            jobs: Vec::new(),
-            next_id: 1,
-            notify,
-            wrap,
-        }
+        Self { jobs: Vec::new(), next_id: 1, notify, wrap }
     }
 
     pub fn spawn<F>(&mut self, label: impl Into<String>, work: F) -> u64
@@ -160,11 +152,7 @@ impl<E: Send + 'static> JobManager<E> {
                 Err(e) => JobState::Failed(format!("{e:#}")),
             };
             *job.state.lock().unwrap_or_else(|e| e.into_inner()) = state.clone();
-            let _ = notify.send(wrap(JobFinished {
-                id: job.id,
-                label: job.label.clone(),
-                state,
-            }));
+            let _ = notify.send(wrap(JobFinished { id: job.id, label: job.label.clone(), state }));
         });
         id
     }

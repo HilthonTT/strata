@@ -13,8 +13,7 @@ pub struct LocalVfs;
 
 impl LocalVfs {
     pub fn entry_for(path: &Path) -> Result<Entry> {
-        let link_meta =
-            fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
+        let link_meta = fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
         let (kind, meta) = if link_meta.file_type().is_symlink() {
             let target = fs::metadata(path).ok();
             let to_dir = target.as_ref().is_some_and(fs::Metadata::is_dir);
@@ -48,11 +47,7 @@ fn mode_of(meta: &fs::Metadata) -> Option<u32> {
 
 #[cfg(not(unix))]
 fn mode_of(meta: &fs::Metadata) -> Option<u32> {
-    Some(if meta.permissions().readonly() {
-        0o444
-    } else {
-        0o644
-    })
+    Some(if meta.permissions().readonly() { 0o444 } else { 0o644 })
 }
 
 impl Vfs for LocalVfs {
@@ -75,10 +70,7 @@ impl Vfs for LocalVfs {
     fn read_dir(&self, path: &Path) -> Result<Vec<Entry>> {
         let iter = fs::read_dir(path).with_context(|| format!("read {}", path.display()))?;
         // Entries that vanish or deny access mid-listing are skipped, not fatal.
-        Ok(iter
-            .filter_map(|e| e.ok())
-            .filter_map(|e| Self::entry_for(&e.path()).ok())
-            .collect())
+        Ok(iter.filter_map(|e| e.ok()).filter_map(|e| Self::entry_for(&e.path()).ok()).collect())
     }
 
     fn stat(&self, path: &Path) -> Result<Entry> {
@@ -108,29 +100,20 @@ impl Vfs for LocalVfs {
 
     fn remove_all(&self, path: &Path) -> Result<()> {
         let meta = fs::symlink_metadata(path)?;
-        if meta.is_dir() {
-            fs::remove_dir_all(path)
-        } else {
-            fs::remove_file(path)
-        }
-        .with_context(|| format!("remove {}", path.display()))
+        if meta.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) }
+            .with_context(|| format!("remove {}", path.display()))
     }
 
     fn rename(&self, from: &Path, to: &Path) -> Result<()> {
-        fs::rename(from, to)
-            .with_context(|| format!("rename {} -> {}", from.display(), to.display()))
+        fs::rename(from, to).with_context(|| format!("rename {} -> {}", from.display(), to.display()))
     }
 
     fn reader(&self, path: &Path) -> Result<Box<dyn Read + Send>> {
-        Ok(Box::new(
-            fs::File::open(path).with_context(|| format!("open {}", path.display()))?,
-        ))
+        Ok(Box::new(fs::File::open(path).with_context(|| format!("open {}", path.display()))?))
     }
 
     fn writer(&self, path: &Path) -> Result<Box<dyn Write + Send>> {
-        Ok(Box::new(
-            fs::File::create(path).with_context(|| format!("create {}", path.display()))?,
-        ))
+        Ok(Box::new(fs::File::create(path).with_context(|| format!("create {}", path.display()))?))
     }
 
     fn join(&self, dir: &Path, name: &str) -> PathBuf {

@@ -144,10 +144,7 @@ mod tests {
     #[test]
     fn splits_command_lines() {
         assert_eq!(split_command("code --wait"), ["code", "--wait"]);
-        assert_eq!(
-            split_command(r#"sh -c 'echo hi > out' "a b" c\ d"#),
-            ["sh", "-c", "echo hi > out", "a b", "c d"]
-        );
+        assert_eq!(split_command(r#"sh -c 'echo hi > out' "a b" c\ d"#), ["sh", "-c", "echo hi > out", "a b", "c d"]);
         assert_eq!(split_command("x ''"), ["x", ""]);
         assert!(split_command("   ").is_empty());
     }

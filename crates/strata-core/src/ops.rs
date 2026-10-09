@@ -3,13 +3,18 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 
 use anyhow::{bail, Context, Result};
 
 use crate::jobs::Progress;
 use crate::util::unique_name;
 use crate::vfs::{same_vfs, VfsRef};
-use crate::{Entry, EntryKind};
+use crate::{Entry, EntryKind, Vfs};
+
+/// `(source, destination)` of each top-level item a transfer finished,
+/// recorded so the transfer can be undone.
+pub type TransferLog = Mutex<Vec<(PathBuf, PathBuf)>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferMode {
@@ -40,6 +45,15 @@ const BUF_SIZE: usize = 256 * 1024;
 
 impl Transfer {
     pub fn run(&self, progress: &Progress) -> Result<()> {
+        self.run_logged(progress, &Mutex::default())
+    }
+
+    /// Like [`Transfer::run`], recording each finished item in `log`. The
+    /// log is filled even when the transfer fails or is cancelled midway.
+    pub fn run_logged(&self, progress: &Progress, log: &TransferLog) -> Result<()> {
+        let record = |src: &Path, dst: &Path| {
+            log.lock().unwrap_or_else(|e| e.into_inner()).push((src.to_path_buf(), dst.to_path_buf()));
+        };
         progress.set_current("scanning…");
         let (bytes, items) = self.measure(progress)?;
         progress.total_bytes.store(bytes, Ordering::Relaxed);
@@ -57,14 +71,16 @@ impl Transfer {
             };
             if same && self.mode == TransferMode::Move && self.src.rename(source, &target).is_ok() {
                 progress.add_bytes(tree_size(&*self.src, &entry, progress).unwrap_or(0));
+                record(source, &target);
                 progress.item_done();
                 continue;
             }
-            self.copy_entry(&entry, &target, progress)?;
+            copy_tree(&*self.src, &entry, &*self.dst, &target, progress)?;
             if self.mode == TransferMode::Move {
                 progress.set_current(format!("removing {}", entry.name));
                 self.src.remove_all(source)?;
             }
+            record(source, &target);
             progress.item_done();
         }
         Ok(())
@@ -93,8 +109,7 @@ impl Transfer {
         if !self.dst.exists(&target) {
             return Ok(Some(target));
         }
-        if same_vfs(&self.src, &self.dst) && target == entry.path && self.mode == TransferMode::Move
-        {
+        if same_vfs(&self.src, &self.dst) && target == entry.path && self.mode == TransferMode::Move {
             return Ok(None);
         }
         match self.conflict {
@@ -104,40 +119,52 @@ impl Transfer {
                 Ok(Some(target))
             }
             Conflict::KeepBoth => {
-                let name = unique_name(&entry.name, |n| {
-                    self.dst.exists(&self.dst.join(&self.dest_dir, n))
-                });
+                let name = unique_name(&entry.name, |n| self.dst.exists(&self.dst.join(&self.dest_dir, n)));
                 Ok(Some(self.dst.join(&self.dest_dir, &name)))
             }
         }
     }
+}
 
-    fn copy_entry(&self, entry: &Entry, target: &Path, progress: &Progress) -> Result<()> {
-        progress.check()?;
-        match entry.kind {
-            EntryKind::Dir => {
-                self.dst.create_dir(target)?;
-                for child in self.src.read_dir(&entry.path)? {
-                    let child_target = self.dst.join(target, &child.name);
-                    self.copy_entry(&child, &child_target, progress)?;
-                }
+/// Copies a file or directory tree from one backend to another.
+pub fn copy_tree(src: &dyn Vfs, entry: &Entry, dst: &dyn Vfs, target: &Path, progress: &Progress) -> Result<()> {
+    progress.check()?;
+    match entry.kind {
+        EntryKind::Dir => {
+            dst.create_dir(target)?;
+            for child in src.read_dir(&entry.path)? {
+                let child_target = dst.join(target, &child.name);
+                copy_tree(src, &child, dst, &child_target, progress)?;
             }
-            EntryKind::Symlink { .. } if self.src.is_local() && self.dst.is_local() => {
-                copy_local_symlink(&entry.path, target)?;
-            }
-            // Directory links on remote backends are skipped to avoid cycles.
-            EntryKind::Symlink { to_dir: true } => {}
-            EntryKind::File | EntryKind::Symlink { .. } => {
-                progress.set_current(entry.name.clone());
-                let mut reader = self.src.reader(&entry.path)?;
-                let mut writer = self.dst.writer(target)?;
-                stream(&mut *reader, &mut *writer, progress)
-                    .with_context(|| format!("copy {}", entry.path.display()))?;
-            }
-            EntryKind::Other => {}
         }
-        Ok(())
+        EntryKind::Symlink { .. } if src.is_local() && dst.is_local() => {
+            copy_local_symlink(&entry.path, target)?;
+        }
+        // Directory links on remote backends are skipped to avoid cycles.
+        EntryKind::Symlink { to_dir: true } => {}
+        EntryKind::File | EntryKind::Symlink { .. } => {
+            progress.set_current(entry.name.clone());
+            let mut reader = src.reader(&entry.path)?;
+            let mut writer = dst.writer(target)?;
+            stream(&mut *reader, &mut *writer, progress).with_context(|| format!("copy {}", entry.path.display()))?;
+        }
+        EntryKind::Other => {}
     }
+    Ok(())
+}
+
+/// Moves `from` (on `src`) to exactly `to` (on `dst`): a rename when
+/// possible, otherwise copy then delete. Used to undo moves.
+pub fn relocate(src: &VfsRef, from: &Path, dst: &VfsRef, to: &Path, progress: &Progress) -> Result<()> {
+    if dst.exists(to) {
+        bail!("{} already exists", to.display());
+    }
+    if same_vfs(src, dst) && src.rename(from, to).is_ok() {
+        return Ok(());
+    }
+    let entry = src.stat(from)?;
+    copy_tree(&**src, &entry, &**dst, to, progress)?;
+    src.remove_all(from)
 }
 
 fn stream(reader: &mut dyn Read, writer: &mut dyn Write, progress: &Progress) -> Result<()> {
@@ -184,16 +211,47 @@ pub fn tree_size(vfs: &dyn crate::Vfs, entry: &Entry, progress: &Progress) -> Re
     })
 }
 
+/// Restores items trashed since `since` to their original locations.
+/// Returns how many were restored.
+#[cfg(any(
+    target_os = "windows",
+    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+pub fn restore_from_trash(paths: &[PathBuf], since: std::time::SystemTime) -> Result<usize> {
+    let since = since.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0) - 2;
+    let mut chosen: Vec<trash::TrashItem> = Vec::new();
+    for item in trash::os_limited::list().context("cannot read the trash")? {
+        if item.time_deleted < since || !paths.contains(&item.original_path()) {
+            continue;
+        }
+        match chosen.iter_mut().find(|c| c.original_path() == item.original_path()) {
+            Some(existing) if existing.time_deleted < item.time_deleted => *existing = item,
+            Some(_) => {}
+            None => chosen.push(item),
+        }
+    }
+    if chosen.is_empty() {
+        bail!("the items are no longer in the trash");
+    }
+    let count = chosen.len();
+    trash::os_limited::restore_all(chosen).context("cannot restore from the trash")?;
+    Ok(count)
+}
+
+#[cfg(not(any(
+    target_os = "windows",
+    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+)))]
+pub fn restore_from_trash(_paths: &[PathBuf], _since: std::time::SystemTime) -> Result<usize> {
+    bail!("restoring from the trash is not supported on this platform")
+}
+
 /// Deletes items, using the trash when requested and supported.
 pub fn delete(vfs: &VfsRef, paths: &[PathBuf], use_trash: bool, progress: &Progress) -> Result<()> {
     progress.total_items.store(paths.len(), Ordering::Relaxed);
     for path in paths {
         progress.check()?;
-        progress.set_current(
-            path.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-        );
+        progress.set_current(path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
         if use_trash {
             vfs.trash(path)?;
         } else {
@@ -236,10 +294,7 @@ mod tests {
         let p = Progress::default();
         t.run(&p).unwrap();
         t.run(&p).unwrap();
-        assert_eq!(
-            fs::read_to_string(dest.join("src/nested/a.txt")).unwrap(),
-            "hello"
-        );
+        assert_eq!(fs::read_to_string(dest.join("src/nested/a.txt")).unwrap(), "hello");
         assert!(dest.join("src (1)/nested/a.txt").exists());
         assert!(src.exists());
     }
@@ -285,17 +340,37 @@ mod tests {
     }
 
     #[test]
+    fn logs_transfers_and_relocates_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f.txt");
+        fs::write(&file, "x").unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let vfs = local();
+        let log = TransferLog::default();
+        Transfer {
+            mode: TransferMode::Move,
+            src: vfs.clone(),
+            sources: vec![file.clone()],
+            dst: vfs.clone(),
+            dest_dir: dest.clone(),
+            conflict: Conflict::KeepBoth,
+        }
+        .run_logged(&Progress::default(), &log)
+        .unwrap();
+        let log = log.into_inner().unwrap();
+        assert_eq!(log, vec![(file.clone(), dest.join("f.txt"))]);
+        relocate(&vfs, &log[0].1, &vfs, &log[0].0, &Progress::default()).unwrap();
+        assert!(file.exists());
+        assert!(!dest.join("f.txt").exists());
+    }
+
+    #[test]
     fn deletes_permanently() {
         let dir = tempfile::tempdir().unwrap();
         let sub = dir.path().join("x");
         fs::create_dir_all(sub.join("y")).unwrap();
-        delete(
-            &local(),
-            std::slice::from_ref(&sub),
-            false,
-            &Progress::default(),
-        )
-        .unwrap();
+        delete(&local(), std::slice::from_ref(&sub), false, &Progress::default()).unwrap();
         assert!(!sub.exists());
     }
 }

@@ -15,19 +15,11 @@ use crate::Vfs;
 pub fn binary_arch(header: &[u8]) -> Option<String> {
     let u16_at = |i: usize, le: bool| -> Option<u16> {
         let b: [u8; 2] = header.get(i..i + 2)?.try_into().ok()?;
-        Some(if le {
-            u16::from_le_bytes(b)
-        } else {
-            u16::from_be_bytes(b)
-        })
+        Some(if le { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) })
     };
     let u32_at = |i: usize, le: bool| -> Option<u32> {
         let b: [u8; 4] = header.get(i..i + 4)?.try_into().ok()?;
-        Some(if le {
-            u32::from_le_bytes(b)
-        } else {
-            u32::from_be_bytes(b)
-        })
+        Some(if le { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) })
     };
 
     if header.starts_with(b"\x7fELF") {
@@ -106,11 +98,7 @@ pub fn binary_arch(header: &[u8]) -> Option<String> {
 /// Reads enough of a file to identify executables.
 pub fn file_arch(vfs: &dyn Vfs, path: &Path) -> Option<String> {
     let mut header = Vec::with_capacity(4096);
-    vfs.reader(path)
-        .ok()?
-        .take(4096)
-        .read_to_end(&mut header)
-        .ok()?;
+    vfs.reader(path).ok()?.take(4096).read_to_end(&mut header).ok()?;
     binary_arch(&header)
 }
 
@@ -128,11 +116,7 @@ pub fn md5(vfs: &dyn Vfs, path: &Path, progress: &Progress) -> Result<String> {
         hasher.update(&buf[..n]);
         progress.add_bytes(n as u64);
     }
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 #[cfg(test)]
@@ -184,9 +168,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("a");
         std::fs::write(&f, "hello world").unwrap();
-        assert_eq!(
-            md5(&LocalVfs, &f, &Progress::default()).unwrap(),
-            "5eb63bbbe01eeed093cb22bb8f5acdc3"
-        );
+        assert_eq!(md5(&LocalVfs, &f, &Progress::default()).unwrap(), "5eb63bbbe01eeed093cb22bb8f5acdc3");
     }
 }

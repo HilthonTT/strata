@@ -54,6 +54,9 @@ pub struct Connection {
     /// SSH private key for SFTP. The SSH agent and `~/.ssh` keys are tried otherwise.
     #[serde(default)]
     pub identity_file: Option<PathBuf>,
+    /// SMB workgroup / domain (defaults to `WORKGROUP`).
+    #[serde(default)]
+    pub domain: Option<String>,
     /// Probe and mount automatically when strata starts.
     #[serde(default)]
     pub auto_connect: bool,
@@ -70,10 +73,8 @@ impl Connection {
             "sftp" | "ssh" => Protocol::Sftp,
             _ => return None,
         };
-        let (authority, path) = rest
-            .split_once('/')
-            .map(|(a, p)| (a, format!("/{p}")))
-            .unwrap_or((rest, String::new()));
+        let (authority, path) =
+            rest.split_once('/').map(|(a, p)| (a, format!("/{p}"))).unwrap_or((rest, String::new()));
         let (user, hostport) = match authority.rsplit_once('@') {
             Some((u, h)) => (Some(u.to_string()), h),
             None => (None, authority),
@@ -87,11 +88,7 @@ impl Connection {
             _ => path,
         };
         Some(Self {
-            name: if name.is_empty() {
-                host.clone()
-            } else {
-                name.to_string()
-            },
+            name: if name.is_empty() { host.clone() } else { name.to_string() },
             protocol,
             host,
             share,
@@ -99,6 +96,7 @@ impl Connection {
             port,
             mount_point: None,
             identity_file: None,
+            domain: None,
             auto_connect: false,
         })
     }
@@ -108,26 +106,15 @@ impl Connection {
     }
 
     pub fn url(&self) -> String {
-        let user = self
-            .user
-            .as_ref()
-            .map(|u| format!("{u}@"))
-            .unwrap_or_default();
+        let user = self.user.as_ref().map(|u| format!("{u}@")).unwrap_or_default();
         let port = self.port.map(|p| format!(":{p}")).unwrap_or_default();
         let share = self.share.trim_start_matches('/');
-        format!(
-            "{}://{user}{}{port}/{share}",
-            self.protocol.as_str(),
-            bracket_ipv6(&self.host)
-        )
+        format!("{}://{user}{}{port}/{share}", self.protocol.as_str(), bracket_ipv6(&self.host))
     }
 
     pub fn mount_point(&self) -> PathBuf {
-        self.mount_point.clone().unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join("mnt")
-                .join(sanitize(&self.name))
+        self.mount_point.as_ref().map(|p| crate::util::expand_tilde(&p.to_string_lossy())).unwrap_or_else(|| {
+            dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp")).join("mnt").join(sanitize(&self.name))
         })
     }
 
@@ -168,54 +155,74 @@ impl Connection {
     /// Command that mounts the share. It runs with the terminal handed
     /// over, so `sudo` or the server can prompt for a password.
     pub fn mount_command(&self) -> Option<Vec<String>> {
+        self.mount_plan(None).map(|p| p.argv)
+    }
+
+    /// How to mount the share, using `password` (from the keychain) when
+    /// given. Passwords go through stdin or a private credentials file
+    /// where the platform tool allows it, rather than the command line.
+    pub fn mount_plan(&self, password: Option<&str>) -> Option<MountPlan> {
         let mp = self.mount_point().to_string_lossy().into_owned();
         let user = self.user.clone().unwrap_or_else(whoami);
+        let domain = self.domain.clone().unwrap_or_else(|| "WORKGROUP".into());
         let share = self.share.trim_matches('/');
-        let cmd: Vec<String> = match self.protocol {
+        let mut plan = MountPlan::default();
+        plan.argv = match self.protocol {
             Protocol::Sftp => return None,
             Protocol::Smb if cfg!(target_os = "windows") => {
-                vec![
-                    "net".into(),
-                    "use".into(),
-                    format!(r"\\{}\{}", self.host, share.replace('/', "\\")),
-                    format!("/user:{user}"),
-                ]
+                let mut argv =
+                    vec!["net".into(), "use".into(), format!(r"\\{}\{}", self.host, share.replace('/', "\\"))];
+                // `net use` has no stdin option; `*` makes it prompt instead.
+                argv.push(password.map(str::to_string).unwrap_or_else(|| "*".into()));
+                argv.push(format!("/user:{user}"));
+                argv
             }
             Protocol::Smb if cfg!(target_os = "macos") => {
+                let auth = match password {
+                    Some(pw) => format!("{}:{}", percent_encode(&user), percent_encode(pw)),
+                    None => percent_encode(&user),
+                };
+                vec!["mount_smbfs".into(), format!("//{auth}@{}/{share}", self.host), mp]
+            }
+            Protocol::Smb if which("gio") => {
+                // gio asks for user, domain and password on stdin.
+                plan.stdin = password.map(|pw| format!("{user}\n{domain}\n{pw}\n"));
+                vec!["gio".into(), "mount".into(), self.url()]
+            }
+            Protocol::Smb => {
+                let options = match password {
+                    Some(pw) => {
+                        plan.credentials = Some(format!("username={user}\npassword={pw}\ndomain={domain}\n"));
+                        format!("credentials={CREDENTIALS_FILE},uid={},gid={}", id_of("-u"), id_of("-g"))
+                    }
+                    None => format!("username={user},uid={},gid={}", id_of("-u"), id_of("-g")),
+                };
                 vec![
-                    "mount_smbfs".into(),
-                    format!("//{user}@{}/{share}", self.host),
+                    "sudo".into(),
+                    "mount".into(),
+                    "-t".into(),
+                    "cifs".into(),
+                    format!("//{}/{share}", self.host),
+                    mp,
+                    "-o".into(),
+                    options,
+                ]
+            }
+            Protocol::Nfs if cfg!(target_os = "windows") => {
+                vec!["mount".into(), format!(r"\\{}{}", self.host, self.share.replace('/', "\\")), "*".into()]
+            }
+            Protocol::Nfs => {
+                vec![
+                    "sudo".into(),
+                    "mount".into(),
+                    "-t".into(),
+                    "nfs".into(),
+                    format!("{}:{}", self.host, self.share),
                     mp,
                 ]
             }
-            Protocol::Smb if which("gio") => vec!["gio".into(), "mount".into(), self.url()],
-            Protocol::Smb => vec![
-                "sudo".into(),
-                "mount".into(),
-                "-t".into(),
-                "cifs".into(),
-                format!("//{}/{share}", self.host),
-                mp,
-                "-o".into(),
-                format!("username={user},uid={},gid={}", id_of("-u"), id_of("-g")),
-            ],
-            Protocol::Nfs if cfg!(target_os = "windows") => {
-                vec![
-                    "mount".into(),
-                    format!(r"\\{}{}", self.host, self.share.replace('/', "\\")),
-                    "*".into(),
-                ]
-            }
-            Protocol::Nfs => vec![
-                "sudo".into(),
-                "mount".into(),
-                "-t".into(),
-                "nfs".into(),
-                format!("{}:{}", self.host, self.share),
-                mp,
-            ],
         };
-        Some(cmd)
+        Some(plan)
     }
 
     pub fn unmount_command(&self, mounted_at: &Path) -> Vec<String> {
@@ -236,12 +243,33 @@ impl Connection {
     pub fn needs_mount_dir(&self) -> bool {
         match self.protocol {
             Protocol::Sftp => false,
-            Protocol::Smb => {
-                !(cfg!(target_os = "windows") || (cfg!(target_os = "linux") && which("gio")))
-            }
+            Protocol::Smb => !(cfg!(target_os = "windows") || (cfg!(target_os = "linux") && which("gio"))),
             Protocol::Nfs => !cfg!(target_os = "windows"),
         }
     }
+}
+
+/// Placeholder in [`MountPlan::argv`] for the path of the credentials file.
+pub const CREDENTIALS_FILE: &str = "{credentials-file}";
+
+/// A mount command plus how to hand it the password.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MountPlan {
+    pub argv: Vec<String>,
+    /// Text to write to the command's stdin.
+    pub stdin: Option<String>,
+    /// Contents of a private credentials file whose path replaces
+    /// [`CREDENTIALS_FILE`] in `argv`.
+    pub credentials: Option<String>,
+}
+
+fn percent_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// Result of a quick TCP probe.
@@ -263,12 +291,7 @@ pub fn probe(host: &str, ports: &[u16], timeout: Duration) -> Reachability {
         for addr in addrs {
             let start = Instant::now();
             match TcpStream::connect_timeout(&addr, timeout) {
-                Ok(_) => {
-                    return Reachability::Up {
-                        latency: start.elapsed(),
-                        port,
-                    }
-                }
+                Ok(_) => return Reachability::Up { latency: start.elapsed(), port },
                 Err(e) => last_err = format!("port {port}: {e}"),
             }
         }
@@ -304,33 +327,19 @@ pub struct Step {
 /// than guessed at.
 pub fn diagnose(conn: &Connection) -> Vec<Step> {
     let mut steps = Vec::new();
-    let resolved = (conn.host.as_str(), conn.port())
-        .to_socket_addrs()
-        .map(|a| a.collect::<Vec<_>>());
+    let resolved = (conn.host.as_str(), conn.port()).to_socket_addrs().map(|a| a.collect::<Vec<_>>());
     let resolved_ok = match &resolved {
         Ok(addrs) if !addrs.is_empty() => {
             let list: Vec<String> = addrs.iter().map(|a| a.ip().to_string()).collect();
-            steps.push(Step {
-                name: "Server name",
-                status: StepStatus::Ok,
-                detail: list.join(", "),
-            });
+            steps.push(Step { name: "Server name", status: StepStatus::Ok, detail: list.join(", ") });
             true
         }
         Ok(_) => {
-            steps.push(Step {
-                name: "Server name",
-                status: StepStatus::Fail,
-                detail: "no addresses".into(),
-            });
+            steps.push(Step { name: "Server name", status: StepStatus::Fail, detail: "no addresses".into() });
             false
         }
         Err(e) => {
-            steps.push(Step {
-                name: "Server name",
-                status: StepStatus::Fail,
-                detail: e.to_string(),
-            });
+            steps.push(Step { name: "Server name", status: StepStatus::Fail, detail: e.to_string() });
             false
         }
     };
@@ -339,11 +348,7 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
         let ports = probe_ports(conn);
         match probe(&conn.host, &ports, Duration::from_secs(3)) {
             Reachability::Up { latency, port } => {
-                let status = if port == 139 {
-                    StepStatus::Warn
-                } else {
-                    StepStatus::Ok
-                };
+                let status = if port == 139 { StepStatus::Warn } else { StepStatus::Ok };
                 steps.push(Step {
                     name: "Reach server",
                     status,
@@ -356,20 +361,12 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
                     Reachability::Down(e) => e,
                     _ => "unknown".into(),
                 };
-                steps.push(Step {
-                    name: "Reach server",
-                    status: StepStatus::Fail,
-                    detail,
-                });
+                steps.push(Step { name: "Reach server", status: StepStatus::Fail, detail });
                 false
             }
         }
     } else {
-        steps.push(Step {
-            name: "Reach server",
-            status: StepStatus::Skipped,
-            detail: "name did not resolve".into(),
-        });
+        steps.push(Step { name: "Reach server", status: StepStatus::Skipped, detail: "name did not resolve".into() });
         false
     };
 
@@ -377,11 +374,7 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
         Protocol::Sftp => {
             steps.push(Step {
                 name: "Credentials",
-                status: if reachable {
-                    StepStatus::Ok
-                } else {
-                    StepStatus::Skipped
-                },
+                status: if reachable { StepStatus::Ok } else { StepStatus::Skipped },
                 detail: if reachable {
                     "checked when connecting (agent, key or password)".into()
                 } else {
@@ -392,32 +385,22 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
         Protocol::Smb | Protocol::Nfs => {
             if conn.needs_mount_dir() {
                 let mp = conn.mount_point();
-                let (status, detail) =
-                    match std::fs::read_dir(&mp).map(|mut it| it.next().is_none()) {
-                        Ok(true) => (StepStatus::Ok, format!("{} is empty", mp.display())),
-                        Ok(false) if conn.mounted_at().is_some() => (
-                            StepStatus::Ok,
-                            format!("{} in use by this share", mp.display()),
-                        ),
-                        Ok(false) => (StepStatus::Warn, format!("{} is not empty", mp.display())),
-                        Err(_) => (StepStatus::Ok, format!("{} will be created", mp.display())),
-                    };
-                steps.push(Step {
-                    name: "Mount point",
-                    status,
-                    detail,
-                });
+                let (status, detail) = match std::fs::read_dir(&mp).map(|mut it| it.next().is_none()) {
+                    Ok(true) => (StepStatus::Ok, format!("{} is empty", mp.display())),
+                    Ok(false) if conn.mounted_at().is_some() => {
+                        (StepStatus::Ok, format!("{} in use by this share", mp.display()))
+                    }
+                    Ok(false) => (StepStatus::Warn, format!("{} is not empty", mp.display())),
+                    Err(_) => (StepStatus::Ok, format!("{} will be created", mp.display())),
+                };
+                steps.push(Step { name: "Mount point", status, detail });
             }
             let (status, detail) = match conn.mounted_at() {
                 Some(at) => (StepStatus::Ok, format!("mounted at {}", at.display())),
                 None if reachable => (StepStatus::Warn, "not mounted".into()),
                 None => (StepStatus::Skipped, "server did not answer".into()),
             };
-            steps.push(Step {
-                name: "Share",
-                status,
-                detail,
-            });
+            steps.push(Step { name: "Share", status, detail });
         }
     }
     steps
@@ -426,10 +409,7 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
 fn split_host_port(s: &str) -> (String, Option<u16>) {
     if let Some(rest) = s.strip_prefix('[') {
         if let Some((host, tail)) = rest.split_once(']') {
-            return (
-                host.to_string(),
-                tail.strip_prefix(':').and_then(|p| p.parse().ok()),
-            );
+            return (host.to_string(), tail.strip_prefix(':').and_then(|p| p.parse().ok()));
         }
     }
     match s.rsplit_once(':') {
@@ -447,21 +427,11 @@ fn bracket_ipv6(host: &str) -> String {
 }
 
 fn sanitize(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
 }
 
 fn whoami() -> String {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "guest".into())
+    std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "guest".into())
 }
 
 fn id_of(flag: &str) -> String {
@@ -537,6 +507,17 @@ mod tests {
         let n = Connection::from_url("x", "nfs://nas.local/export/data").unwrap();
         assert_eq!(n.share, "/export/data");
         assert!(Connection::from_url("x", "http://nope").is_none());
+    }
+
+    #[test]
+    fn passwords_stay_off_the_command_line_on_linux() {
+        let c = Connection::from_url("n", "smb://me@host/media").unwrap();
+        let plan = c.mount_plan(Some("s3cret")).unwrap();
+        if cfg!(target_os = "linux") {
+            assert!(!plan.argv.iter().any(|a| a.contains("s3cret")));
+            assert!(plan.stdin.is_some() || plan.credentials.is_some());
+        }
+        assert_eq!(percent_encode("p@ss w"), "p%40ss%20w");
     }
 
     #[test]

@@ -34,9 +34,7 @@ pub struct SftpVfs {
 
 impl std::fmt::Debug for SftpVfs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SftpVfs")
-            .field("label", &self.label)
-            .finish()
+        f.debug_struct("SftpVfs").field("label", &self.label).finish()
     }
 }
 
@@ -62,9 +60,7 @@ impl SftpVfs {
                     let ssh_dir = dirs::home_dir().unwrap_or_default().join(".ssh");
                     for key in ["id_ed25519", "id_ecdsa", "id_rsa"] {
                         let key = ssh_dir.join(key);
-                        if key.exists()
-                            && session.userauth_pubkey_file(user, None, &key, None).is_ok()
-                        {
+                        if key.exists() && session.userauth_pubkey_file(user, None, &key, None).is_ok() {
                             break;
                         }
                     }
@@ -75,12 +71,8 @@ impl SftpVfs {
             bail!("authentication failed for {user}@{host}");
         }
 
-        let sftp = session
-            .sftp()
-            .context("server refused the SFTP subsystem")?;
-        let home = sftp
-            .realpath(Path::new("."))
-            .unwrap_or_else(|_| PathBuf::from("/"));
+        let sftp = session.sftp().context("server refused the SFTP subsystem")?;
+        let home = sftp.realpath(Path::new(".")).unwrap_or_else(|_| PathBuf::from("/"));
         Ok(Self {
             label: format!("{user}@{host}"),
             host: host.to_string(),
@@ -100,17 +92,10 @@ impl SftpVfs {
             _ => EntryKind::Other,
         };
         Entry {
-            name: path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "/".into()),
+            name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "/".into()),
             path,
             kind,
-            size: if kind == EntryKind::Dir {
-                0
-            } else {
-                stat.size.unwrap_or(0)
-            },
+            size: if kind == EntryKind::Dir { 0 } else { stat.size.unwrap_or(0) },
             modified: stat.mtime.map(|t| UNIX_EPOCH + Duration::from_secs(t)),
             mode: stat.perm.map(|p| p & 0o7777),
         }
@@ -136,20 +121,12 @@ impl Vfs for SftpVfs {
 
     fn read_dir(&self, path: &Path) -> Result<Vec<Entry>> {
         let sftp = self.sftp();
-        let items = sftp
-            .readdir(path)
-            .with_context(|| format!("read {}", path.display()))?;
+        let items = sftp.readdir(path).with_context(|| format!("read {}", path.display()))?;
         Ok(items
             .into_iter()
-            .filter(|(p, _)| {
-                !matches!(
-                    p.file_name().and_then(|n| n.to_str()),
-                    Some(".") | Some("..")
-                )
-            })
+            .filter(|(p, _)| !matches!(p.file_name().and_then(|n| n.to_str()), Some(".") | Some("..")))
             .map(|(p, st)| {
-                let to_dir = st.file_type().is_symlink()
-                    && sftp.stat(&p).map(|s| s.is_dir()).unwrap_or(false);
+                let to_dir = st.file_type().is_symlink() && sftp.stat(&p).map(|s| s.is_dir()).unwrap_or(false);
                 Self::entry_from(p, &st, to_dir)
             })
             .collect())
@@ -157,11 +134,8 @@ impl Vfs for SftpVfs {
 
     fn stat(&self, path: &Path) -> Result<Entry> {
         let sftp = self.sftp();
-        let st = sftp
-            .lstat(path)
-            .with_context(|| format!("stat {}", path.display()))?;
-        let to_dir =
-            st.file_type().is_symlink() && sftp.stat(path).map(|s| s.is_dir()).unwrap_or(false);
+        let st = sftp.lstat(path).with_context(|| format!("stat {}", path.display()))?;
+        let to_dir = st.file_type().is_symlink() && sftp.stat(path).map(|s| s.is_dir()).unwrap_or(false);
         Ok(Self::entry_from(path.to_path_buf(), &st, to_dir))
     }
 

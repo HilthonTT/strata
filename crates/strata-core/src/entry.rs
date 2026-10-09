@@ -28,10 +28,7 @@ pub struct Entry {
 impl Entry {
     /// True for directories and symlinks pointing at directories.
     pub fn is_dir(&self) -> bool {
-        matches!(
-            self.kind,
-            EntryKind::Dir | EntryKind::Symlink { to_dir: true }
-        )
+        matches!(self.kind, EntryKind::Dir | EntryKind::Symlink { to_dir: true })
     }
 
     pub fn is_symlink(&self) -> bool {

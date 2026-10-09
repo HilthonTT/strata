@@ -43,11 +43,7 @@ pub struct SortOptions {
 
 impl Default for SortOptions {
     fn default() -> Self {
-        Self {
-            key: SortKey::Name,
-            reverse: false,
-            dirs_first: true,
-        }
+        Self { key: SortKey::Name, reverse: false, dirs_first: true }
     }
 }
 
@@ -94,18 +90,9 @@ pub fn sort_entries(entries: &mut [Entry], opts: SortOptions) {
         }
         let ord = match opts.key {
             SortKey::Name => natural_cmp(&a.name, &b.name),
-            SortKey::Size => a
-                .size
-                .cmp(&b.size)
-                .then_with(|| natural_cmp(&a.name, &b.name)),
-            SortKey::Modified => a
-                .modified
-                .cmp(&b.modified)
-                .then_with(|| natural_cmp(&a.name, &b.name)),
-            SortKey::Extension => a
-                .extension()
-                .cmp(&b.extension())
-                .then_with(|| natural_cmp(&a.name, &b.name)),
+            SortKey::Size => a.size.cmp(&b.size).then_with(|| natural_cmp(&a.name, &b.name)),
+            SortKey::Modified => a.modified.cmp(&b.modified).then_with(|| natural_cmp(&a.name, &b.name)),
+            SortKey::Extension => a.extension().cmp(&b.extension()).then_with(|| natural_cmp(&a.name, &b.name)),
         };
         if opts.reverse {
             ord.reverse()
