@@ -102,6 +102,21 @@ impl Transfer {
         Ok((bytes, self.sources.len()))
     }
 
+    /// Names of top-level sources that already exist in the destination
+    /// (a move onto itself does not count).
+    pub fn conflicts(&self) -> Vec<String> {
+        self.sources
+            .iter()
+            .filter_map(|source| {
+                let name = source.file_name()?.to_string_lossy().into_owned();
+                let target = self.dst.join(&self.dest_dir, &name);
+                let onto_itself =
+                    same_vfs(&self.src, &self.dst) && target == *source && self.mode == TransferMode::Move;
+                (!onto_itself && self.dst.exists(&target)).then_some(name)
+            })
+            .collect()
+    }
+
     /// Resolves the destination path for a top-level source, honouring the
     /// conflict policy. `None` means skip.
     fn target_for(&self, entry: &Entry) -> Result<Option<PathBuf>> {
@@ -114,8 +129,13 @@ impl Transfer {
         }
         match self.conflict {
             Conflict::Skip => Ok(None),
+            // Replaced items go to the trash where there is one.
             Conflict::Overwrite => {
-                self.dst.remove_all(&target)?;
+                if self.dst.is_local() {
+                    self.dst.trash(&target)?;
+                } else {
+                    self.dst.remove_all(&target)?;
+                }
                 Ok(Some(target))
             }
             Conflict::KeepBoth => {
@@ -363,6 +383,34 @@ mod tests {
         relocate(&vfs, &log[0].1, &vfs, &log[0].0, &Progress::default()).unwrap();
         assert!(file.exists());
         assert!(!dest.join("f.txt").exists());
+    }
+
+    #[test]
+    fn conflicts_are_reported_and_skip_keeps_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (src, dest) = (dir.path().join("src"), dir.path().join("dest"));
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(src.join("a.txt"), "new").unwrap();
+        fs::write(src.join("b.txt"), "new").unwrap();
+        fs::write(dest.join("a.txt"), "old").unwrap();
+        let vfs = local();
+        let mut t = Transfer {
+            mode: TransferMode::Copy,
+            src: vfs.clone(),
+            sources: vec![src.join("a.txt"), src.join("b.txt")],
+            dst: vfs,
+            dest_dir: dest.clone(),
+            conflict: Conflict::Skip,
+        };
+        assert_eq!(t.conflicts(), vec!["a.txt".to_string()]);
+        t.run(&Progress::default()).unwrap();
+        assert_eq!(fs::read_to_string(dest.join("a.txt")).unwrap(), "old");
+        assert!(dest.join("b.txt").exists());
+        t.conflict = Conflict::KeepBoth;
+        t.sources.truncate(1);
+        t.run(&Progress::default()).unwrap();
+        assert!(dest.join("a (1).txt").exists());
     }
 
     #[test]
