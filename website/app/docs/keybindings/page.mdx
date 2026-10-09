@@ -17,14 +17,14 @@ strata ships two layouts. Choose one with `keymap` under `[general]`:
 | Trash / delete | <Kbd>d d</Kbd> / <Kbd>D</Kbd> | <Kbd>ctrl+d</Kbd> / <Kbd>D</Kbd> |
 | Rename / bulk rename | <Kbd>r</Kbd> / <Kbd>R</Kbd> | <Kbd>ctrl+r</Kbd> / <Kbd>alt+r</Kbd> |
 | New file / directory | <Kbd>a</Kbd> / <Kbd>A</Kbd> | <Kbd>ctrl+n</Kbd> (end the name with `/` for a directory) |
-| Undo | <Kbd>u</Kbd> | <Kbd>ctrl+z</Kbd> |
+| Undo / redo | <Kbd>u</Kbd> / <Kbd>ctrl+r</Kbd> | <Kbd>ctrl+z</Kbd> / <Kbd>ctrl+y</Kbd> |
 | Sort menu | <Kbd>s</Kbd> | <Kbd>o</Kbd> |
 | Fuzzy find | <Kbd>f</Kbd> | <Kbd>ctrl+f</Kbd> |
 | Toggle preview | <Kbd>w</Kbd> | <Kbd>f</Kbd> |
 | New tab | <Kbd>t</Kbd> | <Kbd>ctrl+t</Kbd> |
 | Copy path / current directory | <Kbd>y p</Kbd> / <Kbd>y d</Kbd> | <Kbd>ctrl+p</Kbd> / <Kbd>c</Kbd> |
 
-Both presets share <Kbd>tab</Kbd>, the arrow keys, <Kbd>/</Kbd>, <Kbd>.</Kbd>, <Kbd>:</Kbd>, <Kbd>?</Kbd>, <Kbd>T</Kbd>, <Kbd>1</Kbd>–<Kbd>4</Kbd>, <Kbd>ctrl+g</Kbd>, <Kbd>e</Kbd>, <Kbd>E</Kbd>, <Kbd>q</Kbd> and <Kbd>Q</Kbd>.
+Both presets share <Kbd>F5</Kbd> (refresh), <Kbd>alt+j</Kbd> / <Kbd>alt+k</Kbd> (scroll the preview), <Kbd>alt+/</Kbd> (search the preview), <Kbd>tab</Kbd>, the arrow keys, <Kbd>/</Kbd>, <Kbd>.</Kbd>, <Kbd>:</Kbd>, <Kbd>?</Kbd>, <Kbd>T</Kbd>, <Kbd>1</Kbd>–<Kbd>4</Kbd>, <Kbd>ctrl+g</Kbd>, <Kbd>e</Kbd>, <Kbd>E</Kbd>, <Kbd>q</Kbd> and <Kbd>Q</Kbd>.
 
 ## Remapping
 
@@ -50,7 +50,8 @@ Keys are written as `j`, `G`, `space`, `enter`, `esc`, `tab`, `backtab`, `backsp
 | `new_tab`, `close_tab`, `next_tab`, `prev_tab` | Tabs |
 | `toggle_select`, `select_all`, `invert_selection`, `visual_mode`, `select_down`, `select_up`, `clear` | Selection |
 | `copy`, `cut`, `paste`, `copy_to_other`, `move_to_other` | Clipboard and transfers |
-| `delete`, `delete_permanent`, `rename`, `bulk_rename`, `new_file`, `new_dir`, `undo` | File operations |
+| `delete`, `delete_permanent`, `rename`, `bulk_rename`, `new_file`, `new_dir`, `undo`, `redo` | File operations |
+| `preview_down`, `preview_up`, `preview_find`, `preview_next`, `preview_prev` | Preview |
 | `copy_path`, `copy_cwd`, `cancel_job` | Misc |
 | `filter`, `fuzzy_find`, `content_search` | Search |
 | `toggle_hidden`, `toggle_preview`, `toggle_sidebar`, `toggle_footer`, `cycle_sort`, `reverse_sort`, `sort_menu`, `refresh` | View |

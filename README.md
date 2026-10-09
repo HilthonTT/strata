@@ -45,7 +45,8 @@ strata [DIR...]           # one panel per directory
 | `a` / `A` | new file / directory | `/` / `f` | filter / fuzzy find |
 | `tab` / `n` | next / new panel | `1`–`4` | files, dashboard, Docker, NAS |
 | `T` | theme picker | `:` | command palette |
-| `u` | undo | `ctrl+g` | search file contents |
+| `u` / `ctrl+r` | undo / redo | `ctrl+g` | search file contents |
+| `alt+j` / `alt+k` | scroll the preview | `alt+/` | search the preview |
 | `t` | new tab | `g t` | next tab |
 | `s` | sort menu | `E` | open the directory in your editor |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |

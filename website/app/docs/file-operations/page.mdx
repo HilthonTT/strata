@@ -13,7 +13,9 @@ Most actions apply to the **marked** items, or to the item under the cursor when
 | <Kbd>y y</Kbd> / <Kbd>x</Kbd> then <Kbd>p</Kbd> | Copy / cut, then paste in another directory |
 | <Kbd>c</Kbd> / <Kbd>m</Kbd> | Copy / move straight into the next panel |
 
-Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer; <Kbd>ctrl+x</Kbd> cancels the latest one. Name clashes never overwrite anything: the new item becomes `name (1).ext`. Copies work between any locations — local disk, SFTP servers and Docker containers.
+If some names already exist in the destination, strata asks once for the whole paste: **keep both** (the new item becomes `name (1).ext`), **overwrite** (replaced items go to the trash on local disks), **skip** those items, or cancel.
+
+Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer; <Kbd>ctrl+x</Kbd> cancels the latest one. Copies work between any locations — local disk, SFTP servers and Docker containers.
 
 ## Create, rename, delete
 
@@ -27,9 +29,9 @@ Transfers run in the background, so you can keep working. Their progress appears
 
 Bulk rename opens one name per line in your editor; change the lines, save and quit. Swapping two names works, and strata refuses to overwrite files that are not part of the rename.
 
-## Undo
+## Undo and redo
 
-Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation. Undo covers:
+Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:
 
 - renames and bulk renames,
 - new files and directories (they go to the trash),
@@ -42,3 +44,7 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 ## Open files
 
 <Kbd>enter</Kbd> opens text files in your editor and media or documents with the system app. <Kbd>o</Kbd> always uses the system app, and <Kbd>e</Kbd> / <Kbd>E</Kbd> open the file or the whole directory in your editor. To choose programs per file type, see [`open_with`](/docs/configuration/#open-with).
+
+## Remote files
+
+On SFTP servers and in Docker containers, <Kbd>enter</Kbd> and <Kbd>e</Kbd> download the file to a private temporary folder and open it in your editor. When you quit the editor, strata uploads the file back if you changed it, then deletes the copy.
