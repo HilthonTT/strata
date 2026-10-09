@@ -81,6 +81,12 @@ actions! {
     FuzzyFind => "fuzzy_find", "Fuzzy-find files recursively";
     ContentSearch => "content_search", "Search file contents (ripgrep)";
     Undo => "undo", "Undo the last file operation";
+    Redo => "redo", "Redo what was undone";
+    PreviewDown => "preview_down", "Scroll the preview down";
+    PreviewUp => "preview_up", "Scroll the preview up";
+    PreviewFind => "preview_find", "Search inside the preview";
+    PreviewNext => "preview_next", "Next match in the preview";
+    PreviewPrev => "preview_prev", "Previous match in the preview";
     ToggleHidden => "toggle_hidden", "Show / hide dotfiles";
     TogglePreview => "toggle_preview", "Show / hide the preview";
     ToggleSidebar => "toggle_sidebar", "Show / hide the sidebar";
@@ -336,6 +342,14 @@ const COMMON: &[(&str, &str)] = &[
     ("q", "quit"),
     ("Q", "quit_cd"),
     ("ctrl+g", "content_search"),
+    ("f5", "refresh"),
+    ("alt+j", "preview_down"),
+    ("alt+down", "preview_down"),
+    ("alt+k", "preview_up"),
+    ("alt+up", "preview_up"),
+    ("alt+/", "preview_find"),
+    ("alt+n", "preview_next"),
+    ("alt+N", "preview_prev"),
     ("alt+1", ":tab 1"),
     ("alt+2", ":tab 2"),
     ("alt+3", ":tab 3"),
@@ -388,7 +402,7 @@ const VIM: &[(&str, &str)] = &[
     ("b", "toggle_sidebar"),
     ("s", "sort_menu"),
     ("S", "reverse_sort"),
-    ("ctrl+r", "refresh"),
+    ("ctrl+r", "redo"),
     ("g f", "view_files"),
     ("g d", "view_dashboard"),
     ("g k", "view_docker"),
@@ -442,6 +456,7 @@ const STANDARD: &[(&str, &str)] = &[
     ("O", "open_with"),
     ("!", "shell"),
     ("ctrl+z", "undo"),
+    ("ctrl+y", "redo"),
     ("ctrl+t", "new_tab"),
     ("alt+w", "close_tab"),
     ("alt+right", "next_tab"),
