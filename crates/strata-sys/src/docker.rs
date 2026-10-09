@@ -56,19 +56,8 @@ fn docker(args: &[&str]) -> Result<String> {
     if !out.status.success() {
         // Some wrappers (e.g. WSL without Docker integration) explain on stdout.
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        let message = if stderr.is_empty() {
-            String::from_utf8_lossy(&out.stdout).trim().to_string()
-        } else {
-            stderr
-        };
-        bail!(
-            "{}",
-            if message.is_empty() {
-                format!("docker exited with {}", out.status)
-            } else {
-                message
-            }
-        );
+        let message = if stderr.is_empty() { String::from_utf8_lossy(&out.stdout).trim().to_string() } else { stderr };
+        bail!("{}", if message.is_empty() { format!("docker exited with {}", out.status) } else { message });
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -98,25 +87,15 @@ pub fn list_containers() -> Result<Vec<Container>> {
 
     if containers.iter().any(Container::is_running) {
         if let Ok(stats) = docker(&["stats", "--no-stream", "--format", "{{json .}}"]) {
-            for s in stats
-                .lines()
-                .filter_map(|l| serde_json::from_str::<StatsLine>(l).ok())
-            {
-                if let Some(c) = containers
-                    .iter_mut()
-                    .find(|c| s.id.starts_with(&c.id) || c.id.starts_with(&s.id))
-                {
+            for s in stats.lines().filter_map(|l| serde_json::from_str::<StatsLine>(l).ok()) {
+                if let Some(c) = containers.iter_mut().find(|c| s.id.starts_with(&c.id) || c.id.starts_with(&s.id)) {
                     c.cpu = Some(s.cpu_perc);
                     c.memory = Some(s.mem_usage);
                 }
             }
         }
     }
-    containers.sort_by(|a, b| {
-        b.is_running()
-            .cmp(&a.is_running())
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    containers.sort_by(|a, b| b.is_running().cmp(&a.is_running()).then_with(|| a.name.cmp(&b.name)));
     Ok(containers)
 }
 

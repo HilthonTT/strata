@@ -83,13 +83,8 @@ impl Default for MemoryMonitor {
 
 impl MemoryMonitor {
     pub fn new() -> Self {
-        let system = System::new_with_specifics(
-            RefreshKind::nothing().with_memory(MemoryRefreshKind::everything()),
-        );
-        Self {
-            system,
-            snapshot: MemorySnapshot::default(),
-        }
+        let system = System::new_with_specifics(RefreshKind::nothing().with_memory(MemoryRefreshKind::everything()));
+        Self { system, snapshot: MemorySnapshot::default() }
     }
 
     pub fn sample(&mut self) -> MemorySnapshot {
@@ -101,18 +96,9 @@ impl MemoryMonitor {
         s.swap_total = self.system.total_swap();
         s.swap_used = self.system.used_swap();
         s.psi = read_psi();
-        s.pressure = classify(
-            s.psi,
-            s.available as f64 / s.total.max(1) as f64,
-            s.swap_ratio(),
-        );
-        s.usage_history
-            .push((s.used_ratio() * 100.0).round() as u64);
-        s.psi_history.push(
-            s.psi
-                .map(|p| (p.some_avg10 * 100.0).round() as u64)
-                .unwrap_or(0),
-        );
+        s.pressure = classify(s.psi, s.available as f64 / s.total.max(1) as f64, s.swap_ratio());
+        s.usage_history.push((s.used_ratio() * 100.0).round() as u64);
+        s.psi_history.push(s.psi.map(|p| (p.some_avg10 * 100.0).round() as u64).unwrap_or(0));
         s.clone()
     }
 }
@@ -171,7 +157,9 @@ mod tests {
 
     #[test]
     fn parses_psi() {
-        let p = parse_psi("some avg10=1.50 avg60=0.20 avg300=0.00 total=1\nfull avg10=0.30 avg60=0.00 avg300=0.00 total=0").unwrap();
+        let p =
+            parse_psi("some avg10=1.50 avg60=0.20 avg300=0.00 total=1\nfull avg10=0.30 avg60=0.00 avg300=0.00 total=0")
+                .unwrap();
         assert_eq!(p.some_avg10, 1.5);
         assert_eq!(p.full_avg10, 0.3);
     }
@@ -180,10 +168,7 @@ mod tests {
     fn classifies_pressure() {
         assert_eq!(classify(None, 0.5, 0.0), Pressure::Normal);
         assert_eq!(classify(None, 0.03, 0.0), Pressure::Critical);
-        let psi = Psi {
-            some_avg10: 20.0,
-            ..Default::default()
-        };
+        let psi = Psi { some_avg10: 20.0, ..Default::default() };
         assert_eq!(classify(Some(psi), 0.9, 0.0), Pressure::High);
     }
 }

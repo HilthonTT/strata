@@ -24,32 +24,16 @@ pub struct UsageReport {
 /// Sizes every direct child of `root`, recursing into directories without
 /// crossing filesystem boundaries. Returns `None` if cancelled.
 pub fn scan(root: &Path, cancel: &AtomicBool) -> Option<UsageReport> {
-    let children: Vec<PathBuf> = std::fs::read_dir(root)
-        .ok()?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .collect();
-    let threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
-        .min(8);
+    let children: Vec<PathBuf> = std::fs::read_dir(root).ok()?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
     let chunk = children.len().div_ceil(threads).max(1);
 
     let mut items: Vec<UsageItem> = std::thread::scope(|s| {
         let handles: Vec<_> = children
             .chunks(chunk)
-            .map(|paths| {
-                s.spawn(move || {
-                    paths
-                        .iter()
-                        .filter_map(|p| measure(p, cancel))
-                        .collect::<Vec<_>>()
-                })
-            })
+            .map(|paths| s.spawn(move || paths.iter().filter_map(|p| measure(p, cancel)).collect::<Vec<_>>()))
             .collect();
-        handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap_or_default())
-            .collect()
+        handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
     });
     if cancel.load(Ordering::Relaxed) {
         return None;
@@ -67,13 +51,7 @@ fn measure(path: &Path, cancel: &AtomicBool) -> Option<UsageItem> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     let name = path.file_name()?.to_string_lossy().into_owned();
     if !meta.is_dir() {
-        return Some(UsageItem {
-            name,
-            path: path.to_path_buf(),
-            size: meta.len(),
-            is_dir: false,
-            files: 1,
-        });
+        return Some(UsageItem { name, path: path.to_path_buf(), size: meta.len(), is_dir: false, files: 1 });
     }
     let (mut size, mut files) = (0, 0);
     for entry in walkdir(path) {
@@ -87,13 +65,7 @@ fn measure(path: &Path, cancel: &AtomicBool) -> Option<UsageItem> {
             }
         }
     }
-    Some(UsageItem {
-        name,
-        path: path.to_path_buf(),
-        size,
-        is_dir: true,
-        files,
-    })
+    Some(UsageItem { name, path: path.to_path_buf(), size, is_dir: true, files })
 }
 
 /// Minimal recursive walker that stays on one filesystem and never follows links.

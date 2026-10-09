@@ -9,10 +9,7 @@ pub struct History {
 
 impl History {
     pub fn new(capacity: usize) -> Self {
-        Self {
-            samples: VecDeque::with_capacity(capacity),
-            capacity,
-        }
+        Self { samples: VecDeque::with_capacity(capacity), capacity }
     }
 
     pub fn push(&mut self, value: u64) {

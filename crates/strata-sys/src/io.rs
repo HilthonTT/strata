@@ -54,10 +54,7 @@ impl IoSampler {
     /// Takes a new sample and returns rates since the previous one.
     pub fn sample(&mut self) -> Vec<IoStats> {
         let now = Instant::now();
-        let elapsed = self
-            .last
-            .map(|t| now.duration_since(t).as_secs_f64())
-            .unwrap_or(0.0);
+        let elapsed = self.last.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
         self.last = Some(now);
         let current = read_counters(self);
 
@@ -74,23 +71,11 @@ impl IoSampler {
                 stats.read_iops = reads / elapsed;
                 stats.write_iops = writes / elapsed;
                 stats.read_bytes_per_sec = d(cur.read_sectors, prev.read_sectors) * 512.0 / elapsed;
-                stats.write_bytes_per_sec =
-                    d(cur.write_sectors, prev.write_sectors) * 512.0 / elapsed;
-                stats.read_latency_ms = if reads > 0.0 {
-                    d(cur.read_ms, prev.read_ms) / reads
-                } else {
-                    0.0
-                };
-                stats.write_latency_ms = if writes > 0.0 {
-                    d(cur.write_ms, prev.write_ms) / writes
-                } else {
-                    0.0
-                };
-                stats.utilization =
-                    (d(cur.io_ms, prev.io_ms) / (elapsed * 1000.0) * 100.0).min(100.0);
-                stats
-                    .iops_history
-                    .push((stats.read_iops + stats.write_iops).round() as u64);
+                stats.write_bytes_per_sec = d(cur.write_sectors, prev.write_sectors) * 512.0 / elapsed;
+                stats.read_latency_ms = if reads > 0.0 { d(cur.read_ms, prev.read_ms) / reads } else { 0.0 };
+                stats.write_latency_ms = if writes > 0.0 { d(cur.write_ms, prev.write_ms) / writes } else { 0.0 };
+                stats.utilization = (d(cur.io_ms, prev.io_ms) / (elapsed * 1000.0) * 100.0).min(100.0);
+                stats.iops_history.push((stats.read_iops + stats.write_iops).round() as u64);
                 let lat = stats.read_latency_ms.max(stats.write_latency_ms);
                 // Stored in microseconds so sub-millisecond SSD latency still shows.
                 stats.latency_history.push((lat * 1000.0).round() as u64);
@@ -145,10 +130,7 @@ fn parse_diskstats(text: &str) -> HashMap<String, Counters> {
 /// Whole block devices only: no partitions, loop or ram devices.
 #[cfg(target_os = "linux")]
 fn is_physical(name: &str) -> bool {
-    if ["loop", "ram", "zram", "dm-", "sr"]
-        .iter()
-        .any(|p| name.starts_with(p))
-    {
+    if ["loop", "ram", "zram", "dm-", "sr"].iter().any(|p| name.starts_with(p)) {
         return false;
     }
     let sys = std::path::Path::new("/sys/block").join(name);
@@ -160,9 +142,7 @@ fn is_physical(name: &str) -> bool {
 
 #[cfg(not(target_os = "linux"))]
 fn read_counters(sampler: &mut IoSampler) -> HashMap<String, Counters> {
-    let disks = sampler
-        .disks
-        .get_or_insert_with(sysinfo::Disks::new_with_refreshed_list);
+    let disks = sampler.disks.get_or_insert_with(sysinfo::Disks::new_with_refreshed_list);
     disks.refresh(true);
     disks
         .list()
@@ -187,7 +167,8 @@ mod tests {
 
     #[test]
     fn parses_diskstats_lines() {
-        let text = "   8       0 fakedisk 100 0 2000 50 40 0 800 20 0 70 70 0 0 0 0\n   7       0 loop0 1 0 1 1 1 0 1 1 0 1 1";
+        let text =
+            "   8       0 fakedisk 100 0 2000 50 40 0 800 20 0 70 70 0 0 0 0\n   7       0 loop0 1 0 1 1 1 0 1 1 0 1 1";
         // `fakedisk` is not in /sys/block, so it is filtered on real systems.
         let parsed = parse_diskstats(text);
         assert!(!parsed.contains_key("loop0"));
