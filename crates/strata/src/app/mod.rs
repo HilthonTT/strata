@@ -241,7 +241,12 @@ impl App {
         let theme = if config.general.transparent { theme.transparent() } else { theme };
 
         let local: VfsRef = Arc::new(LocalVfs);
-        let sort = SortOptions { key: config.general.sort, reverse: false, dirs_first: config.general.dirs_first };
+        let sort = SortOptions {
+            key: config.general.sort,
+            reverse: config.general.sort_reverse,
+            dirs_first: config.general.dirs_first,
+            case_sensitive: config.general.case_sensitive_sort,
+        };
         let start_dirs = start_directories(&opts.paths, config.general.panels.clamp(1, 6));
         let panels = start_dirs
             .into_iter()

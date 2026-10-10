@@ -39,16 +39,23 @@ pub struct SortOptions {
     pub key: SortKey,
     pub reverse: bool,
     pub dirs_first: bool,
+    /// Compare letters exactly, so `B` sorts before `a`.
+    pub case_sensitive: bool,
 }
 
 impl Default for SortOptions {
     fn default() -> Self {
-        Self { key: SortKey::Name, reverse: false, dirs_first: true }
+        Self { key: SortKey::Name, reverse: false, dirs_first: true, case_sensitive: false }
     }
 }
 
 /// Natural, case-insensitive comparison so `file2` sorts before `file10`.
 pub fn natural_cmp(a: &str, b: &str) -> Ordering {
+    natural_cmp_with(a, b, false)
+}
+
+/// [`natural_cmp`], optionally telling upper and lower case apart.
+pub fn natural_cmp_with(a: &str, b: &str, case_sensitive: bool) -> Ordering {
     let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
     loop {
         match (a.peek().copied(), b.peek().copied()) {
@@ -72,7 +79,7 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
                 }
             }
             (Some(x), Some(y)) => {
-                let ord = x.to_lowercase().cmp(y.to_lowercase());
+                let ord = if case_sensitive { x.cmp(&y) } else { x.to_lowercase().cmp(y.to_lowercase()) };
                 if ord != Ordering::Equal {
                     return ord;
                 }
@@ -84,6 +91,7 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
 }
 
 pub fn sort_entries(entries: &mut [Entry], opts: SortOptions) {
+    let natural_cmp = |a: &str, b: &str| natural_cmp_with(a, b, opts.case_sensitive);
     entries.sort_by(|a, b| {
         if opts.dirs_first && a.is_dir() != b.is_dir() {
             return b.is_dir().cmp(&a.is_dir());
@@ -111,5 +119,7 @@ mod tests {
         let mut names = vec!["file10", "File2", "file1", "a"];
         names.sort_by(|a, b| natural_cmp(a, b));
         assert_eq!(names, ["a", "file1", "File2", "file10"]);
+        names.sort_by(|a, b| natural_cmp_with(a, b, true));
+        assert_eq!(names, ["File2", "a", "file1", "file10"]);
     }
 }

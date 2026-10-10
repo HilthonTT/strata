@@ -91,6 +91,10 @@ pub struct General {
     pub icons: bool,
     pub border: BorderStyle,
     pub sort: SortKey,
+    /// Sort in descending order.
+    pub sort_reverse: bool,
+    /// Sort `B` before `a` instead of ignoring case.
+    pub case_sensitive_sort: bool,
     pub dirs_first: bool,
     pub use_trash: bool,
     pub confirm_delete: bool,
@@ -143,6 +147,8 @@ impl Default for General {
             icons: true,
             border: BorderStyle::Rounded,
             sort: SortKey::Name,
+            sort_reverse: false,
+            case_sensitive_sort: false,
             dirs_first: true,
             use_trash: true,
             confirm_delete: true,
