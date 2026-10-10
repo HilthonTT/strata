@@ -1,13 +1,14 @@
 //! Preview generation, done off the UI thread: directories, images, code
-//! rendered Markdown and hex dumps of binary files.
+//! rendered Markdown, office documents and e-books, and hex dumps of
+//! binary files.
 
 use std::io::Read;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 use ratatui::layout::Size;
-use ratatui::style::Style;
-use ratatui::text::Line;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::Protocol;
 use ratatui_image::{FilterType, Resize};
@@ -17,6 +18,7 @@ use strata_core::util::human_size;
 use strata_core::{Entry, VfsRef};
 
 use super::highlight::Highlighter;
+use super::preview_docs::{self, Block};
 use super::preview_hex;
 use super::preview_markdown;
 use crate::event::AppEvent;
@@ -93,6 +95,9 @@ impl PreviewJob {
             };
         }
         let ext = entry.extension();
+        if preview_docs::is_document(&ext) && entry.size <= preview_docs::MAX_DOC_BYTES {
+            return self.document(&ext);
+        }
         let mut buf = Vec::with_capacity(MAX_TEXT_BYTES.min(entry.size as usize + 1));
         let read =
             self.vfs.reader(&entry.path).and_then(|r| Ok(r.take(MAX_TEXT_BYTES as u64).read_to_end(&mut buf)?));
@@ -142,6 +147,54 @@ impl PreviewJob {
                 format!(" … first {} of {}", human_size(shown as u64), human_size(self.entry.size)),
                 muted,
             ));
+        }
+        PreviewContent::Code(lines)
+    }
+
+    fn document(&self, ext: &str) -> PreviewContent {
+        let mut data = Vec::new();
+        if let Err(e) = self.vfs.reader(&self.entry.path).and_then(|mut r| Ok(r.read_to_end(&mut data)?)) {
+            return PreviewContent::Error(format!("{e:#}"));
+        }
+        let blocks = match preview_docs::extract(data, ext) {
+            Ok(blocks) if blocks.is_empty() => return PreviewContent::Text(vec!["(no text)".into()]),
+            Ok(blocks) => blocks,
+            Err(e) => return PreviewContent::Error(format!("{e:#}")),
+        };
+        let width = self.size.width.saturating_sub(1) as usize;
+        let t = &self.theme;
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        let mut previous_row = false;
+        for block in blocks {
+            let is_row = matches!(block, Block::Row(_));
+            // Blank lines between paragraphs and around headings, not rows.
+            if !lines.is_empty() && !(is_row && previous_row) {
+                lines.push(Line::default());
+            }
+            previous_row = is_row;
+            match block {
+                Block::Heading(text) => {
+                    let style = Style::default().fg(t.palette.accent).add_modifier(Modifier::BOLD);
+                    lines.extend(preview_markdown::wrap(vec![Span::styled(text, style)], width, vec![], vec![]));
+                }
+                Block::Para(text) => {
+                    let span = Span::styled(text, Style::default().fg(t.fg));
+                    lines.extend(preview_markdown::wrap(vec![span], width, vec![], vec![]));
+                }
+                Block::Row(cells) => {
+                    let mut spans = Vec::new();
+                    for (i, cell) in cells.into_iter().enumerate() {
+                        if i > 0 {
+                            spans.push(Span::styled(" │ ", Style::default().fg(t.muted)));
+                        }
+                        spans.push(Span::styled(cell, Style::default().fg(t.fg)));
+                    }
+                    lines.push(Line::from(spans));
+                }
+            }
+            if lines.len() >= MAX_LINES {
+                break;
+            }
         }
         PreviewContent::Code(lines)
     }

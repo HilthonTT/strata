@@ -21,12 +21,13 @@ Matching lines are highlighted, and the bottom corner shows which lines you are 
 | Source code | Syntax highlighting coloured from your theme |
 | Markdown | Rendered: headings, lists, task boxes, quotes, tables, links and code blocks with syntax colours |
 | Images | PNG, JPEG, GIF, WebP, BMP and ICO |
+| Documents | The text of Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`), OpenDocument (`.odt`, `.odp`, `.ods`) and EPUB files, with headings and tables |
 | Archives | The list of files (via the `archive` plugin) |
 | Binary files | A hex dump of the first 64 KiB, with the executable type |
 
 Images use the best protocol your terminal supports — kitty, sixel or iTerm2 — and a half-block approximation everywhere else.
 
-Rendered Markdown is wrapped to the preview's width, and the hex dump shows 16, 8 or 4 bytes per row depending on the room. To turn them off:
+Text is wrapped to the preview's width, and the hex dump shows 16, 8 or 4 bytes per row depending on the room. Documents are read without any external program. To turn the richer previews off:
 
 ```toml
 [general]

@@ -17,6 +17,7 @@ pub mod overlay;
 pub mod panel;
 mod plugins;
 pub mod preview;
+mod preview_docs;
 mod preview_hex;
 mod preview_markdown;
 mod preview_nav;
