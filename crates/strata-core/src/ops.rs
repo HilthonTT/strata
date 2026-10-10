@@ -3,7 +3,7 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
 
@@ -32,6 +32,7 @@ pub enum Conflict {
 }
 
 /// Copies or moves `sources` from `src` into `dest_dir` on `dst`.
+#[derive(Clone)]
 pub struct Transfer {
     pub mode: TransferMode,
     pub src: VfsRef,
@@ -39,6 +40,11 @@ pub struct Transfer {
     pub dst: VfsRef,
     pub dest_dir: PathBuf,
     pub conflict: Conflict,
+    /// `(source, destination)` of each top-level item, filled as items
+    /// start. Items already listed go to the same destination, keeping
+    /// files that arrived complete: that's how an interrupted transfer is
+    /// resumed. Running the same `Transfer` twice therefore resumes it.
+    pub targets: Arc<TransferLog>,
 }
 
 const BUF_SIZE: usize = 256 * 1024;
@@ -60,14 +66,23 @@ impl Transfer {
         progress.total_items.store(items, Ordering::Relaxed);
 
         let same = same_vfs(&self.src, &self.dst);
+        let earlier: Vec<(PathBuf, PathBuf)> = self.targets.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for source in &self.sources {
             progress.check()?;
             let entry = self.src.stat(source)?;
             if same && self.dest_dir.starts_with(source) && entry.is_dir() {
                 bail!("cannot {} a directory into itself", self.verb());
             }
-            let Some(target) = self.target_for(&entry)? else {
-                continue;
+            let resumed = earlier.iter().find(|(s, _)| s == source).map(|(_, t)| t.clone());
+            let target = match resumed.clone() {
+                Some(target) => target,
+                None => {
+                    let Some(target) = self.target_for(&entry)? else {
+                        continue;
+                    };
+                    self.targets.lock().unwrap_or_else(|e| e.into_inner()).push((source.clone(), target.clone()));
+                    target
+                }
             };
             if same && self.mode == TransferMode::Move && self.src.rename(source, &target).is_ok() {
                 progress.add_bytes(tree_size(&*self.src, &entry, progress).unwrap_or(0));
@@ -75,7 +90,7 @@ impl Transfer {
                 progress.item_done();
                 continue;
             }
-            copy_tree(&*self.src, &entry, &*self.dst, &target, progress)?;
+            copy_tree_inner(&*self.src, &entry, &*self.dst, &target, progress, resumed.is_some())?;
             if self.mode == TransferMode::Move {
                 progress.set_current(format!("removing {}", entry.name));
                 self.src.remove_all(source)?;
@@ -148,17 +163,38 @@ impl Transfer {
 
 /// Copies a file or directory tree from one backend to another.
 pub fn copy_tree(src: &dyn Vfs, entry: &Entry, dst: &dyn Vfs, target: &Path, progress: &Progress) -> Result<()> {
+    copy_tree_inner(src, entry, dst, target, progress, false)
+}
+
+/// [`copy_tree`]; with `resume`, into a partial earlier copy: existing
+/// folders and links are kept, and files already there with the right
+/// size are skipped. Anything else is copied again from the start.
+fn copy_tree_inner(
+    src: &dyn Vfs,
+    entry: &Entry,
+    dst: &dyn Vfs,
+    target: &Path,
+    progress: &Progress,
+    resume: bool,
+) -> Result<()> {
     progress.check()?;
+    let existing = if resume { dst.stat(target).ok() } else { None };
     match entry.kind {
         EntryKind::Dir => {
-            dst.create_dir(target)?;
+            if !existing.as_ref().is_some_and(|e| e.kind == EntryKind::Dir) {
+                dst.create_dir(target)?;
+            }
             for child in src.read_dir(&entry.path)? {
                 let child_target = dst.join(target, &child.name);
-                copy_tree(src, &child, dst, &child_target, progress)?;
+                copy_tree_inner(src, &child, dst, &child_target, progress, resume)?;
             }
         }
+        EntryKind::Symlink { .. } if existing.as_ref().is_some_and(Entry::is_symlink) => {}
         EntryKind::Symlink { .. } if src.is_local() && dst.is_local() => {
             copy_local_symlink(&entry.path, target)?;
+        }
+        EntryKind::File if existing.as_ref().is_some_and(|e| e.kind == EntryKind::File && e.size == entry.size) => {
+            progress.add_bytes(entry.size);
         }
         // Directory links on remote backends are skipped to avoid cycles.
         EntryKind::Symlink { to_dir: true } => {}
@@ -303,17 +339,18 @@ mod tests {
         fs::create_dir(&dest).unwrap();
 
         let vfs = local();
-        let t = Transfer {
+        let copy = || Transfer {
             mode: TransferMode::Copy,
             src: vfs.clone(),
             sources: vec![src.clone()],
-            dst: vfs,
+            dst: vfs.clone(),
             dest_dir: dest.clone(),
             conflict: Conflict::KeepBoth,
+            targets: Default::default(),
         };
         let p = Progress::default();
-        t.run(&p).unwrap();
-        t.run(&p).unwrap();
+        copy().run(&p).unwrap();
+        copy().run(&p).unwrap();
         assert_eq!(fs::read_to_string(dest.join("src/nested/a.txt")).unwrap(), "hello");
         assert!(dest.join("src (1)/nested/a.txt").exists());
         assert!(src.exists());
@@ -334,6 +371,7 @@ mod tests {
             dst: vfs,
             dest_dir: dest.clone(),
             conflict: Conflict::KeepBoth,
+            targets: Default::default(),
         }
         .run(&Progress::default())
         .unwrap();
@@ -354,6 +392,7 @@ mod tests {
             dst: vfs,
             dest_dir: src.join("b"),
             conflict: Conflict::KeepBoth,
+            targets: Default::default(),
         }
         .run(&Progress::default());
         assert!(err.is_err());
@@ -375,6 +414,7 @@ mod tests {
             dst: vfs.clone(),
             dest_dir: dest.clone(),
             conflict: Conflict::KeepBoth,
+            targets: Default::default(),
         }
         .run_logged(&Progress::default(), &log)
         .unwrap();
@@ -402,6 +442,7 @@ mod tests {
             dst: vfs,
             dest_dir: dest.clone(),
             conflict: Conflict::Skip,
+            targets: Default::default(),
         };
         assert_eq!(t.conflicts(), vec!["a.txt".to_string()]);
         t.run(&Progress::default()).unwrap();
@@ -411,6 +452,40 @@ mod tests {
         t.sources.truncate(1);
         t.run(&Progress::default()).unwrap();
         assert!(dest.join("a (1).txt").exists());
+    }
+
+    #[test]
+    fn resumes_into_the_earlier_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("done.txt"), "complete").unwrap();
+        fs::write(src.join("partial.txt"), "the whole file").unwrap();
+        let dest = dir.path().join("dest");
+        // The first run copied into `src (1)` and stopped midway.
+        let earlier = dest.join("src (1)");
+        fs::create_dir_all(&earlier).unwrap();
+        fs::create_dir(dest.join("src")).unwrap();
+        fs::write(earlier.join("done.txt"), "complete").unwrap();
+        fs::write(earlier.join("partial.txt"), "the wh").unwrap();
+
+        let vfs = local();
+        let t = Transfer {
+            mode: TransferMode::Copy,
+            src: vfs.clone(),
+            sources: vec![src.clone()],
+            dst: vfs,
+            dest_dir: dest.clone(),
+            conflict: Conflict::KeepBoth,
+            targets: Arc::new(Mutex::new(vec![(src.clone(), earlier.clone())])),
+        };
+        let p = Progress::default();
+        t.run(&p).unwrap();
+        assert_eq!(fs::read_to_string(earlier.join("partial.txt")).unwrap(), "the whole file");
+        assert_eq!(fs::read_to_string(earlier.join("done.txt")).unwrap(), "complete");
+        assert!(!dest.join("src (2)").exists(), "no new copy");
+        assert_eq!(fs::read_dir(dest.join("src")).unwrap().count(), 0, "the other folder is untouched");
+        assert_eq!(p.done_bytes.load(Ordering::Relaxed), 22);
     }
 
     #[test]

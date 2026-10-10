@@ -724,6 +724,7 @@ mod tests {
             dst: Arc::new(crate::vfs::LocalVfs),
             dest_dir: out.clone(),
             conflict: Conflict::KeepBoth,
+            targets: Default::default(),
         }
         .run(&Progress::default())
         .unwrap();

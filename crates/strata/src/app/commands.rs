@@ -28,6 +28,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("compare", "compare — diff two marked items, or the hovered one with the next panel"),
     ("checksum", "checksum [md5|sha1|sha256|sha512] — show checksums, or copy one"),
     ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
+    ("pause", "pause — pause or resume the latest running job"),
+    ("retry", "retry — resume the latest failed or cancelled copy"),
     ("trash", "trash — browse, restore and delete trashed items"),
     ("empty-trash", "empty-trash — delete everything in the trash for good"),
     ("theme", "theme <name> — switch theme"),
@@ -103,6 +105,8 @@ impl App {
             "chown" => self.error("usage: chown [-R] user[:group]"),
             "compare" | "diff" => self.dispatch(Action::Compare),
             "checksum" | "hash" => self.checksum(Some(args)),
+            "pause" => self.dispatch(Action::PauseJob),
+            "retry" | "resume" => self.dispatch(Action::RetryJob),
             "verify" => self.verify(args),
             "trash" => self.dispatch(Action::OpenTrash),
             "empty-trash" => match strata_core::trash::list() {

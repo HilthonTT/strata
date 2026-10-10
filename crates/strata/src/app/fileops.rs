@@ -57,6 +57,7 @@ impl App {
             dst: vfs,
             dest_dir: self.panel().cwd.clone(),
             conflict: Conflict::KeepBoth,
+            targets: Default::default(),
         };
         self.panel_mut().clear_marks();
         self.start_transfer(transfer);

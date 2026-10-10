@@ -85,6 +85,8 @@ actions! {
     CopyPath => "copy_path", "Copy path to the system clipboard";
     CopyCwd => "copy_cwd", "Copy the current directory's path";
     CancelJob => "cancel_job", "Cancel the latest running job";
+    PauseJob => "pause_job", "Pause / resume the latest running job";
+    RetryJob => "retry_job", "Resume the latest failed or cancelled copy";
     Filter => "filter", "Filter the current directory";
     FuzzyFind => "fuzzy_find", "Fuzzy-find files recursively";
     ContentSearch => "content_search", "Search file contents (ripgrep)";
@@ -356,6 +358,8 @@ const COMMON: &[(&str, &str)] = &[
     ("q", "quit"),
     ("Q", "quit_cd"),
     ("ctrl+g", "content_search"),
+    ("alt+p", "pause_job"),
+    ("alt+R", "retry_job"),
     ("f5", "refresh"),
     ("alt+j", "preview_down"),
     ("alt+down", "preview_down"),

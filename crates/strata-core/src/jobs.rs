@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 
@@ -24,6 +24,7 @@ pub struct Progress {
     pub total_items: AtomicUsize,
     pub done_items: AtomicUsize,
     cancelled: AtomicBool,
+    paused: AtomicBool,
     current: Mutex<String>,
 }
 
@@ -52,8 +53,21 @@ impl Progress {
         self.cancelled.load(Ordering::Relaxed)
     }
 
-    /// Bails out of a job loop when the user cancelled it.
+    /// Pauses or resumes the job at its next [`Progress::check`].
+    pub fn set_paused(&self, paused: bool) {
+        self.paused.store(paused, Ordering::Relaxed);
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::Relaxed)
+    }
+
+    /// Bails out of a job loop when the user cancelled it, and waits here
+    /// while the job is paused.
     pub fn check(&self) -> Result<()> {
+        while self.is_paused() && !self.is_cancelled() {
+            thread::sleep(Duration::from_millis(100));
+        }
         if self.is_cancelled() {
             bail!(Cancelled);
         }
@@ -176,6 +190,14 @@ impl<E: Send + 'static> JobManager<E> {
         }
     }
 
+    /// Pauses the most recently started running job, or resumes it if it
+    /// is paused. Returns the job.
+    pub fn toggle_pause_latest(&self) -> Option<&Arc<Job>> {
+        let job = self.jobs.iter().rev().find(|j| j.is_running())?;
+        job.progress.set_paused(!job.progress.is_paused());
+        Some(job)
+    }
+
     pub fn cancel_all(&self) {
         self.jobs.iter().for_each(|j| j.progress.cancel());
     }
@@ -214,5 +236,19 @@ mod tests {
         states.sort_by_key(|f| f.id);
         assert_eq!(states[0].state, JobState::Done);
         assert_eq!(states[1].state, JobState::Failed("boom".into()));
+    }
+
+    #[test]
+    fn paused_jobs_wait_and_can_be_cancelled() {
+        let p = Arc::new(Progress::default());
+        p.set_paused(true);
+        let worker = {
+            let p = p.clone();
+            thread::spawn(move || p.check().is_err())
+        };
+        thread::sleep(Duration::from_millis(250));
+        assert!(!worker.is_finished(), "a paused job waits");
+        p.cancel();
+        assert!(worker.join().unwrap(), "cancelling a paused job stops it");
     }
 }

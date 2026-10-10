@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use strata_config::Action;
+use strata_core::jobs::JobState;
 use strata_core::ops::{self, Conflict, Transfer, TransferLog, TransferMode};
 use strata_core::sort::SortKey;
 use strata_core::util::posix;
@@ -45,6 +46,15 @@ impl App {
                 }
                 return;
             }
+            PauseJob => {
+                let message = match self.jobs.toggle_pause_latest() {
+                    Some(job) if job.progress.is_paused() => format!("paused {}", job.label),
+                    Some(job) => format!("resumed {}", job.label),
+                    None => "no running jobs".into(),
+                };
+                return self.info(message);
+            }
+            RetryJob => return self.retry_transfer(),
             Refresh => {
                 self.dir_sizes.clear();
                 self.reload_all();
@@ -477,6 +487,7 @@ impl App {
             dst: self.panel().vfs.clone(),
             dest_dir: self.panel().cwd.clone(),
             conflict: Conflict::KeepBoth,
+            targets: Default::default(),
         };
         if clip.mode == TransferMode::Move {
             self.clipboard = None;
@@ -504,6 +515,7 @@ impl App {
             dst: other.vfs.clone(),
             dest_dir: other.cwd.clone(),
             conflict: Conflict::KeepBoth,
+            targets: Default::default(),
         };
         self.panel_mut().clear_marks();
         self.begin_transfer(transfer);
@@ -533,8 +545,45 @@ impl App {
             log: log.clone(),
         };
         let undo_label = format!("{} {what}", verb.to_lowercase());
+        let retry = (transfer.clone(), log.clone());
         let job = self.jobs.spawn(label, move |progress| transfer.run_logged(progress, &log));
         self.track_job(job, undo_label, pending);
+        self.retryable.insert(job, retry);
+    }
+
+    /// Runs the latest failed or cancelled copy or move again, without the
+    /// items it finished, into the same destinations.
+    fn retry_transfer(&mut self) {
+        let failed = self
+            .jobs
+            .jobs()
+            .iter()
+            .rev()
+            .find(|j| {
+                matches!(j.state(), JobState::Failed(_) | JobState::Cancelled) && self.retryable.contains_key(&j.id)
+            })
+            .map(|j| j.id);
+        let Some((mut transfer, finished)) = failed.and_then(|id| self.retryable.remove(&id)) else {
+            return self.info("no failed or cancelled copy to resume");
+        };
+        let finished: Vec<PathBuf> =
+            finished.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(src, _)| src.clone()).collect();
+        transfer.sources.retain(|s| !finished.contains(s));
+        if transfer.sources.is_empty() {
+            return self.info("everything was already copied");
+        }
+        self.start_transfer(transfer);
+    }
+
+    /// Forgets how to retry jobs that succeeded, keeping a few failed ones.
+    pub(super) fn prune_retryable(&mut self, finished: u64, state: &JobState) {
+        if *state == JobState::Done {
+            self.retryable.remove(&finished);
+        }
+        while self.retryable.len() > 10 {
+            let Some(&oldest) = self.retryable.keys().min() else { break };
+            self.retryable.remove(&oldest);
+        }
     }
 
     fn delete(&mut self, permanent: bool) {

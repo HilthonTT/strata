@@ -15,7 +15,7 @@ Most actions apply to the **marked** items, or to the item under the cursor when
 
 If some names already exist in the destination, strata asks once for the whole paste: **keep both** (the new item becomes `name (1).ext`), **overwrite** (replaced items go to the trash on local disks), **skip** those items, or cancel.
 
-Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer; <Kbd>ctrl+x</Kbd> cancels the latest one. Copies work between any locations — local disk, SFTP servers and Docker containers.
+Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer; <Kbd>alt+p</Kbd> pauses or resumes the latest one and <Kbd>ctrl+x</Kbd> cancels it. If a copy or move fails or is cancelled, <Kbd>alt+R</Kbd> (or `:retry`) picks it up where it stopped: items that finished are left alone, files that already arrived complete are kept, and the rest go into the same destinations as before. Copies work between any locations — local disk, SFTP servers and Docker containers.
 
 ## Create, rename, delete
 

@@ -216,6 +216,8 @@ pub struct App {
 
     pub layout: LayoutCache,
     pub dir_sizes: dirsize::DirSizes,
+    /// Transfers that can be resumed if their job fails, by job id.
+    retryable: HashMap<u64, (strata_core::ops::Transfer, Arc<strata_core::ops::TransferLog>)>,
     /// Border characters, from `border` and `border_chars`.
     pub border: ratatui::symbols::border::Set<'static>,
     last_click: Option<(Instant, u16, u16)>,
@@ -348,6 +350,7 @@ impl App {
             last_location: None,
             layout: LayoutCache::default(),
             dir_sizes: dirsize::DirSizes::default(),
+            retryable: HashMap::new(),
             border,
             last_click: None,
             external: None,
@@ -515,6 +518,7 @@ impl App {
             AppEvent::Job(done) => {
                 self.job_finished_for_undo(done.id, &done.state);
                 self.remote_download_finished(done.id, &done.state);
+                self.prune_retryable(done.id, &done.state);
                 match &done.state {
                     JobState::Done => self.info(format!("✓ {}", done.label)),
                     JobState::Failed(e) => self.error(format!("{} failed: {e}", done.label)),

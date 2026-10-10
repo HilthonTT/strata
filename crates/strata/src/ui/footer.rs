@@ -55,21 +55,28 @@ fn draw_jobs(frame: &mut Frame, app: &App, area: Rect) {
     for job in jobs.iter().rev().take((inner.height as usize + 1) / 3) {
         let p = &job.progress;
         let state = job.state();
+        let paused = state == JobState::Running && p.is_paused();
         let (icon, color) = match state {
+            JobState::Running if paused => ("\u{f04c}", theme.warning),
             JobState::Running => ("\u{f110}", theme.info),
             JobState::Done => ("\u{f05d}", theme.success),
             JobState::Failed(_) => ("\u{f057}", theme.error),
             JobState::Cancelled => ("\u{f05e}", theme.warning),
         };
-        let icon = if app.config.general.icons { icon } else { "●" };
+        let icon = match (app.config.general.icons, paused) {
+            (true, _) => icon,
+            (false, true) => "‖",
+            (false, false) => "●",
+        };
         let ratio = if state == JobState::Done { 1.0 } else { p.ratio() };
         let detail = match &state {
             JobState::Running => {
                 let total = p.total_bytes.load(Ordering::Relaxed);
+                let paused = if paused { "  paused" } else { "" };
                 if total > 0 {
-                    format!("  {}/{}", human_size(p.done_bytes.load(Ordering::Relaxed)), human_size(total))
+                    format!("  {}/{}{paused}", human_size(p.done_bytes.load(Ordering::Relaxed)), human_size(total))
                 } else {
-                    String::new()
+                    paused.to_string()
                 }
             }
             JobState::Failed(e) => format!("  {e}"),

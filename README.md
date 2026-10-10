@@ -15,6 +15,7 @@ Everything you need, nothing you don't.
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories and copy files out
 - **Folder sizes** in the file list (`d c`), measured in the background
+- **Jobs you control**: pause copies (`alt+p`) and resume failed or cancelled ones where they stopped (`alt+R`)
 - **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
 - **Search**: filter, fuzzy find, and content search with ripgrep
@@ -58,6 +59,7 @@ strata [DIR...]           # one panel per directory
 | `Y` / `=` | duplicate / permissions | `C` / `#` | compare / checksums |
 | `U` | browse the trash | `g l` | paste as symlink |
 | `d c` | folder sizes | | |
+| `alt+p` | pause / resume the latest job | `alt+R` | resume a failed copy |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
 | `?` | all keys | `q` | quit |
 
