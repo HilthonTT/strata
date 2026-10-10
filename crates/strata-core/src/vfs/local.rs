@@ -139,6 +139,10 @@ impl Vfs for LocalVfs {
     fn hard_link(&self, original: &Path, link: &Path) -> Result<()> {
         fs::hard_link(original, link).with_context(|| format!("link {} -> {}", link.display(), original.display()))
     }
+
+    fn set_mode(&self, path: &Path, mode: u32) -> Result<()> {
+        set_mode(path, mode).with_context(|| format!("chmod {}", path.display()))
+    }
 }
 
 #[cfg(unix)]
@@ -155,4 +159,18 @@ fn make_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
     } else {
         std::os::windows::fs::symlink_file(target, link)
     }
+}
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+    // Only the read-only flag exists here: no write bit for the owner.
+    let mut perms = fs::metadata(path)?.permissions();
+    perms.set_readonly(mode & 0o200 == 0);
+    fs::set_permissions(path, perms)
 }

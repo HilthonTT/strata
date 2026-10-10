@@ -23,6 +23,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("duplicate", "duplicate — copy marked items next to themselves"),
     ("link", "link [-r] — paste the clipboard as (relative) symbolic links"),
     ("hardlink", "hardlink — paste the clipboard as hard links"),
+    ("chmod", "chmod [-R] <mode> — set permissions (755, u+x, go-w)"),
+    ("chown", "chown [-R] <user[:group]> — change the owner"),
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
     ("set", "set hidden|preview|sidebar|footer [on|off]"),
@@ -84,6 +86,14 @@ impl App {
                 _ => self.error("usage: link [-r]"),
             },
             "hardlink" => self.dispatch(Action::PasteHardlink),
+            "chmod" if !args.is_empty() => {
+                let (vfs, paths) = (self.panel().vfs.clone(), self.panel().targets());
+                if !paths.is_empty() {
+                    self.start_chmod(vfs, paths, args);
+                }
+            }
+            "chown" if !args.is_empty() => self.chown_command(args),
+            "chown" => self.error("usage: chown [-R] user[:group]"),
             "theme" if args.is_empty() => self.open_theme_picker(),
             "theme" => {
                 if self.apply_theme(args, true) {
@@ -327,6 +337,7 @@ impl App {
                 }
                 None => self.error("use smb://user@host/share, nfs://host/export or sftp://user@host:port/path"),
             },
+            InputPurpose::Chmod { vfs, paths } if !value.is_empty() => self.start_chmod(vfs, paths, &value),
             InputPurpose::AddConnectionName(mut conn) if !value.is_empty() => {
                 conn.name = value;
                 self.save_connection(conn);

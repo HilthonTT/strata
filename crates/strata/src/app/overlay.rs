@@ -22,6 +22,11 @@ pub enum InputPurpose {
     PreviewFind,
     /// Save a password for this connection in the keychain.
     SavePassword(String),
+    /// New permissions for these items.
+    Chmod {
+        vfs: VfsRef,
+        paths: Vec<PathBuf>,
+    },
 }
 
 pub struct InputState {

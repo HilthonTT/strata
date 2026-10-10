@@ -1,13 +1,17 @@
 //! File operations beyond copy, move and delete.
 
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use strata_core::ops::{Conflict, Transfer, TransferMode};
+use strata_core::perm::{self, ChangeLog, ModeSpec, Owner};
 use strata_core::util::unique_name;
 use strata_core::vfs::same_vfs;
+use strata_core::VfsRef;
 use strata_plugin::Level;
 
-use super::undo::UndoOp;
+use super::overlay::{InputPurpose, InputState, Overlay};
+use super::undo::{PendingUndo, UndoOp};
 use super::App;
 
 /// How `paste_links` links to the clipboard items.
@@ -78,6 +82,81 @@ impl App {
             None => self.info(format!("created {count} {what}(s)")),
         }
     }
+
+    pub(super) fn prompt_chmod(&mut self) {
+        let paths = self.panel().targets();
+        let Some(first) = self.panel().hovered().filter(|_| !paths.is_empty()) else { return };
+        let current = first.mode.map(|m| format!("{m:o}")).unwrap_or_default();
+        let what = match paths.as_slice() {
+            [_] => format!("'{}'", first.name),
+            many => format!("{} items", many.len()),
+        };
+        let prompt = format!("Permissions for {what} (644, u+x, go-w; -R for subfolders)");
+        let purpose = InputPurpose::Chmod { vfs: self.panel().vfs.clone(), paths };
+        self.overlay = Some(Overlay::Input(InputState::new(prompt, current, purpose)));
+    }
+
+    /// Applies a mode like `755`, `u+x` or `-R go-w` to `paths`.
+    pub(super) fn start_chmod(&mut self, vfs: VfsRef, paths: Vec<PathBuf>, input: &str) {
+        let (recursive, spec) = split_recursive(input);
+        let spec = match ModeSpec::parse(spec) {
+            Ok(spec) => spec,
+            Err(e) => return self.error(format!("{e:#}")),
+        };
+        let label = format!("chmod {} {}", spec_text(input), describe(&paths));
+        let log = Arc::new(ChangeLog::default());
+        let job_log = log.clone();
+        let job_vfs = vfs.clone();
+        let job = self.jobs.spawn(label.clone(), move |progress| {
+            perm::change_mode(&*job_vfs, &paths, &spec, recursive, progress, &job_log)
+        });
+        self.panel_mut().clear_marks();
+        self.track_job(job, label, PendingUndo::Mode { vfs, log });
+    }
+
+    /// `:chown user[:group]` on the marked local items.
+    pub(super) fn chown_command(&mut self, args: &str) {
+        if !self.panel().vfs.is_local() {
+            return self.notify("chown works on local files", Level::Warn);
+        }
+        let (recursive, spec) = split_recursive(args);
+        let owner = match Owner::parse(spec) {
+            Ok(owner) => owner,
+            Err(e) => return self.error(format!("{e:#}")),
+        };
+        let paths = self.panel().targets();
+        if paths.is_empty() {
+            return;
+        }
+        let label = format!("chown {} {}", spec_text(args), describe(&paths));
+        let log = Arc::new(ChangeLog::default());
+        let job_log = log.clone();
+        let job = self
+            .jobs
+            .spawn(label.clone(), move |progress| perm::change_owner(&paths, owner, recursive, progress, &job_log));
+        self.panel_mut().clear_marks();
+        self.track_job(job, label, PendingUndo::Owner { log });
+    }
+}
+
+/// `-R spec` → `(true, spec)`.
+fn split_recursive(input: &str) -> (bool, &str) {
+    let input = input.trim();
+    match input.strip_prefix("-R").or_else(|| input.strip_prefix("-r")) {
+        Some(rest) if rest.starts_with(char::is_whitespace) => (true, rest.trim()),
+        _ => (false, input),
+    }
+}
+
+fn spec_text(input: &str) -> String {
+    input.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn describe(paths: &[PathBuf]) -> String {
+    match paths {
+        [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        many => format!("{} items", many.len()),
+    }
 }
 
 /// `target` relative to the directory `base`, e.g. `../lib/x` for
@@ -111,5 +190,12 @@ mod tests {
         assert_eq!(relative_path(Path::new("/a/lib/x"), Path::new("/a/bin")), PathBuf::from("../lib/x"));
         assert_eq!(relative_path(Path::new("/a/b/c"), Path::new("/a/b")), PathBuf::from("c"));
         assert_eq!(relative_path(Path::new("/x"), Path::new("/a/b")), PathBuf::from("../../x"));
+    }
+
+    #[test]
+    fn recursive_flag_is_split_off() {
+        assert_eq!(split_recursive("-R go-w"), (true, "go-w"));
+        assert_eq!(split_recursive("  755 "), (false, "755"));
+        assert_eq!(split_recursive("-Rx"), (false, "-Rx"));
     }
 }

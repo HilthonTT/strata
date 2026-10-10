@@ -1,5 +1,6 @@
-//! Undo and redo for file operations: renames, creations, copies, moves
-//! and trashing. Permanent deletes cannot be undone.
+//! Undo and redo for file operations: renames, creations, copies, moves,
+//! trashing and permission or owner changes. Permanent deletes cannot be
+//! undone.
 //!
 //! Undoing an entry runs its steps backwards; the inverse of those steps
 //! becomes a redo entry once the undo job succeeds, and the other way round.
@@ -13,6 +14,7 @@ use anyhow::{bail, Result};
 use strata_core::bulk::{self, Rename};
 use strata_core::jobs::{JobState, Progress};
 use strata_core::ops::{self, TransferLog, TransferMode};
+use strata_core::perm::{self, ChangeLog, Changes};
 use strata_core::VfsRef;
 use strata_plugin::Level;
 
@@ -49,6 +51,15 @@ pub enum UndoOp {
         paths: Vec<PathBuf>,
         since: SystemTime,
     },
+    /// Permissions changed from `old` to `new`.
+    Mode {
+        vfs: VfsRef,
+        changes: Changes<u32>,
+    },
+    /// Local owners changed from `old` to `new` (`(uid, gid)`).
+    Owner {
+        changes: Changes<(u32, u32)>,
+    },
 }
 
 pub struct UndoEntry {
@@ -81,6 +92,13 @@ impl UndoOp {
             // Undo restored them, so redo trashes them again.
             UndoOp::Trashed { paths, .. } => {
                 paths.iter().map(|p| UndoOp::Created { vfs: local.clone(), path: p.clone() }).collect()
+            }
+            UndoOp::Mode { vfs, changes } => vec![UndoOp::Mode {
+                vfs: vfs.clone(),
+                changes: changes.iter().map(|(p, old, new)| (p.clone(), *new, *old)).collect(),
+            }],
+            UndoOp::Owner { changes } => {
+                vec![UndoOp::Owner { changes: changes.iter().map(|(p, old, new)| (p.clone(), *new, *old)).collect() }]
             }
         }
     }
@@ -117,6 +135,16 @@ impl UndoEntry {
                 UndoOp::Trashed { paths, since } => {
                     ops::restore_from_trash(&paths, since)?;
                 }
+                UndoOp::Mode { vfs, changes } => {
+                    for (path, old, _) in changes.iter().rev() {
+                        vfs.set_mode(path, *old)?;
+                    }
+                }
+                UndoOp::Owner { changes } => {
+                    for (path, (uid, gid), _) in changes.iter().rev() {
+                        perm::set_owner(path, *uid, *gid)?;
+                    }
+                }
             }
         }
         Ok(())
@@ -134,6 +162,13 @@ pub enum PendingUndo {
     Trash {
         paths: Vec<PathBuf>,
         since: SystemTime,
+    },
+    Mode {
+        vfs: VfsRef,
+        log: Arc<ChangeLog<u32>>,
+    },
+    Owner {
+        log: Arc<ChangeLog<(u32, u32)>>,
     },
     /// An undo (or redo) job; on success its inverse goes on the other stack.
     Inverse {
@@ -183,6 +218,15 @@ impl App {
             }
             PendingUndo::Trash { paths, since } if *state == JobState::Done => vec![UndoOp::Trashed { paths, since }],
             PendingUndo::Trash { .. } => Vec::new(),
+            // Like transfers, whatever part of the job happened is undoable.
+            PendingUndo::Mode { vfs, log } => {
+                let changes = std::mem::take(&mut *log.lock().unwrap_or_else(|e| e.into_inner()));
+                (!changes.is_empty()).then(|| UndoOp::Mode { vfs, changes }).into_iter().collect()
+            }
+            PendingUndo::Owner { log } => {
+                let changes = std::mem::take(&mut *log.lock().unwrap_or_else(|e| e.into_inner()));
+                (!changes.is_empty()).then(|| UndoOp::Owner { changes }).into_iter().collect()
+            }
             PendingUndo::Inverse { entry, to_redo } => {
                 if *state == JobState::Done && !entry.ops.is_empty() {
                     let stack = if to_redo { &mut self.undo.redo } else { &mut self.undo.entries };
@@ -264,5 +308,26 @@ mod tests {
         assert!(orig.exists() && !moved.exists());
         redo.run(&Progress::default()).unwrap();
         assert!(moved.exists() && !orig.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mode_changes_invert_both_ways() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("f");
+        std::fs::write(&f, "x").unwrap();
+        std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let vfs: VfsRef = Arc::new(LocalVfs);
+        let mode = || std::fs::metadata(&f).unwrap().permissions().mode() & 0o777;
+        let entry = UndoEntry {
+            label: "chmod".into(),
+            ops: vec![UndoOp::Mode { vfs: vfs.clone(), changes: vec![(f.clone(), 0o644, 0o755)] }],
+        };
+        let redo = entry.inverse(&vfs);
+        entry.run(&Progress::default()).unwrap();
+        assert_eq!(mode(), 0o644, "undo restores the old mode");
+        redo.run(&Progress::default()).unwrap();
+        assert_eq!(mode(), 0o755, "redo applies the new mode again");
     }
 }

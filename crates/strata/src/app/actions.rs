@@ -225,6 +225,7 @@ impl App {
             PasteSymlink => self.paste_links(LinkKind::Absolute),
             PasteRelativeSymlink => self.paste_links(LinkKind::Relative),
             PasteHardlink => self.paste_links(LinkKind::Hard),
+            Chmod => self.prompt_chmod(),
             _ => {}
         }
     }

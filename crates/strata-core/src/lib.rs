@@ -10,6 +10,7 @@ pub mod inspect;
 pub mod jobs;
 pub mod nas;
 pub mod ops;
+pub mod perm;
 pub mod search;
 pub mod secrets;
 pub mod sort;

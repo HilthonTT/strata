@@ -147,6 +147,10 @@ impl Vfs for DockerVfs {
         self.sh(&format!("ln {} {}", shell_quote(&posix(original)), shell_quote(&posix(link)))).map(drop)
     }
 
+    fn set_mode(&self, path: &Path, mode: u32) -> Result<()> {
+        self.sh(&format!("chmod {mode:o} {}", shell_quote(&posix(path)))).map(drop)
+    }
+
     fn shell_command(&self, path: &Path) -> Option<Vec<String>> {
         let script = "command -v bash >/dev/null && exec bash || exec sh";
         Some(

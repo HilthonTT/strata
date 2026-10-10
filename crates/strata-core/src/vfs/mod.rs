@@ -89,6 +89,11 @@ pub trait Vfs: Send + Sync + fmt::Debug {
         bail!("{} does not support hard links", self.scheme())
     }
 
+    /// Sets the unix permission bits of a path.
+    fn set_mode(&self, _path: &Path, _mode: u32) -> Result<()> {
+        bail!("{} does not support changing permissions", self.scheme())
+    }
+
     /// Path on the local disk, if this backend exposes one (used for
     /// previews, editors and shells).
     fn local_path(&self, _path: &Path) -> Option<PathBuf> {

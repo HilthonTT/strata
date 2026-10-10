@@ -40,6 +40,12 @@ Bulk rename opens one name per line in your editor; change the lines, save and q
 
 Links are made in the focused directory to what you copied with <Kbd>y y</Kbd>, and get a ` (1)` suffix when the name is taken. Symbolic links work on the local disk, SFTP servers and in Docker containers; hard links on the local disk and in containers.
 
+## Permissions and owners
+
+<Kbd>=</Kbd> asks for new permissions for the marked items, starting from the hovered item's current mode. Type an octal mode (`644`, `2755`) or a symbolic one like `chmod` takes (`u+x`, `go-w`, `a=rX`, `u=rwx,go=rx`). Start with `-R` to change everything below directories too; symbolic links met on the way are left alone. The same works as `:chmod [-R] <mode>`.
+
+`:chown [-R] user[:group]` (or `:group`) changes the owner of local items. Names are looked up the way `id` and `getent` do, so LDAP users work too. Changing owners usually needs root.
+
 ## Undo and redo
 
 Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:
@@ -49,7 +55,8 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 - copies (the copies go to the trash),
 - moves (items go back where they came from, even across filesystems),
 - trashing (items are restored from the trash — Linux and Windows),
-- links and duplicates (they go to the trash).
+- links and duplicates (they go to the trash),
+- permission and owner changes (the old ones are set again).
 
 <Callout type="warn">Permanent deletes (<Kbd>D</Kbd>) cannot be undone. strata asks for confirmation unless you set `confirm_delete = false`.</Callout>
 

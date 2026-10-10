@@ -172,6 +172,11 @@ impl Vfs for SftpVfs {
         Ok(self.sftp().symlink(target, link)?)
     }
 
+    fn set_mode(&self, path: &Path, mode: u32) -> Result<()> {
+        let stat = FileStat { size: None, uid: None, gid: None, perm: Some(mode), atime: None, mtime: None };
+        Ok(self.sftp().setstat(path, stat)?)
+    }
+
     fn shell_command(&self, path: &Path) -> Option<Vec<String>> {
         let dir = crate::util::shell_quote(&crate::util::posix(path));
         Some(vec![

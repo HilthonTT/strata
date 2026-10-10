@@ -10,7 +10,7 @@
 
 Everything you need, nothing you don't.
 
-- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR`, duplicate, symlinks and hard links, and undo for all of them
+- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR`, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them
 - **Search**: filter, fuzzy find, and content search with ripgrep
 - **Git status** markers next to every file, and **tabs** on top of multiple panels
 - **Preview**: syntax-highlighted code, images, archives and directories; executable architecture and optional MD5 in the metadata pane
@@ -49,7 +49,7 @@ strata [DIR...]           # one panel per directory
 | `alt+j` / `alt+k` | scroll the preview | `alt+/` | search the preview |
 | `t` | new tab | `g t` | next tab |
 | `s` | sort menu | `E` | open the directory in your editor |
-| `Y` | duplicate | `g l` | paste as symlink |
+| `Y` / `=` | duplicate / permissions | `g l` | paste as symlink |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
 | `?` | all keys | `q` | quit |
 
