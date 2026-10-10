@@ -17,6 +17,7 @@ pub mod overlay;
 pub mod panel;
 mod plugins;
 pub mod preview;
+mod preview_hex;
 mod preview_markdown;
 mod preview_nav;
 mod remote_edit;
@@ -632,7 +633,10 @@ impl App {
                 picker: self.picker.clone(),
                 highlighter: self.highlighter.clone(),
                 theme: self.theme.clone(),
-                options: preview::PreviewOptions { markdown: self.config.general.markdown_preview },
+                options: preview::PreviewOptions {
+                    markdown: self.config.general.markdown_preview,
+                    hex: self.config.general.hex_preview,
+                },
             }
             .spawn(self.tx.clone());
         }

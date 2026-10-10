@@ -22,15 +22,16 @@ Matching lines are highlighted, and the bottom corner shows which lines you are 
 | Markdown | Rendered: headings, lists, task boxes, quotes, tables, links and code blocks with syntax colours |
 | Images | PNG, JPEG, GIF, WebP, BMP and ICO |
 | Archives | The list of files (via the `archive` plugin) |
-| Binary files | Size, and a hint to open them with the system app |
+| Binary files | A hex dump of the first 64 KiB, with the executable type |
 
 Images use the best protocol your terminal supports — kitty, sixel or iTerm2 — and a half-block approximation everywhere else.
 
-Rendered Markdown is wrapped to the preview's width. To see the highlighted source instead:
+Rendered Markdown is wrapped to the preview's width, and the hex dump shows 16, 8 or 4 bytes per row depending on the room. To turn them off:
 
 ```toml
 [general]
-markdown_preview = false
+markdown_preview = true   # false shows the highlighted Markdown source
+hex_preview = true        # false shows only the size of binary files
 ```
 
 ```toml

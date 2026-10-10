@@ -1,20 +1,23 @@
 //! Preview generation, done off the UI thread: directories, images, code
-//! and rendered Markdown.
+//! rendered Markdown and hex dumps of binary files.
 
 use std::io::Read;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 use ratatui::layout::Size;
+use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::Protocol;
 use ratatui_image::{FilterType, Resize};
 use strata_config::Theme;
 use strata_core::sort::{sort_entries, SortOptions};
+use strata_core::util::human_size;
 use strata_core::{Entry, VfsRef};
 
 use super::highlight::Highlighter;
+use super::preview_hex;
 use super::preview_markdown;
 use crate::event::AppEvent;
 
@@ -47,6 +50,7 @@ pub fn is_image(entry: &Entry) -> bool {
 #[derive(Debug, Clone, Copy)]
 pub struct PreviewOptions {
     pub markdown: bool,
+    pub hex: bool,
 }
 
 pub struct PreviewJob {
@@ -99,7 +103,7 @@ impl PreviewJob {
             return PreviewContent::Empty;
         }
         if looks_binary(&buf) {
-            return PreviewContent::Binary { size: entry.size };
+            return if self.options.hex { self.hex(&buf) } else { PreviewContent::Binary { size: entry.size } };
         }
         let text = String::from_utf8_lossy(&buf);
         if self.options.markdown && preview_markdown::is_markdown(&ext) {
@@ -119,6 +123,27 @@ impl PreviewJob {
             return PreviewContent::Code(lines);
         }
         PreviewContent::Text(text.lines().take(MAX_LINES).map(plain).collect())
+    }
+}
+
+impl PreviewJob {
+    /// A header with the size and executable type, then the first bytes.
+    fn hex(&self, buf: &[u8]) -> PreviewContent {
+        let muted = Style::default().fg(self.theme.muted);
+        let mut header = format!(" binary · {}", human_size(self.entry.size));
+        if let Some(arch) = strata_core::inspect::binary_arch(buf) {
+            header.push_str(&format!(" · {arch}"));
+        }
+        let shown = buf.len().min(preview_hex::MAX_HEX_BYTES);
+        let mut lines = vec![Line::styled(header, Style::default().fg(self.theme.warning)), Line::default()];
+        lines.extend(preview_hex::dump(&buf[..shown], self.size.width as usize, &self.theme));
+        if (shown as u64) < self.entry.size {
+            lines.push(Line::styled(
+                format!(" … first {} of {}", human_size(shown as u64), human_size(self.entry.size)),
+                muted,
+            ));
+        }
+        PreviewContent::Code(lines)
     }
 }
 

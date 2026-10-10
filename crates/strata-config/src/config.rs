@@ -109,6 +109,8 @@ pub struct General {
     pub sha256_checksum: bool,
     /// Render Markdown files in the preview instead of showing the source.
     pub markdown_preview: bool,
+    /// Hex dump of binary files in the preview.
+    pub hex_preview: bool,
     /// Enter zip and tar archives like directories (read-only).
     pub browse_archives: bool,
     /// Program `compare` runs on two local files, e.g. `nvim -d` or `meld`.
@@ -148,6 +150,7 @@ impl Default for General {
             md5_checksum: false,
             sha256_checksum: false,
             markdown_preview: true,
+            hex_preview: true,
             browse_archives: true,
             diff_tool: String::new(),
             date_format: "%Y-%m-%d %H:%M".into(),
