@@ -90,15 +90,9 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
 
     let width = list.width as usize;
     let (size_w, date_w) = (9, 16);
-    let extra = match general.extra_columns {
-        0 => 0,
-        1 if width >= 30 => size_w + 1,
-        _ if width >= 48 => size_w + date_w + 2,
-        _ if width >= 30 => size_w + 1,
-        _ => 0,
-    };
     let git_w = if general.git_status { 2 } else { 0 };
     let checkbox_w = if selecting && general.icons { 2 } else { 0 };
+    let extra = extra_width(general.extra_columns, width, 2 + checkbox_w + git_w, general.name_percent, size_w, date_w);
     let name_w = width.saturating_sub(2 + checkbox_w + extra + git_w);
 
     let lines: Vec<Line> = (panel.offset..(panel.offset + list.height as usize).min(panel.len()))
@@ -169,4 +163,43 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), list);
+}
+
+/// Columns taken by the size (and date) columns after the name. With a
+/// `name_percent`, they only show while names keep that share of `width`.
+fn extra_width(columns: u8, width: usize, fixed: usize, name_percent: u16, size_w: usize, date_w: usize) -> usize {
+    let (size, both) = (size_w + 1, size_w + date_w + 2);
+    let room = match name_percent {
+        0 => {
+            return match columns {
+                0 => 0,
+                1 if width >= 30 => size,
+                _ if width >= 48 => both,
+                _ if width >= 30 => size,
+                _ => 0,
+            }
+        }
+        p => width.saturating_sub(fixed + width * p.clamp(10, 100) as usize / 100),
+    };
+    match columns {
+        0 => 0,
+        1 if room >= size => size,
+        _ if columns >= 2 && room >= both => both,
+        _ if room >= size => size,
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extra_width;
+
+    #[test]
+    fn name_percent_hides_columns() {
+        assert_eq!(extra_width(2, 60, 4, 0, 9, 16), 27);
+        assert_eq!(extra_width(2, 60, 4, 50, 9, 16), 10, "the date would squeeze names");
+        assert_eq!(extra_width(2, 60, 4, 90, 9, 16), 0);
+        assert_eq!(extra_width(1, 60, 4, 50, 9, 16), 10);
+        assert_eq!(extra_width(0, 60, 4, 25, 9, 16), 0);
+    }
 }

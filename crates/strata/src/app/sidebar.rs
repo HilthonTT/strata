@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use strata_config::SidebarSection;
 use strata_core::nas::Connection;
 use strata_sys::DiskInfo;
 
@@ -28,25 +29,44 @@ pub struct Sidebar {
 }
 
 impl Sidebar {
-    pub fn rebuild(&mut self, pinned: &[PathBuf], disks: &[DiskInfo], connections: &[Connection]) {
-        let mut items = vec![SidebarItem::Header("Places")];
-        items.extend(places());
-        if !pinned.is_empty() {
-            items.push(SidebarItem::Header("Pinned"));
-            items.extend(pinned.iter().cloned().map(SidebarItem::Pinned));
-        }
-        if !disks.is_empty() {
-            items.push(SidebarItem::Header("Disks"));
-            items.extend(disks.iter().map(|d| SidebarItem::Disk {
-                label: disk_label(d),
-                mount: d.mount_point.clone(),
-                ratio: d.used_ratio(),
-                network: d.network,
-            }));
-        }
-        if !connections.is_empty() {
-            items.push(SidebarItem::Header("Network"));
-            items.extend(connections.iter().map(|c| SidebarItem::Connection(c.name.clone())));
+    pub fn rebuild(
+        &mut self,
+        sections: &[SidebarSection],
+        pinned: &[PathBuf],
+        disks: &[DiskInfo],
+        connections: &[Connection],
+    ) {
+        let mut items = Vec::new();
+        let mut shown = Vec::new();
+        for &section in sections {
+            if shown.contains(&section) {
+                continue;
+            }
+            shown.push(section);
+            match section {
+                SidebarSection::Places => {
+                    items.push(SidebarItem::Header("Places"));
+                    items.extend(places());
+                }
+                SidebarSection::Pinned if !pinned.is_empty() => {
+                    items.push(SidebarItem::Header("Pinned"));
+                    items.extend(pinned.iter().cloned().map(SidebarItem::Pinned));
+                }
+                SidebarSection::Disks if !disks.is_empty() => {
+                    items.push(SidebarItem::Header("Disks"));
+                    items.extend(disks.iter().map(|d| SidebarItem::Disk {
+                        label: disk_label(d),
+                        mount: d.mount_point.clone(),
+                        ratio: d.used_ratio(),
+                        network: d.network,
+                    }));
+                }
+                SidebarSection::Network if !connections.is_empty() => {
+                    items.push(SidebarItem::Header("Network"));
+                    items.extend(connections.iter().map(|c| SidebarItem::Connection(c.name.clone())));
+                }
+                _ => {}
+            }
         }
         self.items = items;
         self.cursor = self.cursor.min(self.items.len().saturating_sub(1));
@@ -134,12 +154,22 @@ mod tests {
     #[test]
     fn cursor_skips_headers() {
         let mut s = Sidebar::default();
-        s.rebuild(&[PathBuf::from("/tmp")], &[], &[]);
+        s.rebuild(&SidebarSection::ALL, &[PathBuf::from("/tmp")], &[], &[]);
         assert!(s.selected().is_some());
         s.last();
         s.move_by(-100);
         assert!(s.selected().is_some(), "never rests on a header");
         assert!(matches!(s.items[0], SidebarItem::Header(_)));
         assert_ne!(s.cursor, 0);
+    }
+
+    #[test]
+    fn sections_follow_the_config() {
+        let mut s = Sidebar::default();
+        s.rebuild(&[SidebarSection::Pinned, SidebarSection::Pinned], &[PathBuf::from("/tmp")], &[], &[]);
+        assert!(matches!(s.items[..], [SidebarItem::Header("Pinned"), SidebarItem::Pinned(_)]));
+        s.rebuild(&[], &[PathBuf::from("/tmp")], &[], &[]);
+        assert!(s.items.is_empty());
+        assert!(s.selected().is_none());
     }
 }

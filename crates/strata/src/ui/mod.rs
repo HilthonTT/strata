@@ -52,18 +52,23 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
 fn draw_files(frame: &mut Frame, app: &mut App, area: Rect) {
     let general = &app.config.general;
-    let show_sidebar = general.sidebar && area.width >= 90;
+    let show_sidebar = general.sidebar && general.sidebar_width > 0 && area.width >= 90;
     let show_preview = general.preview && area.width >= 70;
     let plugin_panels = app.visible_plugin_panels().len() as u16;
     let plugin_width = if area.width >= 120 { 32 * plugin_panels } else { 0 };
 
     let mut constraints = Vec::new();
     if show_sidebar {
-        constraints.push(Constraint::Length(24));
+        constraints.push(Constraint::Length(general.sidebar_width.clamp(12, 60)));
     }
     constraints.push(Constraint::Min(20));
     if show_preview {
-        constraints.push(Constraint::Percentage(if app.panels.len() > 2 { 28 } else { 34 }));
+        let percent = match general.preview_width {
+            0 if app.panels.len() > 2 => 28,
+            0 => 34,
+            p => p.clamp(10, 80),
+        };
+        constraints.push(Constraint::Percentage(percent));
     }
     if plugin_width > 0 {
         constraints.push(Constraint::Length(plugin_width));

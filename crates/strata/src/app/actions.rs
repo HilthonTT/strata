@@ -395,7 +395,12 @@ impl App {
     }
 
     pub fn rebuild_sidebar(&mut self) {
-        self.sidebar.rebuild(&self.pinned, &self.metrics.disks, &self.config.connections);
+        self.sidebar.rebuild(
+            &self.config.general.sidebar_sections,
+            &self.pinned,
+            &self.metrics.disks,
+            &self.config.connections,
+        );
     }
 
     fn toggle_pin(&mut self) {

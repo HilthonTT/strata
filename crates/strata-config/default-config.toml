@@ -21,6 +21,10 @@ sidebar = true
 footer = true
 icons = true                 # needs a Nerd Font
 border = "rounded"           # plain | rounded | double | thick
+sidebar_width = 24           # columns
+sidebar_sections = ["places", "pinned", "disks", "network"]   # which sections, in order
+preview_width = 0            # % of the window; 0 = automatic
+name_percent = 0             # % of a panel kept for names before extra columns hide; 0 = automatic
 sort = "name"                # name | size | modified | extension
 sort_reverse = false         # descending order
 case_sensitive_sort = false  # sort B before a

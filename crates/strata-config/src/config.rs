@@ -61,6 +61,20 @@ pub enum BorderStyle {
     Thick,
 }
 
+/// A group of entries in the sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarSection {
+    Places,
+    Pinned,
+    Disks,
+    Network,
+}
+
+impl SidebarSection {
+    pub const ALL: [Self; 4] = [Self::Places, Self::Pinned, Self::Disks, Self::Network];
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct General {
@@ -90,6 +104,15 @@ pub struct General {
     /// Nerd Font file icons.
     pub icons: bool,
     pub border: BorderStyle,
+    /// Sidebar width in columns.
+    pub sidebar_width: u16,
+    /// Which sidebar sections to show, in order.
+    pub sidebar_sections: Vec<SidebarSection>,
+    /// Preview width as a percentage of the window. 0 = automatic.
+    pub preview_width: u16,
+    /// Share of a panel's width (percent) kept for file names; extra columns
+    /// are hidden when they would leave less. 0 = automatic.
+    pub name_percent: u16,
     pub sort: SortKey,
     /// Sort in descending order.
     pub sort_reverse: bool,
@@ -155,6 +178,10 @@ impl Default for General {
             footer: true,
             icons: true,
             border: BorderStyle::Rounded,
+            sidebar_width: 24,
+            sidebar_sections: SidebarSection::ALL.to_vec(),
+            preview_width: 0,
+            name_percent: 0,
             sort: SortKey::Name,
             sort_reverse: false,
             case_sensitive_sort: false,
@@ -296,6 +323,13 @@ mod tests {
         assert_eq!(c.open_with["png"], OpenRule::Command("feh".into()));
         assert!(c.open_with["pdf"].detach());
         assert_eq!(c.open_with["pdf"].command(), "zathura");
+    }
+
+    #[test]
+    fn layout_settings_parse() {
+        let c = Config::parse("[general]\nsidebar_sections = [\"disks\", \"places\"]").unwrap();
+        assert_eq!(c.general.sidebar_sections, [SidebarSection::Disks, SidebarSection::Places]);
+        assert_eq!(c.general.sidebar_width, 24);
     }
 
     #[test]
