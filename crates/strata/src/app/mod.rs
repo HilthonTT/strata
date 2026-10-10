@@ -42,7 +42,7 @@ use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::layout::{Rect, Size};
 use ratatui_image::picker::Picker;
-use strata_config::{Config, KeyPress, Keymap, Theme, ThemeRegistry};
+use strata_config::{Config, General, KeyPress, Keymap, Theme, ThemeRegistry};
 use strata_core::inspect::HashAlgo;
 use strata_core::jobs::Progress;
 use strata_core::jobs::{JobManager, JobState};
@@ -232,8 +232,13 @@ impl App {
         let config_dir = strata_config::config_dir();
         let (themes, theme_errors) = ThemeRegistry::load(&config_dir.join("themes"));
 
+        let mut config = config;
         let mut theme_error = None;
         let mut start_error = None;
+        let date_error = (!is_valid_date_format(&config.general.date_format)).then(|| {
+            let bad = std::mem::replace(&mut config.general.date_format, General::default().date_format);
+            format!("date_format '{bad}' is not a valid strftime format, using the default")
+        });
         let theme = match themes.get(&config.general.theme) {
             Some(t) => t.clone(),
             None => {
@@ -350,6 +355,7 @@ impl App {
             .chain(theme_error)
             .chain(start_error)
             .chain(border_error)
+            .chain(date_error)
             .for_each(|e| app.notify(e, Level::Warn));
         if opts.load_plugins {
             app.load_plugins();
@@ -727,6 +733,13 @@ impl App {
     }
 }
 
+/// Whether chrono can format dates with `format`; an invalid one would
+/// panic mid-draw.
+fn is_valid_date_format(format: &str) -> bool {
+    use chrono::format::{Item, StrftimeItems};
+    !StrftimeItems::new(format).any(|i| matches!(i, Item::Error))
+}
+
 /// One directory per panel: the given paths, then `start_dir` or the
 /// current directory for the rest.
 fn start_directories(paths: &[PathBuf], start_dir: Option<PathBuf>, count: usize) -> Vec<PathBuf> {
@@ -759,4 +772,15 @@ fn load_pins(config: &Config) -> Vec<PathBuf> {
         }
     }
     pins
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn date_formats_are_checked() {
+        assert!(is_valid_date_format("%Y-%m-%d %H:%M"));
+        assert!(!is_valid_date_format("%Q"));
+    }
 }

@@ -89,7 +89,8 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     }
 
     let width = list.width as usize;
-    let (size_w, date_w) = (9, 16);
+    let date_format = general.date_format.as_str();
+    let (size_w, date_w) = (9, date_width(date_format));
     let git_w = if general.git_status { 2 } else { 0 };
     let checkbox_w = if selecting && general.icons { 2 } else { 0 };
     let extra = extra_width(general.extra_columns, width, 2 + checkbox_w + git_w, general.name_percent, size_w, date_w);
@@ -142,7 +143,7 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
                 if extra > size_w + 1 {
                     let date = entry
                         .modified
-                        .map(|t| DateTime::<Local>::from(t).format("%Y-%m-%d %H:%M").to_string())
+                        .map(|t| DateTime::<Local>::from(t).format(date_format).to_string())
                         .unwrap_or_default();
                     spans.push(Span::styled(format!(" {}", fit(&date, date_w)), muted));
                 }
@@ -190,9 +191,21 @@ fn extra_width(columns: u8, width: usize, fixed: usize, name_percent: u16, size_
     }
 }
 
+/// Columns a date takes in `format`, measured on a sample date.
+fn date_width(format: &str) -> usize {
+    use chrono::TimeZone;
+    let sample = Local.with_ymd_and_hms(2026, 12, 31, 23, 59, 59).single().unwrap_or_else(Local::now);
+    // An invalid format makes chrono's Display fail, so format via `write!`.
+    let mut out = String::new();
+    if std::fmt::Write::write_fmt(&mut out, format_args!("{}", sample.format(format))).is_err() {
+        return 16;
+    }
+    out.width().clamp(1, 40)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::extra_width;
+    use super::{date_width, extra_width};
 
     #[test]
     fn name_percent_hides_columns() {
@@ -201,5 +214,11 @@ mod tests {
         assert_eq!(extra_width(2, 60, 4, 90, 9, 16), 0);
         assert_eq!(extra_width(1, 60, 4, 50, 9, 16), 10);
         assert_eq!(extra_width(0, 60, 4, 25, 9, 16), 0);
+    }
+
+    #[test]
+    fn date_width_follows_the_format() {
+        assert_eq!(date_width("%Y-%m-%d %H:%M"), 16);
+        assert_eq!(date_width("%d/%m"), 5);
     }
 }
