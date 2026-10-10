@@ -9,7 +9,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use strata_config::Action;
 use strata_core::git::GitState;
-use strata_core::util::human_size;
+use strata_core::util::{human_size, permissions_string};
 use unicode_width::UnicodeWidthStr;
 
 use super::{block, fit, icons, panels_focused, truncate, truncate_left};
@@ -90,10 +90,18 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
 
     let width = list.width as usize;
     let date_format = general.date_format.as_str();
-    let (size_w, date_w) = (9, date_width(date_format));
+    // Size, date and permissions, each with a leading space.
+    let (size_w, date_w, perm_w) = (9, date_width(date_format), 9);
     let git_w = if general.git_status { 2 } else { 0 };
     let checkbox_w = if selecting && general.icons { 2 } else { 0 };
-    let extra = extra_width(general.extra_columns, width, 2 + checkbox_w + git_w, general.name_percent, size_w, date_w);
+    let shown = extra_columns(
+        general.extra_columns,
+        width,
+        2 + checkbox_w + git_w,
+        general.name_percent,
+        &[size_w + 1, date_w + 1, perm_w + 1],
+    );
+    let extra = [size_w + 1, date_w + 1, perm_w + 1][..shown].iter().sum::<usize>();
     let name_w = width.saturating_sub(2 + checkbox_w + extra + git_w);
 
     let lines: Vec<Line> = (panel.offset..(panel.offset + list.height as usize).min(panel.len()))
@@ -137,16 +145,20 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
             }
             spans.push(Span::raw(" ".repeat(name_room.saturating_sub(name.width()))));
 
-            if extra > 0 {
+            if shown >= 1 {
                 let size = if entry.is_dir() { "—".to_string() } else { human_size(entry.size) };
                 spans.push(Span::styled(format!(" {size:>size_w$}"), muted));
-                if extra > size_w + 1 {
-                    let date = entry
-                        .modified
-                        .map(|t| DateTime::<Local>::from(t).format(date_format).to_string())
-                        .unwrap_or_default();
-                    spans.push(Span::styled(format!(" {}", fit(&date, date_w)), muted));
-                }
+            }
+            if shown >= 2 {
+                let date = entry
+                    .modified
+                    .map(|t| DateTime::<Local>::from(t).format(date_format).to_string())
+                    .unwrap_or_default();
+                spans.push(Span::styled(format!(" {}", fit(&date, date_w)), muted));
+            }
+            if shown >= 3 {
+                let perms = entry.mode.map(permissions_string).unwrap_or_else(|| "—".into());
+                spans.push(Span::styled(format!(" {}", fit(&perms, perm_w)), muted));
             }
             if git_w > 0 {
                 let (marker, color) = match git {
@@ -166,29 +178,24 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     frame.render_widget(Paragraph::new(lines), list);
 }
 
-/// Columns taken by the size (and date) columns after the name. With a
-/// `name_percent`, they only show while names keep that share of `width`.
-fn extra_width(columns: u8, width: usize, fixed: usize, name_percent: u16, size_w: usize, date_w: usize) -> usize {
-    let (size, both) = (size_w + 1, size_w + date_w + 2);
-    let room = match name_percent {
-        0 => {
-            return match columns {
-                0 => 0,
-                1 if width >= 30 => size,
-                _ if width >= 48 => both,
-                _ if width >= 30 => size,
-                _ => 0,
-            }
-        }
-        p => width.saturating_sub(fixed + width * p.clamp(10, 100) as usize / 100),
+/// How many of the extra columns (size, date, permissions; `widths` in
+/// that order) to show, up to `wanted`. Names keep `name_percent` of the
+/// width, or 20 columns when it is 0.
+fn extra_columns(wanted: u8, width: usize, fixed: usize, name_percent: u16, widths: &[usize]) -> usize {
+    let name_min = match name_percent {
+        0 => 20,
+        p => width * p.clamp(10, 100) as usize / 100,
     };
-    match columns {
-        0 => 0,
-        1 if room >= size => size,
-        _ if columns >= 2 && room >= both => both,
-        _ if room >= size => size,
-        _ => 0,
+    let mut room = width.saturating_sub(fixed + name_min);
+    let mut shown = 0;
+    for &w in widths.iter().take(wanted as usize) {
+        if w > room {
+            break;
+        }
+        room -= w;
+        shown += 1;
     }
+    shown
 }
 
 /// Columns a date takes in `format`, measured on a sample date.
@@ -205,15 +212,20 @@ fn date_width(format: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{date_width, extra_width};
+    use super::{date_width, extra_columns};
+
+    const WIDTHS: [usize; 3] = [10, 17, 10];
 
     #[test]
-    fn name_percent_hides_columns() {
-        assert_eq!(extra_width(2, 60, 4, 0, 9, 16), 27);
-        assert_eq!(extra_width(2, 60, 4, 50, 9, 16), 10, "the date would squeeze names");
-        assert_eq!(extra_width(2, 60, 4, 90, 9, 16), 0);
-        assert_eq!(extra_width(1, 60, 4, 50, 9, 16), 10);
-        assert_eq!(extra_width(0, 60, 4, 25, 9, 16), 0);
+    fn columns_fit_the_panel() {
+        assert_eq!(extra_columns(2, 60, 4, 0, &WIDTHS), 2);
+        assert_eq!(extra_columns(3, 60, 4, 0, &WIDTHS), 2, "permissions need more room");
+        assert_eq!(extra_columns(3, 80, 4, 0, &WIDTHS), 3);
+        assert_eq!(extra_columns(2, 40, 4, 0, &WIDTHS), 1);
+        assert_eq!(extra_columns(2, 30, 4, 0, &WIDTHS), 0);
+        assert_eq!(extra_columns(2, 60, 4, 50, &WIDTHS), 1, "the date would squeeze names");
+        assert_eq!(extra_columns(2, 60, 4, 90, &WIDTHS), 0);
+        assert_eq!(extra_columns(0, 200, 4, 0, &WIDTHS), 0);
     }
 
     #[test]

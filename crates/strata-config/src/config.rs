@@ -108,7 +108,8 @@ pub struct General {
     pub syntax_highlight: bool,
     /// Show git status markers next to files in repositories.
     pub git_status: bool,
-    /// Columns after the file name: 0 = name only, 1 = size, 2 = size and date.
+    /// Columns after the file name: 0 = name only, 1 = size, 2 = size and
+    /// date, 3 = size, date and permissions.
     pub extra_columns: u8,
     /// Draw a border around the preview.
     pub preview_border: bool,
