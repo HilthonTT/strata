@@ -29,6 +29,10 @@ Transfers run in the background, so you can keep working. Their progress appears
 
 Bulk rename opens one name per line in your editor; change the lines, save and quit. Swapping two names works, and strata refuses to overwrite files that are not part of the rename.
 
+## Duplicate
+
+<Kbd>Y</Kbd> (or `:duplicate`) copies the marked items next to themselves as `name (1).ext`.
+
 ## Undo and redo
 
 Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:
@@ -37,7 +41,8 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 - new files and directories (they go to the trash),
 - copies (the copies go to the trash),
 - moves (items go back where they came from, even across filesystems),
-- trashing (items are restored from the trash — Linux and Windows).
+- trashing (items are restored from the trash — Linux and Windows),
+- duplicates (they go to the trash).
 
 <Callout type="warn">Permanent deletes (<Kbd>D</Kbd>) cannot be undone. strata asks for confirmation unless you set `confirm_delete = false`.</Callout>
 

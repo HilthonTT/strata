@@ -74,6 +74,7 @@ actions! {
     BulkRename => "bulk_rename", "Rename marked items in $EDITOR";
     NewFile => "new_file", "Create a file";
     NewDir => "new_dir", "Create a directory";
+    Duplicate => "duplicate", "Duplicate marked items here";
     CopyPath => "copy_path", "Copy path to the system clipboard";
     CopyCwd => "copy_cwd", "Copy the current directory's path";
     CancelJob => "cancel_job", "Cancel the latest running job";
@@ -339,6 +340,7 @@ const COMMON: &[(&str, &str)] = &[
     ("E", "edit_dir"),
     ("P", "pin"),
     ("D", "delete_permanent"),
+    ("Y", "duplicate"),
     ("q", "quit"),
     ("Q", "quit_cd"),
     ("ctrl+g", "content_search"),

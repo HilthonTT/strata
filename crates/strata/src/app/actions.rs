@@ -220,6 +220,7 @@ impl App {
             OpenWith => self.open_with_system(),
             Shell => self.open_shell(),
             Pin => self.toggle_pin(),
+            Duplicate => self.duplicate(),
             _ => {}
         }
     }

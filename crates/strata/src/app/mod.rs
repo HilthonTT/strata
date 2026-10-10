@@ -9,6 +9,7 @@ pub use actions::short_path;
 mod commands;
 pub use commands::COMMANDS;
 mod external;
+mod fileops;
 pub mod grep;
 mod highlight;
 mod input;

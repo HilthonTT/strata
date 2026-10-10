@@ -20,6 +20,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
     ("select", "select <glob> — mark matching items"),
+    ("duplicate", "duplicate — copy marked items next to themselves"),
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
     ("set", "set hidden|preview|sidebar|footer [on|off]"),
@@ -74,6 +75,7 @@ impl App {
                 let n = self.panel_mut().mark_glob(if args.is_empty() { "*" } else { args });
                 self.info(format!("marked {n} item(s)"));
             }
+            "duplicate" | "dup" => self.dispatch(Action::Duplicate),
             "theme" if args.is_empty() => self.open_theme_picker(),
             "theme" => {
                 if self.apply_theme(args, true) {
