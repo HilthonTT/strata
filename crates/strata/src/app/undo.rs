@@ -136,9 +136,8 @@ impl UndoEntry {
                     ops::restore_from_trash(&paths, since)?;
                 }
                 UndoOp::Mode { vfs, changes } => {
-                    for (path, old, _) in changes.iter().rev() {
-                        vfs.set_mode(path, *old)?;
-                    }
+                    let modes: Vec<_> = changes.iter().map(|(path, old, _)| (path.clone(), *old)).collect();
+                    perm::set_modes(&*vfs, &modes)?;
                 }
                 UndoOp::Owner { changes } => {
                     for (path, (uid, gid), _) in changes.iter().rev() {

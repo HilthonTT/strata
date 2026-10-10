@@ -302,9 +302,16 @@ pub fn wrap(
                 used += 1;
             }
             // A word longer than a whole line is cut into pieces.
-            while used + w > width && w > 1 {
+            while used + w > width && word.chars().nth(1).is_some() {
                 let room = width.saturating_sub(used).max(1);
-                let (head, tail) = split_at_width(&word, room);
+                let (mut head, mut tail) = split_at_width(&word, room);
+                // A wide character that does not fit at all still has to go
+                // somewhere, or the word never gets shorter.
+                if head.is_empty() {
+                    let n = word.chars().next().map_or(0, char::len_utf8);
+                    tail = word.split_off(n);
+                    head = std::mem::take(&mut word);
+                }
                 current.push(Span::styled(head, span.style));
                 lines.push(Line::from(std::mem::replace(&mut current, rest.clone())));
                 used = prefix_width(&rest);
@@ -385,5 +392,13 @@ mod tests {
     fn long_words_are_split() {
         let lines = wrap(vec![Span::raw("abcdefghij")], 4, Vec::new(), Vec::new());
         assert_eq!(text(&lines), ["abcd", "efgh", "ij"]);
+    }
+
+    #[test]
+    fn wide_characters_wrap_in_tiny_widths() {
+        let lines = wrap(vec![Span::raw("日本語")], 1, Vec::new(), Vec::new());
+        assert_eq!(text(&lines), ["日", "本", "語"]);
+        let deep = format!("{}- 日本語の文章です", " ".repeat(40));
+        assert!(!render(&deep, 40, &theme(), None).is_empty());
     }
 }

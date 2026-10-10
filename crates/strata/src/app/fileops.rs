@@ -320,7 +320,10 @@ impl App {
             let mut lines = Vec::new();
             for line in &sums {
                 progress.check()?;
-                let path = line.file.split('/').fold(dir.clone(), |p, part| vfs.join(&p, part));
+                // Absolute names (`sha256sum /etc/hosts`) are not under `dir`.
+                let base = if line.file.starts_with('/') { std::path::PathBuf::from("/") } else { dir.clone() };
+                let path =
+                    line.file.split('/').filter(|part| !part.is_empty()).fold(base, |p, part| vfs.join(&p, part));
                 match inspect::hash_file(&*vfs, &path, &[line.algo], progress) {
                     Ok(sum) if sum[0] == line.hash => {
                         ok += 1;

@@ -26,9 +26,9 @@ impl MediaKind {
     pub fn of(ext: &str) -> Option<Self> {
         Some(match ext {
             "pdf" => MediaKind::Pdf,
-            "mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v" | "wmv" | "flv" | "mpg" | "mpeg" | "ts" | "3gp" | "ogv" => {
-                MediaKind::Video
-            }
+            // Not `.ts`: far more of those are TypeScript than MPEG streams.
+            "mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v" | "wmv" | "flv" | "mpg" | "mpeg" | "m2ts" | "mts"
+            | "3gp" | "ogv" => MediaKind::Video,
             "mp3" | "flac" | "wav" | "ogg" | "oga" | "opus" | "m4a" | "aac" | "wma" | "aiff" | "alac" | "ape" => {
                 MediaKind::Audio
             }
@@ -298,6 +298,7 @@ mod tests {
         assert_eq!(MediaKind::of("mkv"), Some(MediaKind::Video));
         assert_eq!(MediaKind::of("flac"), Some(MediaKind::Audio));
         assert_eq!(MediaKind::of("txt"), None);
+        assert_eq!(MediaKind::of("ts"), None);
     }
 
     #[test]

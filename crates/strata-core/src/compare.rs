@@ -161,10 +161,17 @@ fn walk(
                         if l.size != r.size {
                             let why = format!("{} vs {}", human_size(l.size), human_size(r.size));
                             report.differ.push((name, why));
-                        } else if files_equal((a.0, &l.path), (b.0, &r.path), progress)? {
-                            report.same += 1;
                         } else {
-                            report.differ.push((name, "contents differ".into()));
+                            match files_equal((a.0, &l.path), (b.0, &r.path), progress) {
+                                Ok(true) => report.same += 1,
+                                Ok(false) => report.differ.push((name, "contents differ".into())),
+                                // One unreadable file (or dangling link) should not end the
+                                // whole comparison, but cancelling still should.
+                                Err(e) => {
+                                    progress.check()?;
+                                    report.differ.push((name, format!("unreadable: {e:#}")));
+                                }
+                            }
                         }
                     }
                     // Links to directories and special files: names only.
@@ -247,13 +254,21 @@ mod tests {
         fs::write(b.join("sub/changed"), "abd").unwrap();
         fs::write(a.join("left-only"), "").unwrap();
         fs::create_dir(b.join("right-only")).unwrap();
+        #[cfg(unix)]
+        for root in [&a, &b] {
+            std::os::unix::fs::symlink("missing", root.join("dangling")).unwrap();
+        }
         fs::write(a.join("kind"), "").unwrap();
         fs::create_dir(b.join("kind")).unwrap();
         let report = compare_dirs((&LocalVfs, &a), (&LocalVfs, &b), &Progress::default()).unwrap();
         assert_eq!(report.only_left, ["left-only"]);
         assert_eq!(report.only_right, ["right-only"]);
+        #[cfg(unix)]
+        let differ: Vec<_> = report.differ.iter().filter(|(n, _)| n != "dangling").cloned().collect();
+        #[cfg(not(unix))]
+        let differ = report.differ.clone();
         assert_eq!(
-            report.differ,
+            differ,
             [("kind".to_string(), "file vs directory".to_string()), ("sub/changed".into(), "contents differ".into())]
         );
         assert_eq!(report.same, 1);

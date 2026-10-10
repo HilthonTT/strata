@@ -227,7 +227,7 @@ pub fn parse_sums(text: &str, default_file: Option<&str>) -> Vec<SumLine> {
     let mut out = Vec::new();
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
         let parsed = if let Some((left, hash)) = line.rsplit_once(" = ").filter(|(l, _)| l.ends_with(')')) {
-            left.split_once(" (").map(|(_, file)| (hash.trim(), file.trim_end_matches(')').to_string()))
+            left.split_once(" (").map(|(_, file)| (hash.trim(), file.strip_suffix(')').unwrap_or(file).to_string()))
         } else {
             match line.split_once(char::is_whitespace) {
                 Some((hash, file)) => {
@@ -310,10 +310,12 @@ mod tests {
     #[test]
     fn parses_gnu_bsd_and_bare_checksum_lines() {
         let sha = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
-        let text = format!("{sha}  a.txt\n{sha} *b.bin\n# comment\nSHA256 (c d.txt) = {sha}\nnot a line\n");
+        let text = format!(
+            "{sha}  a.txt\n{sha} *b.bin\n# comment\nSHA256 (c d.txt) = {sha}\nSHA256 (e (1)) = {sha}\nnot a line\n"
+        );
         let lines = parse_sums(&text, None);
         let files: Vec<&str> = lines.iter().map(|l| l.file.as_str()).collect();
-        assert_eq!(files, ["a.txt", "b.bin", "c d.txt"]);
+        assert_eq!(files, ["a.txt", "b.bin", "c d.txt", "e (1)"]);
         assert!(lines.iter().all(|l| l.algo == HashAlgo::Sha256));
         let bare = parse_sums("5EB63BBBE01EEED093CB22BB8F5ACDC3\n", Some("x.iso"));
         assert_eq!(

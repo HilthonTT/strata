@@ -140,15 +140,15 @@ impl Vfs for DockerVfs {
     }
 
     fn symlink(&self, target: &Path, link: &Path) -> Result<()> {
-        self.sh(&format!("ln -s {} {}", shell_quote(&posix(target)), shell_quote(&posix(link)))).map(drop)
+        self.sh(&format!("ln -s -- {} {}", shell_quote(&posix(target)), shell_quote(&posix(link)))).map(drop)
     }
 
     fn hard_link(&self, original: &Path, link: &Path) -> Result<()> {
-        self.sh(&format!("ln {} {}", shell_quote(&posix(original)), shell_quote(&posix(link)))).map(drop)
+        self.sh(&format!("ln -- {} {}", shell_quote(&posix(original)), shell_quote(&posix(link)))).map(drop)
     }
 
     fn set_mode(&self, path: &Path, mode: u32) -> Result<()> {
-        self.sh(&format!("chmod {mode:o} {}", shell_quote(&posix(path)))).map(drop)
+        self.sh(&format!("chmod -- {mode:o} {}", shell_quote(&posix(path)))).map(drop)
     }
 
     fn shell_command(&self, path: &Path) -> Option<Vec<String>> {

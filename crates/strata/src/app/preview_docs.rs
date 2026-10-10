@@ -49,10 +49,11 @@ pub fn extract(data: Vec<u8>, ext: &str) -> Result<Vec<Block>> {
 type Zip = zip::ZipArchive<Cursor<Vec<u8>>>;
 
 fn read(zip: &mut Zip, name: &str) -> Result<String> {
-    let mut file = zip.by_name(name).with_context(|| format!("{name} is missing"))?;
-    let mut text = String::new();
-    file.read_to_string(&mut text).with_context(|| format!("cannot read {name}"))?;
-    Ok(text)
+    let file = zip.by_name(name).with_context(|| format!("{name} is missing"))?;
+    // The archive's size says nothing about what an entry expands to.
+    let mut bytes = Vec::new();
+    file.take(MAX_DOC_BYTES).read_to_end(&mut bytes).with_context(|| format!("cannot read {name}"))?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 // --- XML ---------------------------------------------------------------------
@@ -83,9 +84,13 @@ fn tokens<'a>(xml: &'a str) -> Vec<Xml<'a>> {
         // Comments, CDATA, declarations and processing instructions.
         let skip = [("<!--", "-->"), ("<![CDATA[", "]]>"), ("<?", "?>"), ("<!", ">")];
         if let Some((open, close)) = skip.iter().find(|(o, _)| rest.starts_with(o)) {
-            let end = rest.find(close).map(|i| i + close.len()).unwrap_or(rest.len());
+            // An unclosed section runs to the end of the document.
+            let (body_end, end) = match rest[open.len()..].find(close) {
+                Some(i) => (open.len() + i, open.len() + i + close.len()),
+                None => (rest.len(), rest.len()),
+            };
             if *open == "<![CDATA[" {
-                out.push(Xml::Text(rest[open.len()..end.saturating_sub(close.len()).max(open.len())].to_string()));
+                out.push(Xml::Text(rest[open.len()..body_end].to_string()));
             }
             rest = &rest[end..];
             continue;
@@ -203,6 +208,7 @@ impl Collector {
             if !self.cell.is_empty() && !self.cell.ends_with(' ') {
                 self.cell.push(' ');
             }
+            self.heading = false;
             return;
         }
         let text = collapse(&std::mem::take(&mut self.text));
@@ -358,21 +364,9 @@ fn sheets(zip: &mut Zip) -> Result<Vec<Block>> {
         }
         Err(_) => Vec::new(),
     };
-    // Sheet names come from the workbook, in the same order as the files.
-    let names: Vec<String> = read(zip, "xl/workbook.xml")
-        .map(|xml| {
-            tokens(&xml)
-                .into_iter()
-                .filter_map(|t| match t {
-                    Xml::Open("sheet", attrs) => attr(attrs, "name"),
-                    _ => None,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
     let mut blocks = Vec::new();
-    for (i, (n, file)) in numbered(zip, "xl/worksheets/sheet", ".xml").into_iter().take(MAX_SHEETS).enumerate() {
-        blocks.push(Block::Heading(names.get(i).cloned().unwrap_or_else(|| format!("Sheet {n}"))));
+    for (name, file) in sheet_files(zip).into_iter().take(MAX_SHEETS) {
+        blocks.push(Block::Heading(name));
         let mut rows = 0;
         let mut cells: Option<Vec<String>> = None;
         let (mut kind, mut value, mut in_value) = (String::new(), String::new(), false);
@@ -412,6 +406,55 @@ fn sheets(zip: &mut Zip) -> Result<Vec<Block>> {
         }
     }
     Ok(blocks)
+}
+
+/// Each sheet's name and file, in tab order. The workbook links names to
+/// files by relationship id: `sheet3.xml` need not be the third tab.
+fn sheet_files(zip: &mut Zip) -> Vec<(String, String)> {
+    let targets: HashMap<String, String> = read(zip, "xl/_rels/workbook.xml.rels")
+        .map(|xml| {
+            tokens(&xml)
+                .into_iter()
+                .filter_map(|t| match t {
+                    Xml::Open("Relationship", attrs) => {
+                        let target = attr(attrs, "Target")?;
+                        let file = match target.strip_prefix('/') {
+                            Some(absolute) => absolute.to_string(),
+                            None => join_zip_path("xl/", &target),
+                        };
+                        Some((attr(attrs, "Id")?, file))
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // (name, relationship id) of each tab.
+    let tabs: Vec<(String, Option<String>)> = read(zip, "xl/workbook.xml")
+        .map(|xml| {
+            tokens(&xml)
+                .into_iter()
+                .filter_map(|t| match t {
+                    Xml::Open("sheet", attrs) => Some((attr(attrs, "name")?, attr(attrs, "r:id"))),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let linked: Vec<(String, String)> = tabs
+        .iter()
+        .filter_map(|(name, id)| Some((name.clone(), targets.get(id.as_ref()?)?.clone())))
+        .filter(|(_, file)| zip.index_for_name(file).is_some())
+        .collect();
+    if !linked.is_empty() {
+        return linked;
+    }
+    // Without relationships, assume the files are numbered in tab order.
+    numbered(zip, "xl/worksheets/sheet", ".xml")
+        .into_iter()
+        .enumerate()
+        .map(|(i, (n, file))| (tabs.get(i).map_or_else(|| format!("Sheet {n}"), |(name, _)| name.clone()), file))
+        .collect()
 }
 
 /// EPUB: title and author from the package file, then the chapters in
@@ -529,7 +572,9 @@ fn percent_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+            // Bytes, not `&s[..]`: the next two may be part of a multi-byte character.
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+            if let Some(b) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
                 out.push(b);
                 i += 3;
                 continue;
@@ -607,6 +652,49 @@ mod tests {
                 Block::Row(vec!["Ann".into(), "TRUE".into()])
             ]
         );
+    }
+
+    #[test]
+    fn sheet_names_follow_the_workbook_links() {
+        let book = r#"<workbook><sheets><sheet name="Second" r:id="rId2"/><sheet name="First" r:id="rId1"/></sheets></workbook>"#;
+        let rels = r#"<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/>
+            <Relationship Id="rId2" Target="/xl/worksheets/sheet2.xml"/></Relationships>"#;
+        let sheet = |v: &str| {
+            format!(
+                r#"<worksheet><sheetData><row><c t="inlineStr"><is><t>{v}</t></is></c></row></sheetData></worksheet>"#
+            )
+        };
+        let (one, two) = (sheet("in sheet1"), sheet("in sheet2"));
+        let data = zip_of(&[
+            ("xl/workbook.xml", book),
+            ("xl/_rels/workbook.xml.rels", rels),
+            ("xl/worksheets/sheet1.xml", &one),
+            ("xl/worksheets/sheet2.xml", &two),
+        ]);
+        assert_eq!(
+            extract(data, "xlsx").unwrap(),
+            [
+                Block::Heading("Second".into()),
+                Block::Row(vec!["in sheet2".into()]),
+                Block::Heading("First".into()),
+                Block::Row(vec!["in sheet1".into()])
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_text_does_not_panic() {
+        assert_eq!(tokens("<a><![CDATA[éé"), [Xml::Open("a", ""), Xml::Text("éé".into())]);
+        assert_eq!(percent_decode("ch%aé.xhtml"), "ch%aé.xhtml");
+        assert_eq!(percent_decode("a%20b"), "a b");
+    }
+
+    #[test]
+    fn headings_in_table_cells_stay_there() {
+        let doc = r#"<w:document><w:body><w:tbl><w:tr><w:tc>
+            <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>cell</w:t></w:r></w:p>
+            </w:tc></w:tr></w:tbl><w:p><w:r><w:t>after</w:t></w:r></w:p></w:body></w:document>"#;
+        assert_eq!(word(doc), [Block::Row(vec!["cell".into()]), Block::Para("after".into())]);
     }
 
     #[test]

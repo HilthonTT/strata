@@ -27,6 +27,8 @@ pub struct Clause {
     who: u32,
     /// `+`, `-` or `=` followed by the permission letters.
     ops: Vec<(char, String)>,
+    /// Bits left alone: the umask when no class was given, as GNU chmod does.
+    masked: u32,
 }
 
 impl ModeSpec {
@@ -73,7 +75,8 @@ impl ModeSpec {
             if ops.is_empty() {
                 bail!("'{part}' has no +, - or =");
             }
-            clauses.push(Clause { who: if who == 0 { 0o777 } else { who }, ops });
+            let (who, masked) = if who == 0 { (0o777, umask()) } else { (who, 0) };
+            clauses.push(Clause { who, ops, masked });
         }
         Ok(Self::Symbolic(clauses))
     }
@@ -103,6 +106,7 @@ impl ModeSpec {
                         _ => 0,
                     };
                 }
+                bits &= !clause.masked;
                 match op {
                     '+' => mode |= bits,
                     '-' => mode &= !bits,
@@ -155,19 +159,62 @@ fn chmod_one(
         bail!("{} does not report permissions", vfs.scheme());
     };
     let new = spec.apply(old, entry.is_dir());
-    if new != old {
-        progress.set_current(entry.name.clone());
-        vfs.set_mode(path, new)?;
-        log.lock().unwrap_or_else(|e| e.into_inner()).push((path.to_path_buf(), old, new));
+    let set = || -> Result<()> {
+        if new != old {
+            progress.set_current(entry.name.clone());
+            vfs.set_mode(path, new)?;
+            log.lock().unwrap_or_else(|e| e.into_inner()).push((path.to_path_buf(), old, new));
+        }
+        Ok(())
+    };
+    if !(recursive && entry.kind == EntryKind::Dir) {
+        return set();
     }
-    if recursive && entry.kind == EntryKind::Dir {
-        for child in vfs.read_dir(path)? {
-            if !child.is_symlink() {
-                chmod_one(vfs, &child.path, spec, recursive, progress, log)?;
-            }
+    // A directory that loses its owner's r or x can no longer be walked,
+    // so it changes after its contents rather than before.
+    let walkable = keeps_walkable(new);
+    if walkable {
+        set()?;
+    }
+    for child in vfs.read_dir(path)? {
+        if !child.is_symlink() {
+            chmod_one(vfs, &child.path, spec, recursive, progress, log)?;
         }
     }
+    if !walkable {
+        set()?;
+    }
     Ok(())
+}
+
+/// True when the owner can still list and enter a directory with `mode`.
+fn keeps_walkable(mode: u32) -> bool {
+    mode & 0o500 == 0o500
+}
+
+/// Sets each path to its mode, parents before children except where that
+/// would lock the owner out of a directory before its contents are done.
+pub fn set_modes(vfs: &dyn Vfs, modes: &[(PathBuf, u32)]) -> Result<()> {
+    let mut sorted: Vec<_> = modes.iter().collect();
+    // Component-wise path order puts every directory before its contents.
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    let (now, later): (Vec<_>, Vec<_>) = sorted.into_iter().partition(|(_, mode)| keeps_walkable(*mode));
+    for (path, mode) in now.into_iter().chain(later.into_iter().rev()) {
+        vfs.set_mode(path, *mode)?;
+    }
+    Ok(())
+}
+
+/// The process umask, which symbolic modes without u, g, o or a respect.
+fn umask() -> u32 {
+    #[cfg(target_os = "linux")]
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        let mask = status.lines().find_map(|l| l.strip_prefix("Umask:"));
+        if let Some(mask) = mask.and_then(|m| u32::from_str_radix(m.trim(), 8).ok()) {
+            return mask;
+        }
+    }
+    0o022
 }
 
 /// A `chown` target: user and/or group ids.
@@ -178,9 +225,10 @@ pub struct Owner {
 }
 
 impl Owner {
-    /// Parses `user`, `user:group` or `:group`, by name or number.
+    /// Parses `user`, `user:group` or `:group`, by name or number. Only `:`
+    /// separates them, since user names may contain dots.
     pub fn parse(spec: &str) -> Result<Self> {
-        let (user, group) = match spec.trim().split_once([':', '.']) {
+        let (user, group) = match spec.trim().split_once(':') {
             Some((u, g)) => (u, g),
             None => (spec.trim(), ""),
         };
@@ -314,6 +362,21 @@ mod tests {
     }
 
     #[test]
+    fn modes_without_a_class_respect_the_umask() {
+        let masked = |spec: &str, mode| match ModeSpec::parse(spec).unwrap() {
+            ModeSpec::Symbolic(mut clauses) => {
+                clauses[0].masked = 0o022;
+                ModeSpec::Symbolic(clauses).apply(mode, false)
+            }
+            ModeSpec::Absolute(_) => unreachable!(),
+        };
+        assert_eq!(masked("+w", 0o644), 0o644);
+        assert_eq!(masked("-w", 0o666), 0o444 | 0o022);
+        assert_eq!(masked("=rw", 0o777), 0o644);
+        assert_eq!(apply("a+w", 0o644, false), 0o666);
+    }
+
+    #[test]
     fn capital_x_only_marks_directories_and_executables() {
         assert_eq!(apply("a+X", 0o644, false), 0o644);
         assert_eq!(apply("a+X", 0o644, true), 0o755);
@@ -355,6 +418,42 @@ mod tests {
         assert_eq!(Owner::parse(":100").unwrap(), Owner { uid: None, gid: Some(100) });
         assert_eq!(Owner::parse("0").unwrap(), Owner { uid: Some(0), gid: None });
         assert!(Owner::parse(":").is_err());
+    }
+
+    #[test]
+    fn dots_belong_to_the_user_name() {
+        let err = Owner::parse("no.such.user.here").unwrap_err().to_string();
+        assert_eq!(err, "no such user: no.such.user.here");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directories_losing_access_change_after_their_contents() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("f"), "x").unwrap();
+        std::fs::set_permissions(sub.join("f"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let log = ChangeLog::default();
+        let spec = ModeSpec::parse("a-x").unwrap();
+        change_mode(&crate::vfs::LocalVfs, std::slice::from_ref(&sub), &spec, true, &Progress::default(), &log)
+            .unwrap();
+        assert_eq!(mode(&sub), 0o644);
+        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(mode(&sub.join("f")), 0o644);
+        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        // Undoing (and redoing) in either direction keeps the directory walkable.
+        let changes = log.into_inner().unwrap();
+        let undo: Vec<_> = changes.iter().map(|(p, old, _)| (p.clone(), *old)).collect();
+        set_modes(&crate::vfs::LocalVfs, &undo).unwrap();
+        assert_eq!((mode(&sub), mode(&sub.join("f"))), (0o755, 0o755));
+        let redo: Vec<_> = changes.iter().map(|(p, _, new)| (p.clone(), *new)).collect();
+        set_modes(&crate::vfs::LocalVfs, &redo).unwrap();
+        std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(mode(&sub.join("f")), 0o644);
     }
 
     #[cfg(unix)]

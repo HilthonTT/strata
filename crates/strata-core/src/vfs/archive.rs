@@ -68,8 +68,12 @@ enum Source {
     None,
 }
 
-/// A request for one item's data, answered through `reply`.
+/// A request for one item's data, answered through `reply`: chunks of
+/// data, then an empty chunk once all of it has been sent.
 type Request = (usize, SyncSender<io::Result<Vec<u8>>>);
+
+/// Links in an archive and the paths they point to.
+type Links = HashMap<PathBuf, PathBuf>;
 
 /// A zip or tar archive on the local disk, browsed as a filesystem.
 pub struct ArchiveVfs {
@@ -125,6 +129,7 @@ impl ArchiveVfs {
 
     fn index_zip(&mut self) -> Result<()> {
         let mut zip = zip::ZipArchive::new(BufReader::new(open(&self.file)?)).context("cannot read the zip index")?;
+        let mut links = Links::new();
         for i in 0..zip.len() {
             let item = zip.by_index_raw(i)?;
             let Some(path) = clean_path(item.name()) else { continue };
@@ -139,15 +144,25 @@ impl ArchiveVfs {
             let modified = item.last_modified().and_then(|t| {
                 civil_to_system(t.year().into(), t.month().into(), t.day().into(), t.hour(), t.minute(), t.second())
             });
+            let size = item.size();
+            drop(item);
+            // A zip symlink stores its target as its data.
+            links.remove(&path);
+            if matches!(kind, EntryKind::Symlink { .. }) {
+                let mut target = String::new();
+                zip.by_index(i)?.take(4096).read_to_string(&mut target).context("cannot read a zip symlink")?;
+                links.insert(path.clone(), resolve_symlink(&path, &target));
+            }
             let source = if kind == EntryKind::Dir { Source::None } else { Source::Item(i) };
-            self.insert(path, kind, item.size(), modified, mode.map(|m| m & 0o7777), source);
+            self.insert(path, kind, size, modified, mode.map(|m| m & 0o7777), source);
         }
+        self.resolve_links(links);
         Ok(())
     }
 
     fn index_tar(&mut self, compression: Compression) -> Result<()> {
         let mut archive = tar::Archive::new(decoder(&self.file, compression)?);
-        let mut links = Vec::new();
+        let mut links = Links::new();
         for (i, item) in archive.entries().context("cannot read the tar archive")?.enumerate() {
             let item = item.context("cannot read the tar archive")?;
             let header = item.header();
@@ -159,7 +174,7 @@ impl ArchiveVfs {
                 t if t.is_file() || t.is_contiguous() || t.is_gnu_sparse() => EntryKind::File,
                 _ => EntryKind::Other,
             };
-            let modified = header.mtime().ok().map(|s| UNIX_EPOCH + Duration::from_secs(s));
+            let modified = header.mtime().ok().and_then(|s| UNIX_EPOCH.checked_add(Duration::from_secs(s)));
             let mode = header.mode().ok().map(|m| m & 0o7777);
             // Links take their data from their target, resolved below.
             let link_target = match header.entry_type() {
@@ -167,28 +182,49 @@ impl ArchiveVfs {
                 tar::EntryType::Symlink => item.link_name()?.map(|t| resolve_symlink(&path, &t.to_string_lossy())),
                 _ => None,
             };
+            // The last entry for a path wins, as when extracting.
+            links.remove(&path);
             if let Some(target) = link_target {
-                links.push((path.clone(), target));
+                links.insert(path.clone(), target);
             }
             let source = if kind == EntryKind::Dir { Source::None } else { Source::Item(i) };
             self.insert(path, kind, item.size(), modified, mode, source);
         }
-        for (link, target) in links {
-            let resolved = self.entries.get(&target).map(|(e, s)| (e.size, e.kind == EntryKind::Dir, *s));
+        self.resolve_links(links);
+        Ok(())
+    }
+
+    /// Points links at the data of what they finally lead to, following
+    /// links to links.
+    fn resolve_links(&mut self, links: Links) {
+        let mut resolved = Vec::new();
+        for (link, target) in &links {
+            let mut target = target;
+            // Follow chains like `a -> b -> f`; a cycle ends up dangling.
+            let mut hops = 0;
+            while let Some(next) = links.get(target).filter(|_| hops < 40) {
+                target = next;
+                hops += 1;
+            }
+            let found = (hops < 40).then(|| self.entries.get(target)).flatten();
+            resolved.push((link.clone(), target.clone(), found.map(|(e, s)| (e.size, e.is_dir(), *s))));
+        }
+        for (link, target, found) in resolved {
             let Some((entry, source)) = self.entries.get_mut(&link) else { continue };
-            match resolved {
+            match found {
                 Some((_, true, _)) if entry.is_symlink() => {
                     entry.kind = EntryKind::Symlink { to_dir: true };
+                    entry.size = 0;
+                    *source = Source::None;
                     self.dir_links.insert(link, target);
                 }
-                Some((size, _, data)) => {
+                Some((size, false, data)) => {
                     *source = data;
                     entry.size = size;
                 }
-                None => *source = Source::Dangling,
+                _ => *source = Source::Dangling,
             }
         }
-        Ok(())
     }
 
     /// Adds an item, creating any parent directories the archive omits.
@@ -233,7 +269,7 @@ impl ArchiveVfs {
             let tx = server.get_or_insert_with(|| spawn_server(self.file.clone(), self.format));
             let (reply, rx) = mpsc::sync_channel(8);
             if tx.send((index, reply)).is_ok() {
-                return Ok(PipeReader { rx, buf: Vec::new(), pos: 0 });
+                return Ok(PipeReader::new(rx));
             }
             // The thread stopped after an error: start a fresh one.
             *server = None;
@@ -330,11 +366,12 @@ fn decoder(file: &Path, compression: Compression) -> Result<Box<dyn Read + Send>
             thread::spawn(move || {
                 let mut raw = raw;
                 let mut out = PipeWriter(tx.clone());
-                if let Err(e) = lzma_rs::xz_decompress(&mut raw, &mut out) {
-                    let _ = tx.send(Err(io::Error::other(format!("xz: {e}"))));
-                }
+                let _ = tx.send(match lzma_rs::xz_decompress(&mut raw, &mut out) {
+                    Ok(()) => Ok(Vec::new()),
+                    Err(e) => Err(io::Error::other(format!("xz: {e}"))),
+                });
             });
-            Box::new(PipeReader { rx, buf: Vec::new(), pos: 0 })
+            Box::new(PipeReader::new(rx))
         }
     })
 }
@@ -358,7 +395,10 @@ fn serve_zip(file: &Path, rx: &Receiver<Request>) -> Result<()> {
     let mut zip = zip::ZipArchive::new(BufReader::new(open(file)?))?;
     while let Ok((index, reply)) = rx.recv() {
         match zip.by_index(index) {
-            Ok(mut item) => send_all(&mut item, &reply),
+            Ok(mut item) => {
+                let size = item.size();
+                send_all(&mut item, size, &reply)
+            }
             Err(e) => {
                 let _ = reply.send(Err(io::Error::other(e)));
             }
@@ -390,7 +430,8 @@ fn serve_tar(file: &Path, compression: Compression, rx: &Receiver<Request>) -> R
                     Some((i, Ok(mut item))) => {
                         next = i + 1;
                         if i == index {
-                            send_all(&mut item, &reply);
+                            let size = item.size();
+                            send_all(&mut item, size, &reply);
                             break;
                         }
                     }
@@ -412,13 +453,23 @@ fn serve_tar(file: &Path, compression: Compression, rx: &Receiver<Request>) -> R
     }
 }
 
-/// Streams a reader into a reply channel; stops when the receiver is gone.
-fn send_all(reader: &mut dyn Read, reply: &SyncSender<io::Result<Vec<u8>>>) {
+/// Streams `size` bytes of a reader into a reply channel; stops when the
+/// receiver is gone. Data that ends early is an error, not a short file.
+fn send_all(reader: &mut dyn Read, size: u64, reply: &SyncSender<io::Result<Vec<u8>>>) {
     let mut buf = vec![0u8; 64 * 1024];
+    let mut sent = 0u64;
     loop {
         match reader.read(&mut buf) {
-            Ok(0) => return,
+            Ok(0) if sent < size => {
+                let _ = reply.send(Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the archive is truncated")));
+                return;
+            }
+            Ok(0) => {
+                let _ = reply.send(Ok(Vec::new()));
+                return;
+            }
             Ok(n) => {
+                sent += n as u64;
                 if reply.send(Ok(buf[..n].to_vec())).is_err() {
                     return;
                 }
@@ -431,23 +482,37 @@ fn send_all(reader: &mut dyn Read, reply: &SyncSender<io::Result<Vec<u8>>>) {
     }
 }
 
-/// The reading end of a chunk channel. Ends when the sender is dropped.
+/// The reading end of a chunk channel. Ends at an empty chunk; a sender
+/// that goes away before sending one stopped on an error.
 struct PipeReader {
     rx: Receiver<io::Result<Vec<u8>>>,
     buf: Vec<u8>,
     pos: usize,
+    done: bool,
+}
+
+impl PipeReader {
+    fn new(rx: Receiver<io::Result<Vec<u8>>>) -> Self {
+        Self { rx, buf: Vec::new(), pos: 0, done: false }
+    }
 }
 
 impl Read for PipeReader {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         while self.pos >= self.buf.len() {
+            if self.done {
+                return Ok(0);
+            }
             match self.rx.recv() {
                 Ok(Ok(chunk)) => {
+                    self.done = chunk.is_empty();
                     self.buf = chunk;
                     self.pos = 0;
                 }
                 Ok(Err(e)) => return Err(e),
-                Err(_) => return Ok(0),
+                Err(_) => {
+                    return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the archive could not be read"));
+                }
             }
         }
         let n = out.len().min(self.buf.len() - self.pos);
@@ -461,6 +526,10 @@ struct PipeWriter(SyncSender<io::Result<Vec<u8>>>);
 
 impl Write for PipeWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // An empty chunk would read as the end of the stream.
+        if buf.is_empty() {
+            return Ok(0);
+        }
         self.0.send(Ok(buf.to_vec())).map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
         Ok(buf.len())
     }
@@ -478,6 +547,8 @@ fn clean_path(name: &str) -> Option<PathBuf> {
         match part {
             "" | "." => {}
             ".." => return None,
+            // `C:` would make the name absolute when copied out on Windows.
+            p if cfg!(windows) && p.contains(':') => return None,
             p => parts.push(p),
         }
     }
@@ -657,6 +728,97 @@ mod tests {
         .run(&Progress::default())
         .unwrap();
         assert_eq!(std::fs::read_to_string(out.join("docs/readme.md")).unwrap(), "# hi");
+    }
+
+    fn append(builder: &mut tar::Builder<Vec<u8>>, name: &str, data: &str) {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder.append_data(&mut header, name, data.as_bytes()).unwrap();
+    }
+
+    fn symlink(builder: &mut tar::Builder<Vec<u8>>, name: &str, target: &str) {
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_cksum();
+        builder.append_link(&mut link, name, target).unwrap();
+    }
+
+    #[test]
+    fn follows_chained_and_replaced_links() {
+        let mut b = tar::Builder::new(Vec::new());
+        symlink(&mut b, "a", "b");
+        symlink(&mut b, "b", "f");
+        append(&mut b, "f", "hello");
+        append(&mut b, "sub/x", "x");
+        symlink(&mut b, "d", "sub");
+        symlink(&mut b, "c", "d");
+        append(&mut b, "t", "old");
+        symlink(&mut b, "r", "t");
+        append(&mut b, "r", "new");
+        symlink(&mut b, "loop1", "loop2");
+        symlink(&mut b, "loop2", "loop1");
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("links.tar");
+        std::fs::write(&file, b.into_inner().unwrap()).unwrap();
+        let vfs = ArchiveVfs::open(&file).unwrap();
+        assert_eq!(read(&vfs, "/a"), "hello");
+        assert_eq!(vfs.stat(Path::new("/a")).unwrap().size, 5);
+        assert!(vfs.stat(Path::new("/c")).unwrap().is_dir(), "a link to a directory link is a directory");
+        assert_eq!(vfs.read_dir(Path::new("/c")).unwrap()[0].name, "x");
+        assert!(vfs.reader(Path::new("/d")).is_err(), "directory links have no data");
+        assert_eq!(read(&vfs, "/r"), "new", "a later entry replaces a link");
+        assert!(vfs.reader(Path::new("/loop1")).is_err());
+    }
+
+    #[test]
+    fn truncated_or_missing_archives_fail_reads() {
+        let mut b = tar::Builder::new(Vec::new());
+        append(&mut b, "big", &"x".repeat(2000));
+        let tar = b.into_inner().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("t.tar");
+        std::fs::write(&file, &tar).unwrap();
+        let vfs = ArchiveVfs::open(&file).unwrap();
+        std::fs::write(&file, &tar[..512 + 1000]).unwrap();
+        assert!(vfs.reader(Path::new("/big")).unwrap().read_to_end(&mut Vec::new()).is_err());
+        std::fs::remove_file(&file).unwrap();
+        let vfs = ArchiveVfs { server: Mutex::new(None), ..vfs };
+        assert!(vfs.reader(Path::new("/big")).unwrap().read_to_end(&mut Vec::new()).is_err());
+    }
+
+    #[test]
+    fn huge_tar_times_do_not_panic() {
+        let mut b = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        header.set_mtime(u64::MAX);
+        header.set_cksum();
+        b.append_data(&mut header, "f", io::empty()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("t.tar");
+        std::fs::write(&file, b.into_inner().unwrap()).unwrap();
+        assert_eq!(ArchiveVfs::open(&file).unwrap().stat(Path::new("/f")).unwrap().modified, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn zip_symlinks_read_their_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("z.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&file).unwrap());
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("real.txt", opts).unwrap();
+        zip.write_all(b"content").unwrap();
+        zip.add_directory("sub/", opts).unwrap();
+        zip.add_symlink("ln", "real.txt", opts).unwrap();
+        zip.add_symlink("dl", "sub", opts).unwrap();
+        zip.finish().unwrap();
+        let vfs = ArchiveVfs::open(&file).unwrap();
+        assert_eq!(read(&vfs, "/ln"), "content");
+        assert!(vfs.stat(Path::new("/dl")).unwrap().is_dir());
     }
 
     #[test]
