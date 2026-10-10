@@ -80,6 +80,7 @@ actions! {
     PasteHardlink => "paste_hardlink", "Paste the clipboard as hard links";
     Chmod => "chmod", "Change permissions of marked items";
     Compare => "compare", "Compare two files or directories";
+    Checksum => "checksum", "Show checksums of marked files";
     CopyPath => "copy_path", "Copy path to the system clipboard";
     CopyCwd => "copy_cwd", "Copy the current directory's path";
     CancelJob => "cancel_job", "Cancel the latest running job";
@@ -348,6 +349,7 @@ const COMMON: &[(&str, &str)] = &[
     ("Y", "duplicate"),
     ("=", "chmod"),
     ("C", "compare"),
+    ("#", "checksum"),
     ("q", "quit"),
     ("Q", "quit_cd"),
     ("ctrl+g", "content_search"),

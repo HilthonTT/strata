@@ -10,6 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use strata_config::Action;
+use strata_core::inspect::HashAlgo;
 use strata_core::jobs::JobState;
 use strata_core::ops::TransferMode;
 use strata_core::util::{human_size, permissions_string};
@@ -126,13 +127,19 @@ fn draw_metadata(frame: &mut Frame, app: &App, area: Rect) {
         ("FileModifyDate", modified),
         ("Permissions", e.mode.map(|m| format!("{} ({:o})", permissions_string(m), m)).unwrap_or_else(|| "—".into())),
     ];
-    if app.config.general.md5_checksum && !e.is_dir() {
-        let md5 = match app.inspection.md5.as_ref().filter(|_| inspected) {
-            Some(Ok(sum)) => sum.clone(),
+    let g = &app.config.general;
+    for (on, algo, key) in
+        [(g.md5_checksum, HashAlgo::Md5, "MD5Checksum"), (g.sha256_checksum, HashAlgo::Sha256, "SHA256Checksum")]
+    {
+        if !on || e.is_dir() {
+            continue;
+        }
+        let value = match app.inspection.sums.as_ref().filter(|_| inspected) {
+            Some(Ok(sums)) => sums.iter().find(|(a, _)| *a == algo).map(|(_, s)| s.clone()).unwrap_or_default(),
             Some(Err(err)) => format!("error: {err}"),
             None => "computing…".into(),
         };
-        rows.push(("MD5Checksum", md5));
+        rows.push((key, value));
     }
     rows.push(("Path", e.path.to_string_lossy().into_owned()));
     let inner = b.inner(area);

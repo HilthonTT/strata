@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
+use strata_core::inspect::HashAlgo;
 use strata_core::nas::{self, Connection};
 use strata_sys::docker::{self, ContainerAction};
 use strata_sys::{IoSampler, MemoryMonitor};
@@ -129,23 +130,25 @@ pub fn disk_usage(tx: Sender<AppEvent>, root: PathBuf, cancel: Arc<AtomicBool>) 
     });
 }
 
-/// Reads the hovered file's header and, when asked, its MD5 checksum.
+/// Reads the hovered file's header and, when asked, its checksums.
 pub fn inspect(
     tx: Sender<AppEvent>,
     vfs: strata_core::VfsRef,
     path: PathBuf,
-    md5: bool,
+    algos: Vec<HashAlgo>,
     progress: Arc<strata_core::jobs::Progress>,
 ) {
     thread::spawn(move || {
         let arch = strata_core::inspect::file_arch(&*vfs, &path);
         let _ = tx.send(AppEvent::Inspected { path: path.clone(), arch });
-        if md5 {
-            match strata_core::inspect::md5(&*vfs, &path, &progress) {
-                Err(e) if e.is::<strata_core::jobs::Cancelled>() => {}
-                result => {
-                    let _ = tx.send(AppEvent::Checksum { path, md5: result.map_err(|e| format!("{e:#}")) });
-                }
+        if algos.is_empty() {
+            return;
+        }
+        match strata_core::inspect::hash_file(&*vfs, &path, &algos, &progress) {
+            Err(e) if e.is::<strata_core::jobs::Cancelled>() => {}
+            result => {
+                let sums = result.map(|sums| algos.into_iter().zip(sums).collect()).map_err(|e| format!("{e:#}"));
+                let _ = tx.send(AppEvent::Checksum { path, sums });
             }
         }
     });

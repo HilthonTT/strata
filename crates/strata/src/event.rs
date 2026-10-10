@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use strata_core::git::GitStatus;
+use strata_core::inspect::HashAlgo;
 use strata_core::jobs::JobFinished;
 use strata_core::nas::{Reachability, Step};
 use strata_core::VfsRef;
@@ -68,14 +69,21 @@ pub enum AppEvent {
         path: PathBuf,
         arch: Option<String>,
     },
+    /// Checksums of the hovered file, in the order of `[md5, sha256]`
+    /// that are enabled.
     Checksum {
         path: PathBuf,
-        md5: Result<String, String>,
+        sums: Result<Vec<(HashAlgo, String)>, String>,
     },
     /// A report to show in a scrollable popup, from the top.
     Report {
         title: String,
         lines: Vec<String>,
+    },
+    /// Text to put on the system clipboard (from the UI thread).
+    Clipboard {
+        text: String,
+        message: String,
     },
     Git {
         dir: PathBuf,

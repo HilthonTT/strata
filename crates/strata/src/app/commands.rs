@@ -26,6 +26,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("chmod", "chmod [-R] <mode> — set permissions (755, u+x, go-w)"),
     ("chown", "chown [-R] <user[:group]> — change the owner"),
     ("compare", "compare — diff two marked items, or the hovered one with the next panel"),
+    ("checksum", "checksum [md5|sha1|sha256|sha512] — show checksums, or copy one"),
+    ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
     ("set", "set hidden|preview|sidebar|footer [on|off]"),
@@ -96,6 +98,8 @@ impl App {
             "chown" if !args.is_empty() => self.chown_command(args),
             "chown" => self.error("usage: chown [-R] user[:group]"),
             "compare" | "diff" => self.dispatch(Action::Compare),
+            "checksum" | "hash" => self.checksum(Some(args)),
+            "verify" => self.verify(args),
             "theme" if args.is_empty() => self.open_theme_picker(),
             "theme" => {
                 if self.apply_theme(args, true) {

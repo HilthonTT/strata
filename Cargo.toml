@@ -37,6 +37,8 @@ clap = { version = "4", features = ["derive"] }
 unicode-width = "0.2"
 tempfile = "3"
 md-5 = "0.11"
+sha1 = "0.11"
+sha2 = "0.11"
 similar = "2"
 keyring = "4"
 notify = "8"

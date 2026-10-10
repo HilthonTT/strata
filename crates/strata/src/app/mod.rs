@@ -39,6 +39,7 @@ use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::layout::{Rect, Size};
 use ratatui_image::picker::Picker;
 use strata_config::{Config, KeyPress, Keymap, Theme, ThemeRegistry};
+use strata_core::inspect::HashAlgo;
 use strata_core::jobs::Progress;
 use strata_core::jobs::{JobManager, JobState};
 use strata_core::ops::TransferMode;
@@ -134,8 +135,8 @@ pub struct DashboardState {
 pub struct Inspection {
     pub path: Option<PathBuf>,
     pub arch: Option<String>,
-    /// `None` while computing (or disabled), then the checksum or an error.
-    pub md5: Option<Result<String, String>>,
+    /// `None` while computing (or disabled), then the checksums or an error.
+    pub sums: Option<Result<Vec<(HashAlgo, String)>, String>>,
     progress: Arc<Progress>,
 }
 
@@ -526,13 +527,17 @@ impl App {
             AppEvent::FsChanged(paths) => self.on_fs_changed(paths),
             AppEvent::Grep { root, pattern, result } => self.on_grep_results(root, pattern, result),
             AppEvent::Keychain(names) => self.nas.saved_passwords = names,
-            AppEvent::Checksum { path, md5 } => {
+            AppEvent::Checksum { path, sums } => {
                 if self.inspection.path.as_ref() == Some(&path) {
-                    self.inspection.md5 = Some(md5);
+                    self.inspection.sums = Some(sums);
                 }
             }
             AppEvent::Report { title, lines } => {
                 self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll: 0, colored: true }));
+            }
+            AppEvent::Clipboard { text, message } => {
+                actions::copy_to_clipboard(&text);
+                self.info(message);
             }
         }
     }
@@ -637,10 +642,14 @@ impl App {
         }
         self.inspection.progress.cancel();
         let progress = Arc::new(Progress::default());
-        self.inspection = Inspection { path: hovered.clone(), arch: None, md5: None, progress: progress.clone() };
+        self.inspection = Inspection { path: hovered.clone(), arch: None, sums: None, progress: progress.clone() };
         if let Some(path) = hovered {
-            let md5 = self.config.general.md5_checksum;
-            workers::inspect(self.tx.clone(), self.panel().vfs.clone(), path, md5, progress);
+            let g = &self.config.general;
+            let algos = [(g.md5_checksum, HashAlgo::Md5), (g.sha256_checksum, HashAlgo::Sha256)]
+                .into_iter()
+                .filter_map(|(on, algo)| on.then_some(algo))
+                .collect();
+            workers::inspect(self.tx.clone(), self.panel().vfs.clone(), path, algos, progress);
         }
     }
 

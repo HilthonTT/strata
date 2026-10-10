@@ -11,7 +11,7 @@
 Everything you need, nothing you don't.
 
 - **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR`, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them
-- **Compare**: diff two files or directory trees, across local disks, SFTP and Docker
+- **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
 - **Search**: filter, fuzzy find, and content search with ripgrep
 - **Git status** markers next to every file, and **tabs** on top of multiple panels
 - **Preview**: syntax-highlighted code, images, archives and directories; executable architecture and optional MD5 in the metadata pane
@@ -50,7 +50,7 @@ strata [DIR...]           # one panel per directory
 | `alt+j` / `alt+k` | scroll the preview | `alt+/` | search the preview |
 | `t` | new tab | `g t` | next tab |
 | `s` | sort menu | `E` | open the directory in your editor |
-| `Y` / `=` | duplicate / permissions | `C` | compare |
+| `Y` / `=` | duplicate / permissions | `C` / `#` | compare / checksums |
 | `g l` | paste as symlink | | |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
 | `?` | all keys | `q` | quit |

@@ -62,6 +62,15 @@ To use your own diff tool for local files, set it in the config:
 diff_tool = "nvim -d"   # or "meld", "code --diff --wait", "delta"…
 ```
 
+## Checksums
+
+<Kbd>#</Kbd> shows the MD5, SHA-1 and SHA-256 of the marked files. `:checksum sha256` (or `md5`, `sha1`, `sha512`) copies the hovered file's checksum to the clipboard instead.
+
+To verify a download:
+
+- `:verify <hash>` checks the hovered file against a hash you paste. The algorithm follows from the hash's length.
+- `:verify` on a checksum file (`SHA256SUMS`, `MD5SUMS`, `app.iso.sha256`…) checks every file it lists, in GNU (`hash  file`) or BSD (`SHA256 (file) = hash`) format.
+
 ## Undo and redo
 
 Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:

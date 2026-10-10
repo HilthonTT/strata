@@ -227,6 +227,7 @@ impl App {
             PasteHardlink => self.paste_links(LinkKind::Hard),
             Chmod => self.prompt_chmod(),
             Compare => self.compare(),
+            Checksum => self.checksum(None),
             _ => {}
         }
     }
@@ -608,7 +609,7 @@ pub fn short_path(path: &std::path::Path) -> String {
 
 /// Sets the system clipboard through OSC 52, which works locally and over
 /// SSH in most modern terminals.
-fn copy_to_clipboard(text: &str) {
+pub(super) fn copy_to_clipboard(text: &str) {
     use std::io::Write;
     let osc = format!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
     let mut out = std::io::stdout();

@@ -1,10 +1,12 @@
 //! File operations beyond copy, move and delete.
 
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::bail;
 use strata_core::compare::{self, FileDiff};
+use strata_core::inspect::{self, HashAlgo};
 use strata_core::ops::{Conflict, Transfer, TransferMode};
 use strata_core::perm::{self, ChangeLog, ModeSpec, Owner};
 use strata_core::util::unique_name;
@@ -207,6 +209,129 @@ impl App {
             Ok(())
         });
     }
+
+    // --- checksums ------------------------------------------------------------
+
+    /// Shows the checksums of the targets. With an algorithm (`:checksum
+    /// sha256`) it also copies the hovered file's checksum to the clipboard.
+    pub(super) fn checksum(&mut self, algo: Option<&str>) {
+        let algo = match algo.map(str::trim).filter(|a| !a.is_empty()) {
+            None => None,
+            Some(name) => match parse_algo(name) {
+                Some(a) => Some(a),
+                None => return self.error(format!("unknown checksum '{name}' (md5, sha1, sha256, sha512)")),
+            },
+        };
+        let vfs = self.panel().vfs.clone();
+        let files: Vec<(String, PathBuf)> = match algo {
+            Some(_) => self.panel().hovered().filter(|e| !e.is_dir()).map(|e| vec![(e.name.clone(), e.path.clone())]),
+            None => Some(
+                self.panel().target_entries().into_iter().filter(|e| !e.is_dir()).map(|e| (e.name, e.path)).collect(),
+            ),
+        }
+        .unwrap_or_default();
+        if files.is_empty() {
+            return self.notify("checksums need a file", Level::Warn);
+        }
+        let tx = self.tx.clone();
+        let what = describe(&files.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>());
+        let label = match algo {
+            Some(algo) => format!("Copy the {} of {what}", algo.name()),
+            None => format!("Checksum {what}"),
+        };
+        self.jobs.spawn(label, move |progress| {
+            if let Some(algo) = algo {
+                let (name, path) = &files[0];
+                let sum = inspect::hash_file(&*vfs, path, &[algo], progress)?.remove(0);
+                let message = format!("copied the {} of {name}", algo.name());
+                let _ = tx.send(AppEvent::Clipboard { text: sum, message });
+                return Ok(());
+            }
+            let algos = [HashAlgo::Md5, HashAlgo::Sha1, HashAlgo::Sha256];
+            let mut lines = Vec::new();
+            for (name, path) in &files {
+                let sums = inspect::hash_file(&*vfs, path, &algos, progress)?;
+                lines.push(name.clone());
+                for (algo, sum) in algos.iter().zip(sums) {
+                    lines.push(format!("  {:<8} {sum}", algo.name()));
+                }
+                lines.push(String::new());
+            }
+            lines.push("SHA-512: :checksum sha512 copies it · :verify checks against a hash or checksum file".into());
+            let _ = tx.send(AppEvent::Report { title: "Checksums".into(), lines });
+            Ok(())
+        });
+    }
+
+    /// `:verify <hash>` checks the hovered file; `:verify` on a checksum
+    /// file (`SHA256SUMS`, `*.sha256`…) checks every file it lists.
+    pub(super) fn verify(&mut self, args: &str) {
+        let Some(entry) = self.panel().hovered().filter(|e| !e.is_dir()).cloned() else {
+            return self.notify("hover a file to verify", Level::Warn);
+        };
+        let (vfs, dir) = (self.panel().vfs.clone(), self.panel().cwd.clone());
+        let tx = self.tx.clone();
+        let expected = args.trim().to_ascii_lowercase();
+        if !expected.is_empty() {
+            let Some(algo) =
+                HashAlgo::from_hex_len(expected.len()).filter(|_| expected.chars().all(|c| c.is_ascii_hexdigit()))
+            else {
+                return self.error("not an MD5, SHA-1, SHA-256 or SHA-512 hash");
+            };
+            // The job's own outcome is the verdict: "✓ …" or "… failed: …".
+            let label = format!("Verify {} against the {} hash", entry.name, algo.name());
+            self.jobs.spawn(label, move |progress| {
+                let sum = inspect::hash_file(&*vfs, &entry.path, &[algo], progress)?.remove(0);
+                if sum != expected {
+                    bail!("{} does NOT match: its {} is {sum}", entry.name, algo.name());
+                }
+                Ok(())
+            });
+            return;
+        }
+        if !inspect::is_checksum_file(&entry.name) {
+            return self.notify("hover a checksum file (SHA256SUMS, *.sha256…) or use :verify <hash>", Level::Warn);
+        }
+        self.jobs.spawn(format!("Verify {}", entry.name), move |progress| {
+            let mut text = String::new();
+            vfs.reader(&entry.path)?.take(4 * 1024 * 1024).read_to_string(&mut text)?;
+            // `app.iso.sha256` holding just a digest is about `app.iso`.
+            let default = entry.name.rsplit_once('.').map(|(stem, _)| stem.to_string());
+            let sums = inspect::parse_sums(&text, default.as_deref());
+            if sums.is_empty() {
+                bail!("no checksums found in {}", entry.name);
+            }
+            let (mut ok, mut bad) = (0, 0);
+            let mut lines = Vec::new();
+            for line in &sums {
+                progress.check()?;
+                let path = line.file.split('/').fold(dir.clone(), |p, part| vfs.join(&p, part));
+                match inspect::hash_file(&*vfs, &path, &[line.algo], progress) {
+                    Ok(sum) if sum[0] == line.hash => {
+                        ok += 1;
+                        lines.push(format!("✓ {}", line.file));
+                    }
+                    Ok(_) => {
+                        bad += 1;
+                        lines.push(format!("✗ {}  ({} mismatch)", line.file, line.algo.name()));
+                    }
+                    Err(e) => {
+                        bad += 1;
+                        lines.push(format!("? {}  ({e:#})", line.file));
+                    }
+                }
+            }
+            let summary = if bad == 0 {
+                format!("✓ all {ok} file(s) match")
+            } else {
+                format!("✗ {bad} of {} failed", ok + bad)
+            };
+            lines.insert(0, summary);
+            lines.insert(1, String::new());
+            let _ = tx.send(AppEvent::Report { title: format!("Verify · {}", entry.name), lines });
+            Ok(())
+        });
+    }
 }
 
 /// `-R spec` → `(true, spec)`.
@@ -226,6 +351,16 @@ fn describe(paths: &[PathBuf]) -> String {
     match paths {
         [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
         many => format!("{} items", many.len()),
+    }
+}
+
+fn parse_algo(name: &str) -> Option<HashAlgo> {
+    match name.to_ascii_lowercase().replace('-', "").as_str() {
+        "md5" => Some(HashAlgo::Md5),
+        "sha1" => Some(HashAlgo::Sha1),
+        "sha256" => Some(HashAlgo::Sha256),
+        "sha512" => Some(HashAlgo::Sha512),
+        _ => None,
     }
 }
 
@@ -299,5 +434,12 @@ mod tests {
         assert_eq!(split_recursive("-R go-w"), (true, "go-w"));
         assert_eq!(split_recursive("  755 "), (false, "755"));
         assert_eq!(split_recursive("-Rx"), (false, "-Rx"));
+    }
+
+    #[test]
+    fn algorithms_parse_with_or_without_dashes() {
+        assert_eq!(parse_algo("SHA-256"), Some(HashAlgo::Sha256));
+        assert_eq!(parse_algo("md5"), Some(HashAlgo::Md5));
+        assert_eq!(parse_algo("crc32"), None);
     }
 }
