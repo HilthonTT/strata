@@ -168,6 +168,10 @@ impl Vfs for SftpVfs {
         Ok(Box::new(self.sftp().create(path)?))
     }
 
+    fn symlink(&self, target: &Path, link: &Path) -> Result<()> {
+        Ok(self.sftp().symlink(target, link)?)
+    }
+
     fn shell_command(&self, path: &Path) -> Option<Vec<String>> {
         let dir = crate::util::shell_quote(&crate::util::posix(path));
         Some(vec![

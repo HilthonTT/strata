@@ -29,9 +29,16 @@ Transfers run in the background, so you can keep working. Their progress appears
 
 Bulk rename opens one name per line in your editor; change the lines, save and quit. Swapping two names works, and strata refuses to overwrite files that are not part of the rename.
 
-## Duplicate
+## Duplicate and link
 
-<Kbd>Y</Kbd> (or `:duplicate`) copies the marked items next to themselves as `name (1).ext`.
+| Keys | Action |
+| --- | --- |
+| <Kbd>Y</Kbd> | Duplicate the marked items next to themselves (`name (1).ext`) |
+| <Kbd>g l</Kbd> / `:link` | Paste the clipboard as symbolic links |
+| <Kbd>g L</Kbd> / `:link -r` | Paste the clipboard as relative symbolic links (`../lib/x`) |
+| `:hardlink` | Paste the clipboard as hard links |
+
+Links are made in the focused directory to what you copied with <Kbd>y y</Kbd>, and get a ` (1)` suffix when the name is taken. Symbolic links work on the local disk, SFTP servers and in Docker containers; hard links on the local disk and in containers.
 
 ## Undo and redo
 
@@ -42,7 +49,7 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 - copies (the copies go to the trash),
 - moves (items go back where they came from, even across filesystems),
 - trashing (items are restored from the trash — Linux and Windows),
-- duplicates (they go to the trash).
+- links and duplicates (they go to the trash).
 
 <Callout type="warn">Permanent deletes (<Kbd>D</Kbd>) cannot be undone. strata asks for confirmation unless you set `confirm_delete = false`.</Callout>
 

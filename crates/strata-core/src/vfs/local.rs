@@ -131,4 +131,28 @@ impl Vfs for LocalVfs {
     fn local_path(&self, path: &Path) -> Option<PathBuf> {
         Some(path.to_path_buf())
     }
+
+    fn symlink(&self, target: &Path, link: &Path) -> Result<()> {
+        make_symlink(target, link).with_context(|| format!("link {} -> {}", link.display(), target.display()))
+    }
+
+    fn hard_link(&self, original: &Path, link: &Path) -> Result<()> {
+        fs::hard_link(original, link).with_context(|| format!("link {} -> {}", link.display(), original.display()))
+    }
+}
+
+#[cfg(unix)]
+fn make_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn make_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    // A relative target resolves against the link's directory.
+    let resolved = link.parent().map(|dir| dir.join(target)).unwrap_or_else(|| target.to_path_buf());
+    if resolved.is_dir() {
+        std::os::windows::fs::symlink_dir(target, link)
+    } else {
+        std::os::windows::fs::symlink_file(target, link)
+    }
 }

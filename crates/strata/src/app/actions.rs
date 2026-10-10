@@ -12,6 +12,7 @@ use strata_core::VfsRef;
 use strata_plugin::Level;
 
 use super::external::External;
+use super::fileops::LinkKind;
 use super::overlay::{Confirm, ConfirmState, InputPurpose, InputState, Overlay, PickerPurpose, PickerState};
 use super::sidebar::SidebarItem;
 use super::undo::PendingUndo;
@@ -221,6 +222,9 @@ impl App {
             Shell => self.open_shell(),
             Pin => self.toggle_pin(),
             Duplicate => self.duplicate(),
+            PasteSymlink => self.paste_links(LinkKind::Absolute),
+            PasteRelativeSymlink => self.paste_links(LinkKind::Relative),
+            PasteHardlink => self.paste_links(LinkKind::Hard),
             _ => {}
         }
     }

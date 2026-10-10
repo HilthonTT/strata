@@ -139,6 +139,14 @@ impl Vfs for DockerVfs {
         Ok(Box::new(Cursor::new(out.stdout)))
     }
 
+    fn symlink(&self, target: &Path, link: &Path) -> Result<()> {
+        self.sh(&format!("ln -s {} {}", shell_quote(&posix(target)), shell_quote(&posix(link)))).map(drop)
+    }
+
+    fn hard_link(&self, original: &Path, link: &Path) -> Result<()> {
+        self.sh(&format!("ln {} {}", shell_quote(&posix(original)), shell_quote(&posix(link)))).map(drop)
+    }
+
     fn shell_command(&self, path: &Path) -> Option<Vec<String>> {
         let script = "command -v bash >/dev/null && exec bash || exec sh";
         Some(

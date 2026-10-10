@@ -79,6 +79,16 @@ pub trait Vfs: Send + Sync + fmt::Debug {
         self.stat(path).is_ok()
     }
 
+    /// Creates a symbolic link at `link` that points to `target`.
+    fn symlink(&self, _target: &Path, _link: &Path) -> Result<()> {
+        bail!("{} does not support symbolic links", self.scheme())
+    }
+
+    /// Creates a hard link at `link` to the existing file `original`.
+    fn hard_link(&self, _original: &Path, _link: &Path) -> Result<()> {
+        bail!("{} does not support hard links", self.scheme())
+    }
+
     /// Path on the local disk, if this backend exposes one (used for
     /// previews, editors and shells).
     fn local_path(&self, _path: &Path) -> Option<PathBuf> {

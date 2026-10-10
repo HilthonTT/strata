@@ -75,6 +75,9 @@ actions! {
     NewFile => "new_file", "Create a file";
     NewDir => "new_dir", "Create a directory";
     Duplicate => "duplicate", "Duplicate marked items here";
+    PasteSymlink => "paste_symlink", "Paste the clipboard as symbolic links";
+    PasteRelativeSymlink => "paste_relative_symlink", "Paste the clipboard as relative symbolic links";
+    PasteHardlink => "paste_hardlink", "Paste the clipboard as hard links";
     CopyPath => "copy_path", "Copy path to the system clipboard";
     CopyCwd => "copy_cwd", "Copy the current directory's path";
     CancelJob => "cancel_job", "Cancel the latest running job";
@@ -417,6 +420,8 @@ const VIM: &[(&str, &str)] = &[
     ("g t", "next_tab"),
     ("g T", "prev_tab"),
     ("g q", "close_tab"),
+    ("g l", "paste_symlink"),
+    ("g L", "paste_relative_symlink"),
 ];
 
 /// Mirrors superfile's default hotkeys where strata has the feature.

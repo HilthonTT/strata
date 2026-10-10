@@ -21,6 +21,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("rename", "rename <name> — rename the hovered item"),
     ("select", "select <glob> — mark matching items"),
     ("duplicate", "duplicate — copy marked items next to themselves"),
+    ("link", "link [-r] — paste the clipboard as (relative) symbolic links"),
+    ("hardlink", "hardlink — paste the clipboard as hard links"),
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
     ("set", "set hidden|preview|sidebar|footer [on|off]"),
@@ -76,6 +78,12 @@ impl App {
                 self.info(format!("marked {n} item(s)"));
             }
             "duplicate" | "dup" => self.dispatch(Action::Duplicate),
+            "link" | "symlink" | "ln" => match args {
+                "" => self.dispatch(Action::PasteSymlink),
+                "-r" | "--relative" => self.dispatch(Action::PasteRelativeSymlink),
+                _ => self.error("usage: link [-r]"),
+            },
+            "hardlink" => self.dispatch(Action::PasteHardlink),
             "theme" if args.is_empty() => self.open_theme_picker(),
             "theme" => {
                 if self.apply_theme(args, true) {
