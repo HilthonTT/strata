@@ -4,7 +4,7 @@
 //! the trash.
 
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use anyhow::Result;
 
@@ -15,6 +15,14 @@ pub struct TrashedItem {
     /// Where it was deleted from.
     pub original: PathBuf,
     pub deleted: SystemTime,
+    // Only read where the trash can be browsed.
+    #[cfg_attr(
+        not(any(
+            target_os = "windows",
+            all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+        )),
+        allow(dead_code)
+    )]
     inner: Inner,
 }
 
@@ -37,6 +45,7 @@ pub const SUPPORTED: bool = cfg!(any(
 mod imp {
     use super::*;
     use anyhow::{bail, Context};
+    use std::time::{Duration, UNIX_EPOCH};
     use trash::os_limited;
 
     pub type Inner = trash::TrashItem;
