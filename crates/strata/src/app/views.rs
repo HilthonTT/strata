@@ -286,7 +286,7 @@ impl App {
         }
         lines.push(String::new());
         lines.push("✓ ok   ! warning   ✗ failed   – skipped (an earlier step failed)".into());
-        self.overlay = Some(Overlay::Text(TextPopup { title: "Diagnose".into(), lines, scroll: 0 }));
+        self.overlay = Some(Overlay::Text(TextPopup { title: "Diagnose".into(), lines, scroll: 0, colored: false }));
     }
 
     /// Mounts SMB shares marked `auto_connect` through GVFS, which needs no

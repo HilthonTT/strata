@@ -105,6 +105,9 @@ pub struct General {
     pub cd_on_quit: bool,
     /// Show the MD5 checksum of the hovered file (reads the whole file).
     pub md5_checksum: bool,
+    /// Program `compare` runs on two local files, e.g. `nvim -d` or `meld`.
+    /// Empty shows strata's own diff.
+    pub diff_tool: String,
     pub date_format: String,
     pub metrics_interval_ms: u64,
 }
@@ -137,6 +140,7 @@ impl Default for General {
             opener: String::new(),
             cd_on_quit: false,
             md5_checksum: false,
+            diff_tool: String::new(),
             date_format: "%Y-%m-%d %H:%M".into(),
             metrics_interval_ms: 1000,
         }

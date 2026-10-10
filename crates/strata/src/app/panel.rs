@@ -347,6 +347,16 @@ impl Panel {
         }
     }
 
+    /// Like [`Panel::targets`], with the full entries.
+    pub fn target_entries(&self) -> Vec<Entry> {
+        if self.marked.is_empty() {
+            return self.hovered().cloned().into_iter().collect();
+        }
+        let mut v: Vec<Entry> = self.entries.iter().filter(|e| self.marked.contains(&e.path)).cloned().collect();
+        v.sort_by(|a, b| a.path.cmp(&b.path));
+        v
+    }
+
     pub fn is_marked(&self, entry: &Entry) -> bool {
         self.marked.contains(&entry.path)
     }

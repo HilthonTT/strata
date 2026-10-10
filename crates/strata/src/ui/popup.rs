@@ -103,7 +103,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             frame.render_widget(Paragraph::new(lines), inner);
         }
         Overlay::Help { scroll } => draw_help(frame, app, area, *scroll),
-        Overlay::Text(t) => draw_text(frame, app, area, &t.title, &t.lines, t.scroll),
+        Overlay::Text(t) => draw_text(frame, app, area, &t.title, &t.lines, t.scroll, t.colored),
     }
 }
 
@@ -224,10 +224,19 @@ fn draw_help(frame: &mut Frame, app: &App, area: Rect, scroll: usize) {
     render_scrollable(frame, app, rect, "Help · j/k scroll · q close", strings, scroll);
 }
 
-fn draw_text(frame: &mut Frame, app: &App, area: Rect, title: &str, lines: &[String], scroll: usize) {
+fn draw_text(frame: &mut Frame, app: &App, area: Rect, title: &str, lines: &[String], scroll: usize, colored: bool) {
     let rect = centered(area, (area.width * 4 / 5).max(60), (area.height * 4 / 5).max(10));
-    let lines =
-        lines.iter().map(|l| Line::styled(l.replace('\t', "    "), Style::default().fg(app.theme.fg))).collect();
+    let t = &app.theme;
+    let color = |line: &str| match line.chars().next() {
+        _ if !colored => t.fg,
+        _ if line.starts_with("@@") => t.palette.accent,
+        _ if line.starts_with("+++") || line.starts_with("---") => t.muted,
+        Some('+' | '✓') => t.success,
+        Some('-' | '✗') => t.error,
+        Some('~' | '?') => t.warning,
+        _ => t.fg,
+    };
+    let lines = lines.iter().map(|l| Line::styled(l.replace('\t', "    "), Style::default().fg(color(l)))).collect();
     render_scrollable(frame, app, rect, title, lines, scroll);
 }
 

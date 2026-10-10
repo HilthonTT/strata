@@ -514,7 +514,7 @@ impl App {
             AppEvent::Text { title, body } => {
                 let lines = body.lines().map(str::to_string).collect::<Vec<_>>();
                 let scroll = lines.len().saturating_sub(10);
-                self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll }));
+                self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll, colored: false }));
             }
             AppEvent::Notify { message, level } => self.notify(message, level),
             AppEvent::Inspected { path, arch } => {
@@ -530,6 +530,9 @@ impl App {
                 if self.inspection.path.as_ref() == Some(&path) {
                     self.inspection.md5 = Some(md5);
                 }
+            }
+            AppEvent::Report { title, lines } => {
+                self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll: 0, colored: true }));
             }
         }
     }

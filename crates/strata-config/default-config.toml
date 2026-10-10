@@ -30,6 +30,7 @@ dir_editor = ""              # opens the current directory (E); defaults to edit
 opener = ""                  # defaults to xdg-open / open / start
 cd_on_quit = false           # cd your shell on every quit, not just Q (see `strata --shell-init`)
 md5_checksum = false         # show the MD5 of the hovered file (reads the whole file)
+diff_tool = ""               # program for `compare` (C) on two local files, e.g. "nvim -d"; empty = built-in diff
 date_format = "%Y-%m-%d %H:%M"
 metrics_interval_ms = 1000
 

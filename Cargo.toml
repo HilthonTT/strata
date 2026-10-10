@@ -37,6 +37,7 @@ clap = { version = "4", features = ["derive"] }
 unicode-width = "0.2"
 tempfile = "3"
 md-5 = "0.11"
+similar = "2"
 keyring = "4"
 notify = "8"
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }

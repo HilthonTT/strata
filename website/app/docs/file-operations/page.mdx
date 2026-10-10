@@ -46,6 +46,22 @@ Links are made in the focused directory to what you copied with <Kbd>y y</Kbd>, 
 
 `:chown [-R] user[:group]` (or `:group`) changes the owner of local items. Names are looked up the way `id` and `getent` do, so LDAP users work too. Changing owners usually needs root.
 
+## Compare
+
+<Kbd>C</Kbd> compares two items:
+
+- two **marked** items in the same panel, or
+- the hovered item with the item of the same name in the next panel (or, if there is none, the item hovered there).
+
+Two text files open as a coloured unified diff. Binary or large files (over 4 MiB) only report whether they differ. Two directories are compared recursively: the report lists what differs and what exists on one side only. Comparisons run in the background and work across local, SFTP and Docker locations.
+
+To use your own diff tool for local files, set it in the config:
+
+```toml
+[general]
+diff_tool = "nvim -d"   # or "meld", "code --diff --wait", "delta"…
+```
+
 ## Undo and redo
 
 Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:

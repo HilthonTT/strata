@@ -3,6 +3,8 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
+use anyhow::bail;
+use strata_core::compare::{self, FileDiff};
 use strata_core::ops::{Conflict, Transfer, TransferMode};
 use strata_core::perm::{self, ChangeLog, ModeSpec, Owner};
 use strata_core::util::unique_name;
@@ -10,9 +12,12 @@ use strata_core::vfs::same_vfs;
 use strata_core::VfsRef;
 use strata_plugin::Level;
 
+use super::actions::short_path;
+use super::external::{After, External, Wait};
 use super::overlay::{InputPurpose, InputState, Overlay};
 use super::undo::{PendingUndo, UndoOp};
 use super::App;
+use crate::event::AppEvent;
 
 /// How `paste_links` links to the clipboard items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +142,71 @@ impl App {
         self.panel_mut().clear_marks();
         self.track_job(job, label, PendingUndo::Owner { log });
     }
+
+    // --- compare --------------------------------------------------------------
+
+    /// Compares two marked items, or the hovered item with its namesake (or
+    /// the hovered item) in the next panel.
+    pub(super) fn compare(&mut self) {
+        let p = self.panel();
+        let marked = if p.marked.is_empty() { Vec::new() } else { p.target_entries() };
+        let (left, right) = match marked.as_slice() {
+            [a, b] => ((p.vfs.clone(), a.path.clone()), (p.vfs.clone(), b.path.clone())),
+            [] | [_] if self.panels.len() > 1 => {
+                let Some(entry) = marked.first().or(p.hovered()) else { return };
+                let other = &self.panels[(self.active + 1) % self.panels.len()];
+                let namesake = other.vfs.join(&other.cwd, &entry.name);
+                let right = if other.hovered().is_some_and(|e| e.name == entry.name) || other.vfs.exists(&namesake) {
+                    namesake
+                } else if let Some(e) = other.hovered() {
+                    e.path.clone()
+                } else {
+                    return self.notify("nothing to compare with in the next panel", Level::Warn);
+                };
+                ((p.vfs.clone(), entry.path.clone()), (other.vfs.clone(), right))
+            }
+            _ => return self.notify("mark two items, or open a second panel to compare with", Level::Warn),
+        };
+        self.compare_paths(left, right);
+    }
+
+    fn compare_paths(&mut self, (av, a): (VfsRef, PathBuf), (bv, b): (VfsRef, PathBuf)) {
+        let tool = strata_core::util::split_command(&self.config.general.diff_tool);
+        let both_files = av.is_local() && bv.is_local() && a.is_file() && b.is_file();
+        if !tool.is_empty() && both_files {
+            let mut argv = tool;
+            argv.push(a.to_string_lossy().into_owned());
+            argv.push(b.to_string_lossy().into_owned());
+            let cwd = a.parent().map(Path::to_path_buf);
+            return self.queue_external(External::Run { argv, cwd, wait: Wait::OnFailure, after: After::Reload });
+        }
+        let (la, lb) = (location(&av, &a), location(&bv, &b));
+        let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "/".into());
+        let label = format!("Compare {} ↔ {}", name(&a), name(&b));
+        let tx = self.tx.clone();
+        self.jobs.spawn(label, move |progress| {
+            let (ea, eb) = (av.stat(&a)?, bv.stat(&b)?);
+            let lines = match (ea.is_dir(), eb.is_dir()) {
+                (true, true) => {
+                    let report = compare::compare_dirs((&*av, &a), (&*bv, &b), progress)?;
+                    dir_report_lines(&la, &lb, &report)
+                }
+                (false, false) => match compare::diff_files((&*av, &a), (&*bv, &b), (&la, &lb), progress)? {
+                    FileDiff::Identical => {
+                        vec![format!("✓ {la}"), format!("✓ {lb}"), String::new(), "The files are identical.".into()]
+                    }
+                    FileDiff::Differ { reason } => {
+                        vec![format!("- {la}"), format!("+ {lb}"), String::new(), format!("~ {reason}")]
+                    }
+                    FileDiff::Text(lines) => lines,
+                },
+                _ => bail!("cannot compare a file with a directory"),
+            };
+            let title = format!("Compare · {} ↔ {}", name(&a), name(&b));
+            let _ = tx.send(AppEvent::Report { title, lines });
+            Ok(())
+        });
+    }
 }
 
 /// `-R spec` → `(true, spec)`.
@@ -157,6 +227,38 @@ fn describe(paths: &[PathBuf]) -> String {
         [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
         many => format!("{} items", many.len()),
     }
+}
+
+/// `~/dir/file` for local paths, `sftp:me@nas:/dir/file` for others.
+fn location(vfs: &VfsRef, path: &Path) -> String {
+    if vfs.is_local() {
+        short_path(path)
+    } else {
+        format!("{}:{}", vfs.label(), strata_core::util::posix(path))
+    }
+}
+
+fn dir_report_lines(left: &str, right: &str, report: &compare::DirReport) -> Vec<String> {
+    let mut lines = vec![
+        format!("- {left}"),
+        format!("+ {right}"),
+        String::new(),
+        format!(
+            "{} identical · {} differ · {} only left · {} only right",
+            report.same,
+            report.differ.len(),
+            report.only_left.len(),
+            report.only_right.len()
+        ),
+        String::new(),
+    ];
+    if report.is_identical() {
+        lines.push("✓ The directories are identical.".into());
+    }
+    lines.extend(report.differ.iter().map(|(name, why)| format!("~ {name}  ({why})")));
+    lines.extend(report.only_left.iter().map(|name| format!("- {name}")));
+    lines.extend(report.only_right.iter().map(|name| format!("+ {name}")));
+    lines
 }
 
 /// `target` relative to the directory `base`, e.g. `../lib/x` for

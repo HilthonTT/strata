@@ -4,6 +4,7 @@
 //! Nothing in this crate knows about the terminal UI.
 
 pub mod bulk;
+pub mod compare;
 pub mod entry;
 pub mod git;
 pub mod inspect;

@@ -216,7 +216,7 @@ impl App {
                 }
             }
         }
-        self.overlay = Some(Overlay::Text(TextPopup { title: "Plugins".into(), lines, scroll: 0 }));
+        self.overlay = Some(Overlay::Text(TextPopup { title: "Plugins".into(), lines, scroll: 0, colored: false }));
     }
 
     /// Plugin panels shown next to the file panels.

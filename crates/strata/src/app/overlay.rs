@@ -220,6 +220,9 @@ pub struct TextPopup {
     pub title: String,
     pub lines: Vec<String>,
     pub scroll: usize,
+    /// Colour lines by their first character: `+`/`✓` added or fine,
+    /// `-`/`✗` removed or failed, `~`/`?` changed, `@@` hunk headers.
+    pub colored: bool,
 }
 
 pub enum Overlay {

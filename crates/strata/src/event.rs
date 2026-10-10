@@ -72,6 +72,11 @@ pub enum AppEvent {
         path: PathBuf,
         md5: Result<String, String>,
     },
+    /// A report to show in a scrollable popup, from the top.
+    Report {
+        title: String,
+        lines: Vec<String>,
+    },
     Git {
         dir: PathBuf,
         status: Option<GitStatus>,

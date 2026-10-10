@@ -25,6 +25,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("hardlink", "hardlink — paste the clipboard as hard links"),
     ("chmod", "chmod [-R] <mode> — set permissions (755, u+x, go-w)"),
     ("chown", "chown [-R] <user[:group]> — change the owner"),
+    ("compare", "compare — diff two marked items, or the hovered one with the next panel"),
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
     ("set", "set hidden|preview|sidebar|footer [on|off]"),
@@ -94,6 +95,7 @@ impl App {
             }
             "chown" if !args.is_empty() => self.chown_command(args),
             "chown" => self.error("usage: chown [-R] user[:group]"),
+            "compare" | "diff" => self.dispatch(Action::Compare),
             "theme" if args.is_empty() => self.open_theme_picker(),
             "theme" => {
                 if self.apply_theme(args, true) {
@@ -149,7 +151,8 @@ impl App {
                     .map(|n| format!("{:>5}  {}", format!("{:?}", n.level).to_lowercase(), n.message))
                     .collect::<Vec<_>>();
                 let scroll = lines.len().saturating_sub(10);
-                self.overlay = Some(Overlay::Text(TextPopup { title: "Messages".into(), lines, scroll }));
+                self.overlay =
+                    Some(Overlay::Text(TextPopup { title: "Messages".into(), lines, scroll, colored: false }));
             }
             "files" => self.dispatch(Action::ViewFiles),
             "dashboard" => self.dispatch(Action::ViewDashboard),
