@@ -13,7 +13,10 @@ use crate::tui::{self, Term};
 /// When to pause for Enter after an external command, so output stays visible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wait {
+    /// Never pause; a failure is reported in the status line.
     OnFailure,
+    /// Pause only when the command fails.
+    PauseOnFailure,
     Always,
 }
 
@@ -184,7 +187,8 @@ impl App {
             vec!["sh".into(), "-c".into(), line.to_string()]
         };
         let cwd = self.panel().vfs.is_local().then(|| self.panel().cwd.clone());
-        self.external = Some(External::Run { argv, cwd, wait: Wait::Always, after: After::Reload });
+        let wait = if self.config.general.shell_close_on_success { Wait::PauseOnFailure } else { Wait::Always };
+        self.external = Some(External::Run { argv, cwd, wait, after: After::Reload });
     }
 
     pub(super) fn queue_external(&mut self, ext: External) {
@@ -244,7 +248,8 @@ impl App {
                     cmd.current_dir(cwd);
                 }
                 let result = match wait {
-                    Wait::Always => tui::run_external_and_wait(terminal, &mut cmd),
+                    Wait::Always => tui::run_external_and_wait(terminal, &mut cmd, false),
+                    Wait::PauseOnFailure => tui::run_external_and_wait(terminal, &mut cmd, true),
                     Wait::OnFailure => tui::run_external(terminal, &mut cmd),
                 };
                 match result {

@@ -107,6 +107,15 @@ pub struct General {
     /// Change the shell's directory on every quit, not only with `quit_cd`.
     /// Needs the shell function from `strata --shell-init <shell>`.
     pub cd_on_quit: bool,
+    /// Directory opened when no paths are given. Empty = the current directory.
+    pub start_dir: String,
+    /// Rows moved by `page_up`/`page_down`. 0 = a full page.
+    pub page_size: usize,
+    /// Show sizes in powers of 1000 (kB, MB) instead of 1024 (KiB, MiB).
+    pub si_units: bool,
+    /// Return to strata straight away when a `!` shell command succeeds
+    /// instead of waiting for Enter.
+    pub shell_close_on_success: bool,
     /// Show the MD5 checksum of the hovered file (reads the whole file).
     pub md5_checksum: bool,
     /// Show the SHA-256 checksum of the hovered file (reads the whole file).
@@ -156,6 +165,10 @@ impl Default for General {
             dir_editor: String::new(),
             opener: String::new(),
             cd_on_quit: false,
+            start_dir: String::new(),
+            page_size: 0,
+            si_units: false,
+            shell_close_on_success: false,
             md5_checksum: false,
             sha256_checksum: false,
             markdown_preview: true,

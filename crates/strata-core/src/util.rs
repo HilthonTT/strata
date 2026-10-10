@@ -1,18 +1,33 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Formats a byte count using binary units, e.g. `1.5 GiB`.
+static SI_UNITS: AtomicBool = AtomicBool::new(false);
+
+/// Makes [`human_size`] use powers of 1000 (`kB`, `MB`) instead of 1024.
+pub fn set_si_units(si: bool) {
+    SI_UNITS.store(si, Ordering::Relaxed);
+}
+
+/// Formats a byte count, e.g. `1.5 GiB` (or `1.6 GB` after [`set_si_units`]).
 pub fn human_size(bytes: u64) -> String {
-    const UNITS: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
-    if bytes < 1024 {
+    if SI_UNITS.load(Ordering::Relaxed) {
+        format_size(bytes, 1000.0, &["B", "kB", "MB", "GB", "TB", "PB"])
+    } else {
+        format_size(bytes, 1024.0, &["B", "KiB", "MiB", "GiB", "TiB", "PiB"])
+    }
+}
+
+fn format_size(bytes: u64, base: f64, units: &[&str]) -> String {
+    if (bytes as f64) < base {
         return format!("{bytes} B");
     }
     let mut value = bytes as f64;
     let mut unit = 0;
-    while value >= 1024.0 && unit < UNITS.len() - 1 {
-        value /= 1024.0;
+    while value >= base && unit < units.len() - 1 {
+        value /= base;
         unit += 1;
     }
-    format!("{value:.1} {}", UNITS[unit])
+    format!("{value:.1} {}", units[unit])
 }
 
 /// Renders unix permission bits as `rwxr-xr-x`.
@@ -125,6 +140,9 @@ mod tests {
         assert_eq!(human_size(512), "512 B");
         assert_eq!(human_size(1536), "1.5 KiB");
         assert_eq!(human_size(3 * 1024 * 1024 * 1024), "3.0 GiB");
+        let si = ["B", "kB", "MB", "GB", "TB", "PB"];
+        assert_eq!(format_size(999, 1000.0, &si), "999 B");
+        assert_eq!(format_size(1500, 1000.0, &si), "1.5 kB");
     }
 
     #[test]

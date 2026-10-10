@@ -231,6 +231,7 @@ impl App {
         let (themes, theme_errors) = ThemeRegistry::load(&config_dir.join("themes"));
 
         let mut theme_error = None;
+        let mut start_error = None;
         let theme = match themes.get(&config.general.theme) {
             Some(t) => t.clone(),
             None => {
@@ -240,6 +241,7 @@ impl App {
         };
         let theme = if config.general.transparent { theme.transparent() } else { theme };
 
+        strata_core::util::set_si_units(config.general.si_units);
         let local: VfsRef = Arc::new(LocalVfs);
         let sort = SortOptions {
             key: config.general.sort,
@@ -247,7 +249,14 @@ impl App {
             dirs_first: config.general.dirs_first,
             case_sensitive: config.general.case_sensitive_sort,
         };
-        let start_dirs = start_directories(&opts.paths, config.general.panels.clamp(1, 6));
+        let start_dir = (!config.general.start_dir.is_empty())
+            .then(|| std::fs::canonicalize(strata_core::util::expand_tilde(&config.general.start_dir)).ok())
+            .flatten()
+            .filter(|d| d.is_dir());
+        if start_dir.is_none() && !config.general.start_dir.is_empty() {
+            start_error = Some(format!("start_dir '{}' is not a directory", config.general.start_dir));
+        }
+        let start_dirs = start_directories(&opts.paths, start_dir, config.general.panels.clamp(1, 6));
         let panels = start_dirs
             .into_iter()
             .map(|dir| Panel::new(local.clone(), dir, sort, config.general.show_hidden, Some(listing_tx.clone())))
@@ -330,7 +339,7 @@ impl App {
             config,
         };
 
-        theme_errors.into_iter().chain(theme_error).for_each(|e| app.notify(e, Level::Warn));
+        theme_errors.into_iter().chain(theme_error).chain(start_error).for_each(|e| app.notify(e, Level::Warn));
         if opts.load_plugins {
             app.load_plugins();
         }
@@ -704,9 +713,12 @@ impl App {
     }
 }
 
-/// One directory per panel: CLI paths first, then the current directory.
-fn start_directories(paths: &[PathBuf], count: usize) -> Vec<PathBuf> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")));
+/// One directory per panel: the given paths, then `start_dir` or the
+/// current directory for the rest.
+fn start_directories(paths: &[PathBuf], start_dir: Option<PathBuf>, count: usize) -> Vec<PathBuf> {
+    let cwd = start_dir.unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")))
+    });
     let mut dirs: Vec<PathBuf> = paths
         .iter()
         .filter_map(|p| std::fs::canonicalize(p).ok())

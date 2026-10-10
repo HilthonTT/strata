@@ -91,13 +91,16 @@ pub fn run_external_with_input(terminal: &mut Term, cmd: &mut Command, input: Op
     Ok(status?)
 }
 
-/// Like [`run_external`] but waits for Enter afterwards so output stays readable.
-pub fn run_external_and_wait(terminal: &mut Term, cmd: &mut Command) -> Result<ExitStatus> {
+/// Like [`run_external`] but waits for Enter afterwards so output stays
+/// readable; with `only_on_failure`, only when the command did not succeed.
+pub fn run_external_and_wait(terminal: &mut Term, cmd: &mut Command, only_on_failure: bool) -> Result<ExitStatus> {
     restore()?;
     let status = cmd.status();
-    println!("\n[press enter to return to strata]");
-    let mut line = String::new();
-    let _ = io::stdin().read_line(&mut line);
+    if !(only_on_failure && status.as_ref().is_ok_and(ExitStatus::success)) {
+        println!("\n[press enter to return to strata]");
+        let mut line = String::new();
+        let _ = io::stdin().read_line(&mut line);
+    }
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     terminal.clear()?;

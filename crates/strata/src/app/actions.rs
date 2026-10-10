@@ -270,7 +270,10 @@ impl App {
     }
 
     fn page(&mut self, fraction: f64) {
-        let page = self.panel().page as f64;
+        let page = match self.config.general.page_size {
+            0 => self.panel().page,
+            rows => rows,
+        } as f64;
         self.panel_mut().move_by((page * fraction).round() as isize);
     }
 
