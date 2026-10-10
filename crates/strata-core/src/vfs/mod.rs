@@ -16,7 +16,7 @@ use anyhow::{bail, Result};
 
 use crate::Entry;
 
-pub use archive::{ArchiveFormat, ArchiveVfs};
+pub use archive::{ArchiveFormat, ArchiveVfs, Compression};
 pub use docker::DockerVfs;
 pub use local::LocalVfs;
 #[cfg(feature = "sftp")]

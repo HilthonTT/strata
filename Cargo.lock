@@ -3008,6 +3008,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bzip2",
+ "chrono",
  "dirs",
  "flate2",
  "keyring",

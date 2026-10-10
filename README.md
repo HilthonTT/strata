@@ -13,7 +13,7 @@ Everything you need, nothing you don't.
 - **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR`, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them
 - **Trash browser**: restore, delete or empty, newest first
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
-- **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories and copy files out
+- **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`
 - **Folder sizes** in the file list (`d c`), measured in the background
 - **Jobs you control**: pause copies (`alt+p`) and resume failed or cancelled ones where they stopped (`alt+R`)
 - **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
@@ -58,7 +58,7 @@ strata [DIR...]           # one panel per directory
 | `s` | sort menu | `E` | open the directory in your editor |
 | `Y` / `=` | duplicate / permissions | `C` / `#` | compare / checksums |
 | `U` | browse the trash | `g l` | paste as symlink |
-| `d c` | folder sizes | | |
+| `d c` | folder sizes | `X` | extract the archive |
 | `alt+p` | pause / resume the latest job | `alt+R` | resume a failed copy |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
 | `?` | all keys | `q` | quit |
@@ -79,7 +79,7 @@ Run `strata --dump-config > ~/.config/strata/config.toml` to start from a docume
 
 ## Plugins
 
-Plugins are Lua files in `~/.config/strata/plugins/`. strata ships four official ones: `git`, `bookmarks`, `archive` and `zoxide`. See [docs/plugins.md](docs/plugins.md) for the API.
+Plugins are Lua files in `~/.config/strata/plugins/`. strata ships four official ones: `git`, `bookmarks`, `archive` (previews of `.7z` and `.rar` archives) and `zoxide`. See [docs/plugins.md](docs/plugins.md) for the API.
 
 ## Documentation
 

@@ -91,6 +91,12 @@ pub enum AppEvent {
         file: PathBuf,
         result: Result<VfsRef, String>,
     },
+    /// An archive opened for `:extract` into `dest`.
+    ArchiveToExtract {
+        file: PathBuf,
+        dest: PathBuf,
+        result: Result<VfsRef, String>,
+    },
     Git {
         dir: PathBuf,
         status: Option<GitStatus>,

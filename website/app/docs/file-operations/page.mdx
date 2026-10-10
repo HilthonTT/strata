@@ -87,7 +87,11 @@ Restoring refuses to replace something that has taken the item's place. Restores
 
 <Kbd>enter</Kbd> on a zip or tar archive opens it like a directory: `.zip`, `.jar`, `.apk`, `.whl` and other zip-based files, and `.tar` with gzip, bzip2, xz or zstd (`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.tar.zst`…). Browse and preview inside it, and copy items out with <Kbd>c</Kbd> or <Kbd>y y</Kbd> and <Kbd>p</Kbd>. Archives are read-only: renaming, deleting or pasting into them is refused, and edits to files opened from them are not saved back. <Kbd>h</Kbd> at the archive's root goes back to the folder that holds it.
 
-The archive is indexed once when you open it, and files are read in archive order, so copying a whole `.tar.gz` out decompresses it only once. Set `browse_archives = false` to open archives with the system app instead. The `archive` plugin adds <Kbd>X</Kbd> to extract and `:compress`.
+The archive is indexed once when you open it, and files are read in archive order, so copying a whole `.tar.gz` out decompresses it only once. Set `browse_archives = false` to open archives with the system app instead.
+
+<Kbd>X</Kbd> (or `:extract`) unpacks the hovered archive into the current folder: in place when it holds a single item, otherwise into a folder named after it. It runs as a copy, so it shows progress and can be paused, resumed and undone. Other formats such as `.7z` and `.rar` are handed to 7-Zip when it is installed.
+
+`:compress [name]` packs the marked items, or the hovered one, into an archive; without a name it asks, suggesting `.zip`. strata writes `.zip`, `.tar`, `.tar.gz` and `.tar.bz2` itself, and uses the system `tar` for `.tar.xz` and `.tar.zst`.
 
 ## Undo and redo
 

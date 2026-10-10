@@ -28,6 +28,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("compare", "compare — diff two marked items, or the hovered one with the next panel"),
     ("checksum", "checksum [md5|sha1|sha256|sha512] — show checksums, or copy one"),
     ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
+    ("compress", "compress [name] — pack marked items into a .zip or .tar.* archive"),
+    ("extract", "extract — unpack the hovered archive here"),
     ("pause", "pause — pause or resume the latest running job"),
     ("retry", "retry — resume the latest failed or cancelled copy"),
     ("trash", "trash — browse, restore and delete trashed items"),
@@ -105,6 +107,8 @@ impl App {
             "chown" => self.error("usage: chown [-R] user[:group]"),
             "compare" | "diff" => self.dispatch(Action::Compare),
             "checksum" | "hash" => self.checksum(Some(args)),
+            "compress" => self.compress_command(args),
+            "extract" => self.extract_command(),
             "pause" => self.dispatch(Action::PauseJob),
             "retry" | "resume" => self.dispatch(Action::RetryJob),
             "verify" => self.verify(args),
@@ -367,6 +371,7 @@ impl App {
                 None => self.error("use smb://user@host/share, nfs://host/export or sftp://user@host:port/path"),
             },
             InputPurpose::Chmod { vfs, paths } if !value.is_empty() => self.start_chmod(vfs, paths, &value),
+            InputPurpose::Compress(items) if !value.is_empty() => self.compress(items, &value),
             InputPurpose::AddConnectionName(mut conn) if !value.is_empty() => {
                 conn.name = value;
                 self.save_connection(conn);

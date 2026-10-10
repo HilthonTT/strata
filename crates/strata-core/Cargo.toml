@@ -14,6 +14,7 @@ sftp = ["dep:ssh2"]
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 dirs.workspace = true

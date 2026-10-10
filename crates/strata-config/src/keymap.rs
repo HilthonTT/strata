@@ -355,6 +355,7 @@ const COMMON: &[(&str, &str)] = &[
     ("C", "compare"),
     ("#", "checksum"),
     ("U", "open_trash"),
+    ("X", ":extract"),
     ("q", "quit"),
     ("Q", "quit_cd"),
     ("ctrl+g", "content_search"),

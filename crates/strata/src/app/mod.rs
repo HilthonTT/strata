@@ -5,6 +5,7 @@
 //! programs and the per-view logic.
 
 mod actions;
+mod archives;
 pub use actions::short_path;
 mod commands;
 mod dirsize;
@@ -606,6 +607,7 @@ impl App {
                 self.info(message);
             }
             AppEvent::ArchiveOpened { panel, file, result } => self.on_archive_opened(panel, file, result),
+            AppEvent::ArchiveToExtract { file, dest, result } => self.on_archive_to_extract(file, dest, result),
         }
     }
 

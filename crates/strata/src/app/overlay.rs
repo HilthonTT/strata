@@ -23,6 +23,8 @@ pub enum InputPurpose {
     PreviewFind,
     /// Save a password for this connection in the keychain.
     SavePassword(String),
+    /// Name of an archive to pack these items into.
+    Compress(Vec<PathBuf>),
     /// New permissions for these items.
     Chmod {
         vfs: VfsRef,

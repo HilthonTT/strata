@@ -5,6 +5,7 @@
 
 pub mod bulk;
 pub mod compare;
+pub mod compress;
 pub mod entry;
 pub mod git;
 pub mod inspect;
