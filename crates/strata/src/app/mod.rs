@@ -17,6 +17,7 @@ pub mod overlay;
 pub mod panel;
 mod plugins;
 pub mod preview;
+mod preview_markdown;
 mod preview_nav;
 mod remote_edit;
 pub mod sidebar;
@@ -602,10 +603,11 @@ impl App {
         }
         let key = (entry.path.clone(), self.preview_area);
         if self.preview_for.as_ref() != Some(&key) {
-            // Only a resize of a non-image does not need a new preview.
+            // Previews are laid out for the pane, so a resize rebuilds them
+            // too; meanwhile the old one stays up. Directories fit any size.
             let same_path = self.preview_for.as_ref().is_some_and(|(p, _)| *p == entry.path);
             self.preview_for = Some(key);
-            if same_path && !preview::is_image(&entry) {
+            if same_path && entry.is_dir() {
                 return;
             }
             self.preview_generation += 1;
@@ -614,7 +616,9 @@ impl App {
                 self.preview_due = None;
                 return;
             }
-            self.preview = PreviewContent::Loading;
+            if !same_path {
+                self.preview = PreviewContent::Loading;
+            }
             self.preview_due = Some(Instant::now() + Duration::from_millis(40));
         }
         if self.preview_due.is_some_and(|due| Instant::now() >= due) {
@@ -627,6 +631,8 @@ impl App {
                 size: self.preview_area,
                 picker: self.picker.clone(),
                 highlighter: self.highlighter.clone(),
+                theme: self.theme.clone(),
+                options: preview::PreviewOptions { markdown: self.config.general.markdown_preview },
             }
             .spawn(self.tx.clone());
         }

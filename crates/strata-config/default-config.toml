@@ -31,6 +31,7 @@ opener = ""                  # defaults to xdg-open / open / start
 cd_on_quit = false           # cd your shell on every quit, not just Q (see `strata --shell-init`)
 md5_checksum = false         # show the MD5 of the hovered file (reads the whole file)
 sha256_checksum = false      # show the SHA-256 of the hovered file (reads the whole file)
+markdown_preview = true      # render Markdown in the preview (false = highlighted source)
 browse_archives = true       # enter zip and tar archives like directories (read-only)
 diff_tool = ""               # program for `compare` (C) on two local files, e.g. "nvim -d"; empty = built-in diff
 date_format = "%Y-%m-%d %H:%M"

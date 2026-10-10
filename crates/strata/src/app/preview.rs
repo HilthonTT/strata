@@ -1,4 +1,5 @@
-//! Preview generation, done off the UI thread.
+//! Preview generation, done off the UI thread: directories, images, code
+//! and rendered Markdown.
 
 use std::io::Read;
 use std::sync::mpsc::Sender;
@@ -9,10 +10,12 @@ use ratatui::text::Line;
 use ratatui_image::picker::Picker;
 use ratatui_image::protocol::Protocol;
 use ratatui_image::{FilterType, Resize};
+use strata_config::Theme;
 use strata_core::sort::{sort_entries, SortOptions};
 use strata_core::{Entry, VfsRef};
 
 use super::highlight::Highlighter;
+use super::preview_markdown;
 use crate::event::AppEvent;
 
 const MAX_TEXT_BYTES: usize = 1024 * 1024;
@@ -40,6 +43,12 @@ pub fn is_image(entry: &Entry) -> bool {
     IMAGE_EXTS.contains(&entry.extension().as_str())
 }
 
+/// Which kinds of rich preview are turned on.
+#[derive(Debug, Clone, Copy)]
+pub struct PreviewOptions {
+    pub markdown: bool,
+}
+
 pub struct PreviewJob {
     pub generation: u64,
     pub vfs: VfsRef,
@@ -48,6 +57,8 @@ pub struct PreviewJob {
     pub size: Size,
     pub picker: Option<Picker>,
     pub highlighter: Option<Arc<Highlighter>>,
+    pub theme: Theme,
+    pub options: PreviewOptions,
 }
 
 impl PreviewJob {
@@ -77,6 +88,7 @@ impl PreviewJob {
                 Err(e) => PreviewContent::Error(e),
             };
         }
+        let ext = entry.extension();
         let mut buf = Vec::with_capacity(MAX_TEXT_BYTES.min(entry.size as usize + 1));
         let read =
             self.vfs.reader(&entry.path).and_then(|r| Ok(r.take(MAX_TEXT_BYTES as u64).read_to_end(&mut buf)?));
@@ -90,6 +102,12 @@ impl PreviewJob {
             return PreviewContent::Binary { size: entry.size };
         }
         let text = String::from_utf8_lossy(&buf);
+        if self.options.markdown && preview_markdown::is_markdown(&ext) {
+            let width = self.size.width.saturating_sub(1) as usize;
+            let mut lines = preview_markdown::render(&text, width, &self.theme, self.highlighter.as_deref());
+            lines.truncate(MAX_LINES);
+            return PreviewContent::Code(lines);
+        }
         let plain = |l: &str| l.replace('\t', "    ");
         if let Some(mut lines) =
             self.highlighter.as_ref().and_then(|h| h.highlight(&entry.name, &text, MAX_HIGHLIGHTED))
