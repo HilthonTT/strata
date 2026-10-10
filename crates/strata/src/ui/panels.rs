@@ -10,6 +10,7 @@ use ratatui::Frame;
 use strata_config::Action;
 use strata_core::git::GitState;
 use strata_core::util::{human_size, permissions_string};
+use strata_core::EntryKind;
 use unicode_width::UnicodeWidthStr;
 
 use super::{block, fit, icons, panels_focused, truncate, truncate_left};
@@ -94,8 +95,10 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     let (size_w, date_w, perm_w) = (9, date_width(date_format), 9);
     let git_w = if general.git_status { 2 } else { 0 };
     let checkbox_w = if selecting && general.icons { 2 } else { 0 };
+    // Folder sizes are pointless without the size column.
+    let wanted = general.extra_columns.max(general.dir_sizes as u8);
     let shown = extra_columns(
-        general.extra_columns,
+        wanted,
         width,
         2 + checkbox_w + git_w,
         general.name_percent,
@@ -146,7 +149,12 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
             spans.push(Span::raw(" ".repeat(name_room.saturating_sub(name.width()))));
 
             if shown >= 1 {
-                let size = if entry.is_dir() { "—".to_string() } else { human_size(entry.size) };
+                let size = match (entry.kind, app.dir_size(&entry.path)) {
+                    (EntryKind::Dir, Some(size)) => human_size(size),
+                    (EntryKind::Dir, None) if general.dir_sizes && panel.vfs.is_local() => "…".to_string(),
+                    _ if entry.is_dir() => "—".to_string(),
+                    _ => human_size(entry.size),
+                };
                 spans.push(Span::styled(format!(" {size:>size_w$}"), muted));
             }
             if shown >= 2 {

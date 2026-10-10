@@ -30,6 +30,12 @@ Tabs keep whole workspaces apart: every tab has its own panels.
 
 Open tabs are listed in the top bar. With the classic preset, use <Kbd>ctrl+t</Kbd>, <Kbd>alt+←</Kbd> / <Kbd>alt+→</Kbd> and <Kbd>alt+w</Kbd>.
 
+## Folder sizes
+
+Press <Kbd>d c</Kbd> (<Kbd>alt+d</Kbd> with the classic preset), run `:set dir_sizes`, or set `dir_sizes = true` to show how much each folder holds. Sizes are measured in the background without leaving the folder's disk and fill in as they finish; sorting by size then orders folders by them too. They are measured again when files change.
+
+With `extra_columns` you can also show the modified date (in your `date_format`) and permissions next to each name.
+
 ## The sidebar
 
 The sidebar lists well-known places, your pinned directories, mounted disks and NAS connections. Press <Kbd>P</Kbd> to pin or unpin the current directory; pins are remembered between sessions. Click any entry, or focus the sidebar with <Kbd>ctrl+h</Kbd> and press <Kbd>enter</Kbd>.

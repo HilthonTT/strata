@@ -7,6 +7,7 @@
 mod actions;
 pub use actions::short_path;
 mod commands;
+mod dirsize;
 pub use commands::COMMANDS;
 mod external;
 mod fileops;
@@ -213,6 +214,7 @@ pub struct App {
     last_location: Option<(String, PathBuf)>,
 
     pub layout: LayoutCache,
+    pub dir_sizes: dirsize::DirSizes,
     /// Border characters, from `border` and `border_chars`.
     pub border: ratatui::symbols::border::Set<'static>,
     last_click: Option<(Instant, u16, u16)>,
@@ -344,6 +346,7 @@ impl App {
             plugin_refreshed: Instant::now(),
             last_location: None,
             layout: LayoutCache::default(),
+            dir_sizes: dirsize::DirSizes::default(),
             border,
             last_click: None,
             external: None,
@@ -514,6 +517,7 @@ impl App {
                     JobState::Cancelled => self.notify(format!("{} cancelled", done.label), Level::Warn),
                     JobState::Running => {}
                 }
+                self.dir_sizes.clear();
                 self.reload_all();
                 self.emit_plugin_event("job_done");
             }
@@ -573,7 +577,12 @@ impl App {
                 }
             }
             AppEvent::Git { dir, status } => self.on_git_status(dir, status),
-            AppEvent::FsChanged(paths) => self.on_fs_changed(paths),
+            AppEvent::FsChanged(paths) => {
+                paths.iter().for_each(|p| self.dir_sizes.invalidate(p));
+                self.on_fs_changed(paths);
+            }
+            AppEvent::DirSize { path, size } => self.on_dir_size(path, size),
+            AppEvent::DirSizesDone { root } => self.on_dir_sizes_done(root),
             AppEvent::Grep { root, pattern, result } => self.on_grep_results(root, pattern, result),
             AppEvent::Keychain(names) => self.nas.saved_passwords = names,
             AppEvent::Checksum { path, sums } => {
@@ -604,6 +613,7 @@ impl App {
         self.update_git();
         self.sync_watches();
         self.flush_fs_changes();
+        self.update_dir_sizes();
 
         if self.plugin_refreshed.elapsed() > Duration::from_secs(2) {
             self.refresh_plugin_ui();

@@ -47,6 +47,12 @@ pub fn scan(root: &Path, cancel: &AtomicBool) -> Option<UsageReport> {
     })
 }
 
+/// Total size of the files below `dir`, without crossing filesystem
+/// boundaries or following links. Returns `None` if cancelled.
+pub fn dir_size(dir: &Path, cancel: &AtomicBool) -> Option<u64> {
+    measure(dir, cancel).map(|i| i.size)
+}
+
 fn measure(path: &Path, cancel: &AtomicBool) -> Option<UsageItem> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     let name = path.file_name()?.to_string_lossy().into_owned();
@@ -115,5 +121,7 @@ mod tests {
         assert_eq!(r.total, 4010);
         assert_eq!(r.items[0].name, "big");
         assert_eq!(r.items[0].files, 2);
+        assert_eq!(dir_size(&dir.path().join("big"), &AtomicBool::new(false)), Some(4000));
+        assert_eq!(dir_size(&dir.path().join("big"), &AtomicBool::new(true)), None);
     }
 }

@@ -102,6 +102,15 @@ pub enum AppEvent {
     },
     /// Files changed on disk (from the watcher).
     FsChanged(Vec<PathBuf>),
+    /// The size of a folder shown in a panel (`dir_sizes`).
+    DirSize {
+        path: PathBuf,
+        size: u64,
+    },
+    /// Every folder in `root` has been measured.
+    DirSizesDone {
+        root: PathBuf,
+    },
     /// Connections that have a password in the keychain.
     Keychain(std::collections::HashSet<String>),
 }

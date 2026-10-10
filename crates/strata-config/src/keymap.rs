@@ -102,6 +102,7 @@ actions! {
     CycleSort => "cycle_sort", "Cycle sort key";
     SortMenu => "sort_menu", "Choose how to sort";
     ReverseSort => "reverse_sort", "Reverse sort order";
+    ToggleDirSizes => "toggle_dir_sizes", "Show / hide folder sizes";
     Refresh => "refresh", "Reload directories";
     ViewFiles => "view_files", "Files view";
     ViewDashboard => "view_dashboard", "Disk & memory dashboard";
@@ -415,6 +416,7 @@ const VIM: &[(&str, &str)] = &[
     ("b", "toggle_sidebar"),
     ("s", "sort_menu"),
     ("S", "reverse_sort"),
+    ("d c", "toggle_dir_sizes"),
     ("ctrl+r", "redo"),
     ("g f", "view_files"),
     ("g d", "view_dashboard"),
@@ -447,6 +449,7 @@ const STANDARD: &[(&str, &str)] = &[
     ("s", "focus_sidebar"),
     ("o", "sort_menu"),
     ("R", "reverse_sort"),
+    ("alt+d", "toggle_dir_sizes"),
     ("f", "toggle_preview"),
     ("ctrl+n", "new_file"),
     ("ctrl+r", "rename"),

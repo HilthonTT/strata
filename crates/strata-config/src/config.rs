@@ -108,6 +108,9 @@ pub struct General {
     pub syntax_highlight: bool,
     /// Show git status markers next to files in repositories.
     pub git_status: bool,
+    /// Measure folders in the background and show their sizes in the list
+    /// (and sort by them).
+    pub dir_sizes: bool,
     /// Columns after the file name: 0 = name only, 1 = size, 2 = size and
     /// date, 3 = size, date and permissions.
     pub extra_columns: u8,
@@ -191,6 +194,7 @@ impl Default for General {
             image_preview: true,
             syntax_highlight: true,
             git_status: true,
+            dir_sizes: false,
             extra_columns: 0,
             preview_border: false,
             line_numbers: false,

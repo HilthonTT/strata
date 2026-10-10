@@ -46,6 +46,7 @@ impl App {
                 return;
             }
             Refresh => {
+                self.dir_sizes.clear();
                 self.reload_all();
                 self.probe_connections();
                 if self.view == View::Docker {
@@ -239,6 +240,16 @@ impl App {
                 let p = self.panel_mut();
                 p.sort.reverse = !p.sort.reverse;
                 p.resort();
+            }
+            ToggleDirSizes => {
+                let on = !self.config.general.dir_sizes;
+                self.config.general.dir_sizes = on;
+                if !on {
+                    // Drop measured sizes from the listings.
+                    self.dir_sizes.stop();
+                    self.reload_all();
+                }
+                self.info(if on { "measuring folder sizes" } else { "folder sizes off" });
             }
             Edit => self.edit_targets(),
             OpenWith => self.open_with_system(),

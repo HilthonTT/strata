@@ -123,7 +123,14 @@ fn draw_metadata(frame: &mut Frame, app: &App, area: Rect) {
     let mut rows = vec![
         ("FileName", e.name.clone()),
         ("FileType", kind),
-        ("FileSize", if e.is_dir() { "—".into() } else { human_size(e.size) }),
+        (
+            "FileSize",
+            match app.dir_size(&e.path) {
+                Some(size) if e.kind == EntryKind::Dir => human_size(size),
+                _ if e.is_dir() => "—".into(),
+                _ => human_size(e.size),
+            },
+        ),
         ("FileModifyDate", modified),
         ("Permissions", e.mode.map(|m| format!("{} ({:o})", permissions_string(m), m)).unwrap_or_else(|| "—".into())),
     ];

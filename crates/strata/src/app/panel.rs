@@ -1,13 +1,13 @@
 //! One file panel: a directory listing with cursor, marks, filter and history.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 
 use strata_core::search::Fuzzy;
-use strata_core::sort::{sort_entries, SortOptions};
-use strata_core::{Entry, VfsRef};
+use strata_core::sort::{sort_entries, SortKey, SortOptions};
+use strata_core::{Entry, EntryKind, VfsRef};
 
 /// A directory listing produced off the UI thread (remote locations).
 pub struct Listing {
@@ -50,6 +50,10 @@ pub struct Panel {
     pub loading: bool,
     /// Name to put the cursor on once the listing arrives.
     pending_focus: Option<String>,
+    /// Counts listings, so folder sizes are copied into each new one.
+    pub listed: u64,
+    /// `(listed, sizes version)` last given folder sizes.
+    pub sizes_seen: (u64, u64),
 }
 
 impl Panel {
@@ -75,6 +79,8 @@ impl Panel {
             generation: 0,
             loading: false,
             pending_focus: None,
+            listed: 0,
+            sizes_seen: (0, 0),
         };
         panel.reload();
         panel
@@ -127,6 +133,7 @@ impl Panel {
     }
 
     fn apply_entries(&mut self, result: Result<Vec<Entry>, String>) {
+        self.listed += 1;
         match result {
             Ok(mut entries) => {
                 sort_entries(&mut entries, self.sort);
@@ -143,6 +150,26 @@ impl Panel {
         self.refilter();
         if let Some(name) = self.pending_focus.take() {
             self.focus_name(&name);
+        }
+    }
+
+    /// Folders listed here (not links to folders).
+    pub fn dirs(&self) -> impl Iterator<Item = &Path> {
+        self.entries.iter().filter(|e| e.kind == EntryKind::Dir).map(|e| e.path.as_path())
+    }
+
+    /// Uses measured folder sizes in place of the folders' own sizes,
+    /// re-sorting when sorted by size.
+    pub fn apply_dir_sizes(&mut self, sizes: &HashMap<PathBuf, u64>) {
+        let mut changed = false;
+        for e in self.entries.iter_mut().filter(|e| e.kind == EntryKind::Dir) {
+            if let Some(&size) = sizes.get(&e.path) {
+                changed |= e.size != size;
+                e.size = size;
+            }
+        }
+        if changed && self.sort.key == SortKey::Size {
+            self.resort();
         }
     }
 

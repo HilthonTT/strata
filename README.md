@@ -14,6 +14,7 @@ Everything you need, nothing you don't.
 - **Trash browser**: restore, delete or empty, newest first
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories and copy files out
+- **Folder sizes** in the file list (`d c`), measured in the background
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
 - **Search**: filter, fuzzy find, and content search with ripgrep
 - **Git status** markers next to every file, and **tabs** on top of multiple panels
@@ -55,6 +56,7 @@ strata [DIR...]           # one panel per directory
 | `s` | sort menu | `E` | open the directory in your editor |
 | `Y` / `=` | duplicate / permissions | `C` / `#` | compare / checksums |
 | `U` | browse the trash | `g l` | paste as symlink |
+| `d c` | folder sizes | | |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
 | `?` | all keys | `q` | quit |
 

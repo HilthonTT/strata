@@ -32,7 +32,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("empty-trash", "empty-trash — delete everything in the trash for good"),
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
-    ("set", "set hidden|preview|sidebar|footer [on|off]"),
+    ("set", "set hidden|preview|sidebar|footer|icons|dir_sizes [on|off]"),
     ("connect", "connect <name|url> — open a NAS connection"),
     ("disconnect", "disconnect <name> — unmount a share"),
     ("diagnose", "diagnose <name> — test a connection step by step"),
@@ -231,7 +231,7 @@ impl App {
     fn set_command(&mut self, args: &str) {
         let mut parts = args.split_whitespace();
         let (Some(name), value) = (parts.next(), parts.next()) else {
-            return self.error("usage: set hidden|preview|sidebar|footer [on|off]");
+            return self.error("usage: set hidden|preview|sidebar|footer|icons|dir_sizes [on|off]");
         };
         let g = &self.config.general;
         let current = match name {
@@ -240,6 +240,7 @@ impl App {
             "sidebar" => g.sidebar,
             "footer" => g.footer,
             "icons" => g.icons,
+            "dir_sizes" => g.dir_sizes,
             _ => return self.error(format!("unknown setting '{name}'")),
         };
         let wanted = match value {
@@ -255,6 +256,7 @@ impl App {
             "preview" => self.dispatch(Action::TogglePreview),
             "sidebar" => self.dispatch(Action::ToggleSidebar),
             "footer" => self.dispatch(Action::ToggleFooter),
+            "dir_sizes" => self.dispatch(Action::ToggleDirSizes),
             _ => self.config.general.icons = wanted,
         }
     }
