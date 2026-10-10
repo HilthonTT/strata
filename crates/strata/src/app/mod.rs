@@ -20,6 +20,7 @@ pub mod preview;
 mod preview_docs;
 mod preview_hex;
 mod preview_markdown;
+mod preview_media;
 mod preview_nav;
 mod remote_edit;
 pub mod sidebar;
@@ -637,6 +638,7 @@ impl App {
                 options: preview::PreviewOptions {
                     markdown: self.config.general.markdown_preview,
                     hex: self.config.general.hex_preview,
+                    media: self.config.general.media_preview,
                 },
             }
             .spawn(self.tx.clone());

@@ -22,17 +22,33 @@ Matching lines are highlighted, and the bottom corner shows which lines you are 
 | Markdown | Rendered: headings, lists, task boxes, quotes, tables, links and code blocks with syntax colours |
 | Images | PNG, JPEG, GIF, WebP, BMP and ICO |
 | Documents | The text of Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`), OpenDocument (`.odt`, `.odp`, `.ods`) and EPUB files, with headings and tables |
+| PDFs | The first page as an image, or its text, with title, author and page count |
+| Videos | A representative frame, duration, resolution, frame rate, codecs and bitrate |
+| Audio | Cover art, title, artist, album, duration and format |
 | Archives | The list of files (via the `archive` plugin) |
 | Binary files | A hex dump of the first 64 KiB, with the executable type |
 
 Images use the best protocol your terminal supports — kitty, sixel or iTerm2 — and a half-block approximation everywhere else.
 
-Text is wrapped to the preview's width, and the hex dump shows 16, 8 or 4 bytes per row depending on the room. Documents are read without any external program. To turn the richer previews off:
+Text is wrapped to the preview's width, and the hex dump shows 16, 8 or 4 bytes per row depending on the room. Documents are read without any external program.
+
+PDF and media previews use tools you may already have; each is optional, and the preview says what is missing:
+
+| For | Install | Used for |
+| --- | --- | --- |
+| PDFs | `poppler-utils` | `pdftoppm` (page image), `pdftotext` (text when images are off), `pdfinfo` (details) |
+| Videos and audio | `ffmpeg` | `ffprobe` (details), `ffmpeg` (frame or cover art); `ffmpegthumbnailer` is used for video frames when installed |
+| Videos and audio | `mediainfo` or `exiftool` | Details when `ffprobe` is missing |
+
+These previews work on local files. Each tool gets 8 seconds before the preview gives up.
+
+To turn the richer previews off:
 
 ```toml
 [general]
 markdown_preview = true   # false shows the highlighted Markdown source
 hex_preview = true        # false shows only the size of binary files
+media_preview = true      # false skips PDF, video and audio tools
 ```
 
 ```toml

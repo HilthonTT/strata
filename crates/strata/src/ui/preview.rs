@@ -141,6 +141,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         PreviewContent::Image(protocol) => {
             frame.render_widget(Image::new(protocol), inner);
         }
+        PreviewContent::Media { image, lines } => {
+            let mut text_area = inner;
+            if let Some(protocol) = image {
+                let h = crate::app::preview::media_image_height(inner.height, lines.len());
+                frame.render_widget(Image::new(protocol), Rect { height: h, ..inner });
+                text_area = Rect { y: inner.y + h + 1, height: inner.height.saturating_sub(h + 1), ..inner };
+            }
+            let visible: Vec<Line> = lines.iter().skip(app.preview_scroll).cloned().collect();
+            frame.render_widget(Paragraph::new(visible), text_area);
+        }
     }
 }
 

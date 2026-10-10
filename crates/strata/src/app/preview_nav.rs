@@ -10,7 +10,7 @@ impl App {
     fn preview_text(&self) -> Vec<String> {
         match &self.preview {
             PreviewContent::Text(lines) => lines.clone(),
-            PreviewContent::Code(lines) => {
+            PreviewContent::Code(lines) | PreviewContent::Media { lines, .. } => {
                 lines.iter().map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect()).collect()
             }
             PreviewContent::Dir(entries) => entries.iter().map(|e| e.name.clone()).collect(),

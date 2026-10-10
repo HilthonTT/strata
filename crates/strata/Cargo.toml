@@ -29,6 +29,7 @@ clap.workspace = true
 unicode-width.workspace = true
 chrono.workspace = true
 tempfile.workspace = true
+serde_json.workspace = true
 zip.workspace = true
 dirs.workspace = true
 syntect.workspace = true

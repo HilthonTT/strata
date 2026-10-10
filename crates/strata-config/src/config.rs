@@ -111,6 +111,9 @@ pub struct General {
     pub markdown_preview: bool,
     /// Hex dump of binary files in the preview.
     pub hex_preview: bool,
+    /// PDF pages, video frames, cover art and media details in the preview
+    /// (with poppler-utils, ffmpeg or mediainfo installed).
+    pub media_preview: bool,
     /// Enter zip and tar archives like directories (read-only).
     pub browse_archives: bool,
     /// Program `compare` runs on two local files, e.g. `nvim -d` or `meld`.
@@ -151,6 +154,7 @@ impl Default for General {
             sha256_checksum: false,
             markdown_preview: true,
             hex_preview: true,
+            media_preview: true,
             browse_archives: true,
             diff_tool: String::new(),
             date_format: "%Y-%m-%d %H:%M".into(),

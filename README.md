@@ -16,7 +16,7 @@ Everything you need, nothing you don't.
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories and copy files out
 - **Search**: filter, fuzzy find, and content search with ripgrep
 - **Git status** markers next to every file, and **tabs** on top of multiple panels
-- **Preview**: syntax-highlighted code, rendered Markdown, images, Word/Excel/PowerPoint/OpenDocument/EPUB text, hex dumps, archives and directories; executable architecture and optional MD5 in the metadata pane
+- **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
 - **NAS connections**: SMB, NFS and SFTP, with live reachability checks, a step-by-step connection test and passwords in your system keychain
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems

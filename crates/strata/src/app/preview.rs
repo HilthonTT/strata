@@ -1,6 +1,5 @@
-//! Preview generation, done off the UI thread: directories, images, code
-//! rendered Markdown, office documents and e-books, and hex dumps of
-//! binary files.
+//! Preview generation, done off the UI thread: directories, images, code,
+//! Markdown, documents, PDFs and media, and hex dumps of binary files.
 
 use std::io::Read;
 use std::sync::mpsc::Sender;
@@ -21,6 +20,7 @@ use super::highlight::Highlighter;
 use super::preview_docs::{self, Block};
 use super::preview_hex;
 use super::preview_markdown;
+use super::preview_media::{self, MediaKind};
 use crate::event::AppEvent;
 
 const MAX_TEXT_BYTES: usize = 1024 * 1024;
@@ -38,6 +38,12 @@ pub enum PreviewContent {
     Code(Vec<Line<'static>>),
     Dir(Vec<Entry>),
     Image(Box<Protocol>),
+    /// A PDF page, video frame or cover art (when the terminal can show
+    /// images) above facts like duration and codecs.
+    Media {
+        image: Option<Box<Protocol>>,
+        lines: Vec<Line<'static>>,
+    },
     Binary {
         size: u64,
     },
@@ -53,6 +59,7 @@ pub fn is_image(entry: &Entry) -> bool {
 pub struct PreviewOptions {
     pub markdown: bool,
     pub hex: bool,
+    pub media: bool,
 }
 
 pub struct PreviewJob {
@@ -95,6 +102,12 @@ impl PreviewJob {
             };
         }
         let ext = entry.extension();
+        if let Some(kind) = MediaKind::of(&ext).filter(|_| self.options.media) {
+            // The tools need a real file; remote media fall through to hex.
+            if let Some(local) = self.vfs.local_path(&entry.path) {
+                return self.media(&local, kind);
+            }
+        }
         if preview_docs::is_document(&ext) && entry.size <= preview_docs::MAX_DOC_BYTES {
             return self.document(&ext);
         }
@@ -198,6 +211,50 @@ impl PreviewJob {
         }
         PreviewContent::Code(lines)
     }
+
+    fn media(&self, path: &std::path::Path, kind: MediaKind) -> PreviewContent {
+        let media = preview_media::inspect(path, kind, self.picker.is_some());
+        let t = &self.theme;
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        let label_w = media.facts.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0);
+        let width = self.size.width as usize;
+        for (k, v) in media.facts {
+            let label = vec![Span::styled(format!(" {k:<label_w$}  "), Style::default().fg(t.muted))];
+            let indent = vec![Span::raw(" ".repeat(label_w + 3))];
+            lines.extend(preview_markdown::wrap(
+                vec![Span::styled(v, Style::default().fg(t.fg))],
+                width,
+                label,
+                indent,
+            ));
+        }
+        if !media.text.is_empty() {
+            if !lines.is_empty() {
+                lines.push(Line::default());
+            }
+            lines.extend(media.text.into_iter().take(MAX_LINES).map(|l| Line::styled(l, Style::default().fg(t.fg))));
+        }
+        if let Some(hint) = media.hint {
+            let pad = vec![Span::raw(" ")];
+            let hint = Span::styled(hint, Style::default().fg(t.warning));
+            lines.extend(preview_markdown::wrap(vec![hint], width, pad.clone(), pad));
+        }
+        // The picture takes the room the facts leave.
+        let room = self.size.height.saturating_sub(lines.len() as u16 + 1);
+        let image = match (media.image, &self.picker) {
+            (Some(img), Some(picker)) if room >= 4 => picker
+                .new_protocol(img, Size::new(self.size.width, room), Resize::Scale(Some(FilterType::Triangle)))
+                .ok()
+                .map(Box::new),
+            _ => None,
+        };
+        PreviewContent::Media { image, lines }
+    }
+}
+
+/// Rows the picture of a media preview gets above its `lines`.
+pub fn media_image_height(area_height: u16, lines: usize) -> u16 {
+    area_height.saturating_sub(lines as u16 + 1)
 }
 
 fn looks_binary(buf: &[u8]) -> bool {

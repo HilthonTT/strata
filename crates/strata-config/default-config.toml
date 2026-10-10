@@ -33,6 +33,7 @@ md5_checksum = false         # show the MD5 of the hovered file (reads the whole
 sha256_checksum = false      # show the SHA-256 of the hovered file (reads the whole file)
 markdown_preview = true      # render Markdown in the preview (false = highlighted source)
 hex_preview = true           # hex dump of binary files in the preview
+media_preview = true         # PDF pages, video frames and media details (needs poppler-utils / ffmpeg)
 browse_archives = true       # enter zip and tar archives like directories (read-only)
 diff_tool = ""               # program for `compare` (C) on two local files, e.g. "nvim -d"; empty = built-in diff
 date_format = "%Y-%m-%d %H:%M"
