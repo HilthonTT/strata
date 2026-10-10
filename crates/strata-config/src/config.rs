@@ -151,6 +151,8 @@ pub struct General {
     /// Change the shell's directory on every quit, not only with `quit_cd`.
     /// Needs the shell function from `strata --shell-init <shell>`.
     pub cd_on_quit: bool,
+    /// Reopen the tabs and panels from the last quit when started without paths.
+    pub restore_session: bool,
     /// Directory opened when no paths are given. Empty = the current directory.
     pub start_dir: String,
     /// Rows moved by `page_up`/`page_down`. 0 = a full page.
@@ -217,6 +219,7 @@ impl Default for General {
             dir_editor: String::new(),
             opener: String::new(),
             cd_on_quit: false,
+            restore_session: false,
             start_dir: String::new(),
             page_size: 0,
             si_units: false,

@@ -30,6 +30,8 @@ Tabs keep whole workspaces apart: every tab has its own panels.
 
 Open tabs are listed in the top bar. With the classic preset, use <Kbd>ctrl+t</Kbd>, <Kbd>alt+←</Kbd> / <Kbd>alt+→</Kbd> and <Kbd>alt+w</Kbd>.
 
+Set `restore_session = true` to reopen your tabs, folders and sort orders from the last time you quit whenever you start strata without paths. Remote panels are not reopened; a folder that no longer exists opens at its nearest parent.
+
 ## Folder sizes
 
 Press <Kbd>d c</Kbd> (<Kbd>alt+d</Kbd> with the classic preset), run `:set dir_sizes`, or set `dir_sizes = true` to show how much each folder holds. Sizes are measured in the background without leaving the folder's disk and fill in as they finish; sorting by size then orders folders by them too. They are measured again when files change.

@@ -128,11 +128,14 @@ fn main() -> Result<()> {
         if config.general.image_preview { tui::image_picker() } else { ratatui_image::picker::Picker::halfblocks() };
     let result = app::App::new(config, options, picker).and_then(|mut app| {
         app.run(&mut terminal)?;
-        Ok((app.last_dir(), std::mem::take(&mut app.chosen)))
+        Ok((app.last_dir(), std::mem::take(&mut app.chosen), app.save_session()))
     });
     tui::restore()?;
 
-    let (last_dir, chosen) = result?;
+    let (last_dir, chosen, saved) = result?;
+    if let Err(e) = saved {
+        eprintln!("strata: {e:#}");
+    }
     if let Some(file) = cli.chooser_file.filter(|_| !chosen.is_empty()) {
         let text: String = chosen.iter().map(|p| format!("{}\n", p.display())).collect();
         std::fs::write(&file, text).with_context(|| format!("writing {}", file.display()))?;

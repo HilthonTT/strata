@@ -15,6 +15,7 @@ Everything you need, nothing you don't.
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories and copy files out
 - **Folder sizes** in the file list (`d c`), measured in the background
+- **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
 - **Search**: filter, fuzzy find, and content search with ripgrep
 - **Git status** markers next to every file, and **tabs** on top of multiple panels

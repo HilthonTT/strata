@@ -24,6 +24,7 @@ mod preview_markdown;
 mod preview_media;
 mod preview_nav;
 mod remote_edit;
+mod session;
 pub mod sidebar;
 mod tabs;
 mod undo;
@@ -374,6 +375,9 @@ impl App {
         let overrides = app.config.keys.clone();
         for e in app.keymap.apply_overrides(&overrides) {
             app.notify(e, Level::Warn);
+        }
+        if app.config.general.restore_session && opts.paths.is_empty() && !app.chooser {
+            app.restore_session();
         }
         app.rebuild_sidebar();
         if app.chooser {
