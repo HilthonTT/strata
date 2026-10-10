@@ -14,6 +14,7 @@ Everything you need, nothing you don't.
 - **Trash browser**: restore, delete or empty, newest first
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories and copy files out
+- **File picker** for editors and scripts: `strata --chooser-file <file>`
 - **Search**: filter, fuzzy find, and content search with ripgrep
 - **Git status** markers next to every file, and **tabs** on top of multiple panels
 - **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane

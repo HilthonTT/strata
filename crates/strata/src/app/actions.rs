@@ -315,6 +315,9 @@ impl App {
         if entry.is_dir() {
             return self.cd(entry.path);
         }
+        if self.chooser {
+            return self.choose();
+        }
         if self.is_browsable_archive(&entry.name) && self.panel().vfs.is_local() {
             return self.open_archive(entry.path);
         }
@@ -331,6 +334,15 @@ impl App {
         } else {
             self.external = Some(External::Edit(vec![entry.path]));
         }
+    }
+
+    /// Picks the marked items, or the hovered file, and quits.
+    fn choose(&mut self) {
+        if !self.panel().vfs.is_local() {
+            return self.notify("only local files can be picked", Level::Warn);
+        }
+        self.chosen = self.panel().targets();
+        self.quit();
     }
 
     fn focus_panel(&mut self, index: isize) {

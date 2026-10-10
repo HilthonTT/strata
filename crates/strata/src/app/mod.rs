@@ -66,6 +66,8 @@ pub struct StartOptions {
     pub paths: Vec<PathBuf>,
     pub config_path: PathBuf,
     pub load_plugins: bool,
+    /// Picker mode: opening a file picks it and quits (`--chooser-file`).
+    pub chooser: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,6 +219,10 @@ pub struct App {
     external: Option<External>,
     /// Set by `quit_cd`: report the last directory to the shell wrapper.
     cd_on_exit: bool,
+    /// Picker mode: opening a file picks it instead.
+    pub chooser: bool,
+    /// What was picked in picker mode.
+    pub chosen: Vec<PathBuf>,
     tx: Sender<AppEvent>,
     rx: Receiver<AppEvent>,
     /// Background directory listings for remote panels.
@@ -342,6 +348,8 @@ impl App {
             last_click: None,
             external: None,
             cd_on_exit: false,
+            chooser: opts.chooser,
+            chosen: Vec::new(),
             tx,
             rx,
             listing_tx,
@@ -365,6 +373,9 @@ impl App {
             app.notify(e, Level::Warn);
         }
         app.rebuild_sidebar();
+        if app.chooser {
+            app.info("pick a file with enter (space marks several)");
+        }
         Ok(app)
     }
 

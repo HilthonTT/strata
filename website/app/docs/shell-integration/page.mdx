@@ -46,4 +46,13 @@ strata [DIR...]           one panel per directory
       --list-themes       print every theme
       --dump-config       print a documented config
       --shell-init <SH>   print the shell function (bash, zsh, fish, powershell)
+      --chooser-file <F>  pick files for another program (see below)
+```
+
+## Picking files from other programs
+
+`strata --chooser-file <file>` turns strata into a file picker: <Kbd>enter</Kbd> on a file (or on anything, once items are marked with <Kbd>space</Kbd>) writes the chosen paths to `<file>`, one per line, and quits. Quitting without choosing leaves the file untouched. Editors such as Neovim can use this the way they use yazi or ranger:
+
+```sh
+strata --chooser-file /tmp/chosen && cat /tmp/chosen
 ```

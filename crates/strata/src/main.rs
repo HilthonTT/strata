@@ -35,6 +35,10 @@ struct Cli {
     /// (used by the `--shell-init` wrapper).
     #[arg(long, value_name = "FILE")]
     cwd_file: Option<PathBuf>,
+    /// Picker mode for editors and scripts: opening a file writes the
+    /// chosen paths to this file, one per line, and quits.
+    #[arg(long, value_name = "FILE")]
+    chooser_file: Option<PathBuf>,
     /// Print a shell function that lets `Q` change your shell's directory.
     #[arg(long, value_name = "SHELL")]
     shell_init: Option<Shell>,
@@ -116,6 +120,7 @@ fn main() -> Result<()> {
         paths: cli.paths,
         config_path: cli.config.unwrap_or_else(Config::default_path),
         load_plugins: !cli.no_plugins,
+        chooser: cli.chooser_file.is_some(),
     };
 
     let mut terminal = tui::init()?;
@@ -123,11 +128,15 @@ fn main() -> Result<()> {
         if config.general.image_preview { tui::image_picker() } else { ratatui_image::picker::Picker::halfblocks() };
     let result = app::App::new(config, options, picker).and_then(|mut app| {
         app.run(&mut terminal)?;
-        Ok(app.last_dir())
+        Ok((app.last_dir(), std::mem::take(&mut app.chosen)))
     });
     tui::restore()?;
 
-    let last_dir = result?;
+    let (last_dir, chosen) = result?;
+    if let Some(file) = cli.chooser_file.filter(|_| !chosen.is_empty()) {
+        let text: String = chosen.iter().map(|p| format!("{}\n", p.display())).collect();
+        std::fs::write(&file, text).with_context(|| format!("writing {}", file.display()))?;
+    }
     if let (Some(file), Some(dir)) = (cli.cwd_file, last_dir) {
         std::fs::write(file, dir.to_string_lossy().as_bytes())?;
     }
