@@ -160,3 +160,69 @@ pub fn find_files(tx: Sender<AppEvent>, root: PathBuf, show_hidden: bool, cancel
         let _ = tx.send(AppEvent::Found { root, files });
     });
 }
+
+/// Asks GitHub for the latest release, at most once a day, and reports it
+/// when it is newer than this build. Stays quiet on any failure.
+pub fn check_for_update(tx: Sender<AppEvent>) {
+    let stamp = strata_config::data_dir().join("last-update-check");
+    let checked_recently = std::fs::metadata(&stamp)
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < Duration::from_secs(24 * 60 * 60)));
+    if checked_recently {
+        return;
+    }
+    thread::spawn(move || {
+        let api = env!("CARGO_PKG_REPOSITORY").replace("https://github.com/", "https://api.github.com/repos/");
+        let Ok(out) = std::process::Command::new("curl")
+            .args(["-fsSL", "--max-time", "10", "-H", "Accept: application/vnd.github+json"])
+            .arg(format!("{api}/releases/latest"))
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        else {
+            return;
+        };
+        if !out.status.success() {
+            return;
+        }
+        let _ = std::fs::create_dir_all(stamp.parent().unwrap_or(&stamp));
+        let _ = std::fs::write(&stamp, b"");
+        let Some(tag) = serde_json::from_slice::<serde_json::Value>(&out.stdout)
+            .ok()
+            .and_then(|v| v["tag_name"].as_str().map(str::to_string))
+        else {
+            return;
+        };
+        let current = env!("CARGO_PKG_VERSION");
+        if is_newer(&tag, current) {
+            let message = format!("strata {tag} is available (you have {current})");
+            let _ = tx.send(AppEvent::Notify { message, level: strata_plugin::Level::Warn });
+        }
+    });
+}
+
+/// Whether version `latest` (`v1.2.3` or `1.2.3`) is above `current`.
+fn is_newer(latest: &str, current: &str) -> bool {
+    let parse = |v: &str| -> Option<Vec<u64>> {
+        let core = v.trim().trim_start_matches('v').split(['-', '+']).next()?;
+        core.split('.').map(|n| n.parse().ok()).collect()
+    };
+    match (parse(latest), parse(current)) {
+        (Some(a), Some(b)) => a > b,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_newer;
+
+    #[test]
+    fn compares_versions() {
+        assert!(is_newer("v0.2.0", "0.1.0"));
+        assert!(is_newer("0.10.0", "0.9.9"));
+        assert!(!is_newer("v0.1.0", "0.1.0"));
+        assert!(!is_newer("v0.1.0-rc1", "0.1.0"));
+        assert!(!is_newer("nightly", "0.1.0"));
+    }
+}

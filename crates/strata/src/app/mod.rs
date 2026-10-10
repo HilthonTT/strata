@@ -367,6 +367,9 @@ impl App {
             self.tx.clone(),
             Duration::from_millis(self.config.general.metrics_interval_ms.max(250)),
         );
+        if self.config.general.check_updates {
+            workers::check_for_update(self.tx.clone());
+        }
         self.start_watcher();
         self.probe_connections();
         self.auto_connect();

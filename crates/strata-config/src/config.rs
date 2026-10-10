@@ -156,6 +156,8 @@ pub struct General {
     /// Return to strata straight away when a `!` shell command succeeds
     /// instead of waiting for Enter.
     pub shell_close_on_success: bool,
+    /// Look for a newer strata release on GitHub (at most once a day).
+    pub check_updates: bool,
     /// Show the MD5 checksum of the hovered file (reads the whole file).
     pub md5_checksum: bool,
     /// Show the SHA-256 checksum of the hovered file (reads the whole file).
@@ -214,6 +216,7 @@ impl Default for General {
             page_size: 0,
             si_units: false,
             shell_close_on_success: false,
+            check_updates: false,
             md5_checksum: false,
             sha256_checksum: false,
             markdown_preview: true,
