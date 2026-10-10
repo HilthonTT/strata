@@ -14,10 +14,11 @@ mod status;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
-use strata_config::{BorderStyle, Theme};
+use strata_config::{BorderStyle, General, Theme};
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Focus, View};
@@ -94,20 +95,46 @@ fn draw_plugin_panels(frame: &mut Frame, app: &App, area: Rect) {
     let panels = app.visible_plugin_panels();
     let cols = Layout::horizontal(vec![Constraint::Ratio(1, panels.len() as u32); panels.len()]).split(area);
     for ((title, lines), rect) in panels.into_iter().zip(cols.iter()) {
-        let block = block(&app.theme, app.config.general.border, &title, false);
+        let block = block(&app.theme, app.border, &title, false);
         let text: Vec<Line> = lines.iter().map(|l| Line::raw(l.clone())).collect();
         frame.render_widget(Paragraph::new(text).block(block).style(Style::default().fg(app.theme.fg)), *rect);
     }
 }
 
-/// A bordered block in the theme's style.
-pub fn block<'a>(theme: &Theme, style: BorderStyle, title: &str, focused: bool) -> Block<'a> {
-    let border_type = match style {
-        BorderStyle::Plain => BorderType::Plain,
-        BorderStyle::Rounded => BorderType::Rounded,
-        BorderStyle::Double => BorderType::Double,
-        BorderStyle::Thick => BorderType::Thick,
+/// The border characters: the `border` preset with any `border_chars`
+/// overrides. Returns the names of overrides that are not one column wide.
+pub fn border_set(general: &General) -> (border::Set<'static>, Vec<&'static str>) {
+    let mut set = match general.border {
+        BorderStyle::Plain => border::PLAIN,
+        BorderStyle::Rounded => border::ROUNDED,
+        BorderStyle::Double => border::DOUBLE,
+        BorderStyle::Thick => border::THICK,
     };
+    let c = &general.border_chars;
+    let mut invalid = Vec::new();
+    let overrides = [
+        ("top", &c.top, &mut set.horizontal_top),
+        ("bottom", &c.bottom, &mut set.horizontal_bottom),
+        ("left", &c.left, &mut set.vertical_left),
+        ("right", &c.right, &mut set.vertical_right),
+        ("top_left", &c.top_left, &mut set.top_left),
+        ("top_right", &c.top_right, &mut set.top_right),
+        ("bottom_left", &c.bottom_left, &mut set.bottom_left),
+        ("bottom_right", &c.bottom_right, &mut set.bottom_right),
+    ];
+    for (name, value, slot) in overrides {
+        match value {
+            // Config is read once, so the few leaked bytes live as long as the app anyway.
+            Some(v) if v.width() == 1 => *slot = Box::leak(v.clone().into_boxed_str()),
+            Some(_) => invalid.push(name),
+            None => {}
+        }
+    }
+    (set, invalid)
+}
+
+/// A bordered block in the theme's style.
+pub fn block<'a>(theme: &Theme, border_set: border::Set<'static>, title: &str, focused: bool) -> Block<'a> {
     let color = if focused { theme.border_focus } else { theme.border };
     let title_style = if focused {
         Style::default().fg(theme.title).add_modifier(Modifier::BOLD)
@@ -116,7 +143,7 @@ pub fn block<'a>(theme: &Theme, style: BorderStyle, title: &str, focused: bool) 
     };
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(border_type)
+        .border_set(border_set)
         .border_style(Style::default().fg(color))
         .style(Style::default().bg(theme.bg));
     if title.is_empty() {
@@ -230,5 +257,17 @@ mod tests {
         assert_eq!(fit("ab", 4), "ab  ");
         assert_eq!(bar(0.5, 4), ("██".to_string(), "░░".to_string()));
         assert_eq!(bar(1.0, 3).0, "███");
+    }
+
+    #[test]
+    fn border_overrides() {
+        let mut general = General::default();
+        general.border_chars.top_left = Some("+".into());
+        general.border_chars.top = Some("==".into());
+        let (set, invalid) = border_set(&general);
+        assert_eq!(set.top_left, "+");
+        assert_eq!(set.horizontal_top, border::ROUNDED.horizontal_top);
+        assert_eq!(set.top_right, "╮");
+        assert_eq!(invalid, ["top"]);
     }
 }

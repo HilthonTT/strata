@@ -21,7 +21,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             let rect = centered(area, 64.max(input.prompt.width() as u16 + 8), 3);
             let rect = Rect { y: area.height / 3, ..rect };
             frame.render_widget(Clear, rect);
-            let b = block(&app.theme, app.config.general.border, &input.prompt, true);
+            let b = block(&app.theme, app.border, &input.prompt, true);
             let inner = b.inner(rect);
             frame.render_widget(b, rect);
             let shown: String =
@@ -42,7 +42,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             let width = (c.message.width() as u16 + 6).clamp(36, 80);
             let rect = centered(area, width, 6);
             frame.render_widget(Clear, rect);
-            let b = block(&app.theme, app.config.general.border, "Confirm", true);
+            let b = block(&app.theme, app.border, "Confirm", true);
             let inner = b.inner(rect);
             frame.render_widget(b, rect);
             let lines = vec![
@@ -63,7 +63,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             let shown = c.names.len().min(6);
             let rect = centered(area, 70, shown as u16 + 7 + u16::from(c.names.len() > shown));
             frame.render_widget(Clear, rect);
-            let b = block(theme, app.config.general.border, "Already exists", true);
+            let b = block(theme, app.border, "Already exists", true);
             let inner = b.inner(rect);
             frame.render_widget(b, rect);
             let width = inner.width as usize;
@@ -112,7 +112,7 @@ fn draw_picker(frame: &mut Frame, app: &App, picker: &PickerState, area: Rect) {
     let rect = centered(area, (area.width * 3 / 5).max(50), (area.height * 3 / 5).max(12));
     frame.render_widget(Clear, rect);
     let title = format!("{} ({}/{})", picker.title, picker.matches.len(), picker.items.len());
-    let b = block(theme, app.config.general.border, &title, true);
+    let b = block(theme, app.border, &title, true);
     let inner = b.inner(rect);
     frame.render_widget(b, rect);
     let [query, list] = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).areas(inner);
@@ -243,7 +243,7 @@ fn draw_text(frame: &mut Frame, app: &App, area: Rect, title: &str, lines: &[Str
 fn render_scrollable(frame: &mut Frame, app: &App, rect: Rect, title: &str, lines: Vec<Line>, scroll: usize) {
     frame.render_widget(Clear, rect);
     let total = lines.len();
-    let b = block(&app.theme, app.config.general.border, title, true);
+    let b = block(&app.theme, app.border, title, true);
     let inner = b.inner(rect);
     let max_scroll = total.saturating_sub(inner.height as usize);
     let scroll = scroll.min(max_scroll);
@@ -277,7 +277,7 @@ fn which_key(frame: &mut Frame, app: &App, area: Rect) {
     let rect =
         Rect::new(area.right().saturating_sub(width + 1), area.bottom().saturating_sub(height + 2), width, height);
     frame.render_widget(Clear, rect);
-    let b = block(&app.theme, app.config.general.border, "keys", true);
+    let b = block(&app.theme, app.border, "keys", true);
     let inner = b.inner(rect);
     frame.render_widget(b, rect);
     let lines: Vec<Line> = options

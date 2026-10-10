@@ -17,8 +17,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
     let hovered = app.panel().hovered().cloned();
     let title = hovered.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| "Preview".into());
-    let mut b =
-        block(theme, app.config.general.border, &truncate(&title, area.width.saturating_sub(6) as usize), false);
+    let mut b = block(theme, app.border, &truncate(&title, area.width.saturating_sub(6) as usize), false);
     if let Some(e) = &hovered {
         let date = e.modified.map(|t| DateTime::<Local>::from(t).format(&app.config.general.date_format).to_string());
         let info = match (e.is_dir(), date) {

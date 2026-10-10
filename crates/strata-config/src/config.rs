@@ -61,6 +61,21 @@ pub enum BorderStyle {
     Thick,
 }
 
+/// Single characters that replace parts of the `border` preset. Unset
+/// fields keep the preset's character.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BorderChars {
+    pub top: Option<String>,
+    pub bottom: Option<String>,
+    pub left: Option<String>,
+    pub right: Option<String>,
+    pub top_left: Option<String>,
+    pub top_right: Option<String>,
+    pub bottom_left: Option<String>,
+    pub bottom_right: Option<String>,
+}
+
 /// A group of entries in the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -104,6 +119,8 @@ pub struct General {
     /// Nerd Font file icons.
     pub icons: bool,
     pub border: BorderStyle,
+    /// Characters overriding parts of `border`.
+    pub border_chars: BorderChars,
     /// Sidebar width in columns.
     pub sidebar_width: u16,
     /// Which sidebar sections to show, in order.
@@ -178,6 +195,7 @@ impl Default for General {
             footer: true,
             icons: true,
             border: BorderStyle::Rounded,
+            border_chars: BorderChars::default(),
             sidebar_width: 24,
             sidebar_sections: SidebarSection::ALL.to_vec(),
             preview_width: 0,
@@ -327,8 +345,13 @@ mod tests {
 
     #[test]
     fn layout_settings_parse() {
-        let c = Config::parse("[general]\nsidebar_sections = [\"disks\", \"places\"]").unwrap();
+        let c = Config::parse(
+            "[general]\nsidebar_sections = [\"disks\", \"places\"]\nborder_chars = { top_left = \"+\", top = \"-\" }",
+        )
+        .unwrap();
         assert_eq!(c.general.sidebar_sections, [SidebarSection::Disks, SidebarSection::Places]);
+        assert_eq!(c.general.border_chars.top_left.as_deref(), Some("+"));
+        assert_eq!(c.general.border_chars.left, None);
         assert_eq!(c.general.sidebar_width, 24);
     }
 

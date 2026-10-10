@@ -14,7 +14,7 @@ use crate::app::{App, Focus};
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focus == Focus::Sidebar && app.overlay.is_none();
-    let b = block(&app.theme, app.config.general.border, "", focused);
+    let b = block(&app.theme, app.border, "", focused);
     let inner = b.inner(area);
     frame.render_widget(b, area);
     app.layout.sidebar = Some(area);

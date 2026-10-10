@@ -18,7 +18,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         app.docker.containers.len(),
         if app.docker.loading { " ⟳" } else { "" }
     );
-    let b = block(&theme, app.config.general.border, &title, true);
+    let b = block(&theme, app.border, &title, true);
     let inner = b.inner(list);
     frame.render_widget(b, list);
     app.layout.list = Some(list);

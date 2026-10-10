@@ -52,7 +52,7 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         (false, n) => format!(" {}/{n} ", panel.cursor + 1),
     };
     let muted = Style::default().fg(theme.muted);
-    let b = block(theme, general.border, &title, focused)
+    let b = block(theme, app.border, &title, focused)
         .title_bottom(Line::styled(mode, muted).right_aligned())
         .title_bottom(Line::styled(position, muted).right_aligned());
     let inner = b.inner(area);

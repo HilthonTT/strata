@@ -26,7 +26,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_disks(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    let b = block(theme, app.config.general.border, "Disks", false);
+    let b = block(theme, app.border, "Disks", false);
     let inner = b.inner(area);
     frame.render_widget(b, area);
     let width = inner.width as usize;
@@ -73,7 +73,7 @@ fn draw_memory(frame: &mut Frame, app: &App, area: Rect) {
         Pressure::Elevated => theme.warning,
         Pressure::High | Pressure::Critical => theme.error,
     };
-    let b = block(theme, app.config.general.border, "Memory", false);
+    let b = block(theme, app.border, "Memory", false);
     let inner = b.inner(area);
     frame.render_widget(b, area);
     if m.total == 0 {
@@ -125,7 +125,7 @@ fn draw_memory(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_free_chart(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    let b = block(theme, app.config.general.border, "Free space (GiB)", false);
+    let b = block(theme, app.border, "Free space (GiB)", false);
     let inner = b.inner(area);
     frame.render_widget(b, area);
     let disks: Vec<_> = app.metrics.disks.iter().filter(|d| d.total > 0).take(8).collect();
@@ -157,7 +157,7 @@ fn draw_free_chart(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_io(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    let b = block(theme, app.config.general.border, "Disk I/O", false);
+    let b = block(theme, app.border, "Disk I/O", false);
     let inner = b.inner(area);
     frame.render_widget(b, area);
     let io = &app.metrics.io;
@@ -250,7 +250,7 @@ fn draw_usage(frame: &mut Frame, app: &mut App, area: Rect) {
         (None, None) if !app.panel().vfs.is_local() => "Disk usage · local directories only".into(),
         (None, None) => format!("Disk usage · {}", short_path(&root)),
     };
-    let b = block(&theme, app.config.general.border, &title, true);
+    let b = block(&theme, app.border, &title, true);
     let inner = b.inner(area);
     frame.render_widget(b, area);
     app.layout.list = Some(Rect { y: area.y.saturating_sub(1), ..area });

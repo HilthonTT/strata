@@ -32,7 +32,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let (total, free) =
         app.metrics.disks.iter().filter(|d| d.network).fold((0, 0), |(t, f), d| (t + d.total, f + d.available));
 
-    let b = block(&theme, app.config.general.border, "Overview", false);
+    let b = block(&theme, app.border, "Overview", false);
     let inner = b.inner(summary);
     frame.render_widget(b, summary);
     let stat = |label: &str, value: String, color| {
@@ -65,7 +65,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         inner,
     );
 
-    let b = block(&theme, app.config.general.border, "NAS connections", true);
+    let b = block(&theme, app.border, "NAS connections", true);
     let inner = b.inner(list);
     frame.render_widget(b, list);
     app.layout.list = Some(list);

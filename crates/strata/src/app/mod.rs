@@ -211,6 +211,8 @@ pub struct App {
     last_location: Option<(String, PathBuf)>,
 
     pub layout: LayoutCache,
+    /// Border characters, from `border` and `border_chars`.
+    pub border: ratatui::symbols::border::Set<'static>,
     last_click: Option<(Instant, u16, u16)>,
     external: Option<External>,
     /// Set by `quit_cd`: report the last directory to the shell wrapper.
@@ -242,6 +244,9 @@ impl App {
         let theme = if config.general.transparent { theme.transparent() } else { theme };
 
         strata_core::util::set_si_units(config.general.si_units);
+        let (border, bad_borders) = crate::ui::border_set(&config.general);
+        let border_error = (!bad_borders.is_empty())
+            .then(|| format!("border_chars: {} must be one character wide", bad_borders.join(", ")));
         let local: VfsRef = Arc::new(LocalVfs);
         let sort = SortOptions {
             key: config.general.sort,
@@ -328,6 +333,7 @@ impl App {
             plugin_refreshed: Instant::now(),
             last_location: None,
             layout: LayoutCache::default(),
+            border,
             last_click: None,
             external: None,
             cd_on_exit: false,
@@ -339,7 +345,12 @@ impl App {
             config,
         };
 
-        theme_errors.into_iter().chain(theme_error).chain(start_error).for_each(|e| app.notify(e, Level::Warn));
+        theme_errors
+            .into_iter()
+            .chain(theme_error)
+            .chain(start_error)
+            .chain(border_error)
+            .for_each(|e| app.notify(e, Level::Warn));
         if opts.load_plugins {
             app.load_plugins();
         }

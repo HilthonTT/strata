@@ -35,7 +35,7 @@ fn counter(text: String, app: &App) -> Line<'static> {
 fn draw_jobs(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
     let jobs = app.jobs.jobs();
-    let mut b = block(theme, app.config.general.border, "Processes", false);
+    let mut b = block(theme, app.border, "Processes", false);
     if !jobs.is_empty() {
         b = b.title_bottom(counter(format!(" {}/{} ", app.jobs.running(), jobs.len()), app));
     }
@@ -94,7 +94,7 @@ fn draw_jobs(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_metadata(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    let mut b = block(theme, app.config.general.border, "Metadata", false);
+    let mut b = block(theme, app.border, "Metadata", false);
     let Some(e) = app.panel().hovered() else {
         let inner = b.inner(area);
         frame.render_widget(b, area);
@@ -164,7 +164,7 @@ fn draw_metadata(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_clipboard(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
-    let mut b = block(theme, app.config.general.border, "Clipboard", false);
+    let mut b = block(theme, app.border, "Clipboard", false);
     let Some(clip) = &app.clipboard else {
         let inner = b.inner(area);
         frame.render_widget(b, area);
