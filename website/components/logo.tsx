@@ -3,9 +3,9 @@ export function LogoMark({ className = "size-7" }: { className?: string }) {
     <svg viewBox="0 0 32 32" className={className} aria-hidden>
       <defs>
         <linearGradient id="strata-mark" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#cba6f7" />
-          <stop offset=".5" stopColor="#89b4fa" />
-          <stop offset="1" stopColor="#94e2d5" />
+          <stop offset="0" stopColor="#ff4d68" />
+          <stop offset=".5" stopColor="#f0193d" />
+          <stop offset="1" stopColor="#b3122e" />
         </linearGradient>
       </defs>
       <path d="M4 10.5 16 4.5l12 6-12 6z" fill="url(#strata-mark)" />

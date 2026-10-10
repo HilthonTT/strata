@@ -5,7 +5,8 @@ import { useState } from "react";
 import { asset } from "@/lib/site";
 
 const themes = [
-  { id: "catppuccin-mocha", label: "Catppuccin Mocha", file: "main.png", swatch: ["#1e1e2e", "#cba6f7", "#89b4fa"] },
+  { id: "strata", label: "Strata", file: "main.png", swatch: ["#050505", "#f0193d", "#3d7af5"] },
+  { id: "catppuccin-mocha", label: "Catppuccin Mocha", file: "theme-catppuccin-mocha.png", swatch: ["#1e1e2e", "#cba6f7", "#89b4fa"] },
   { id: "tokyo-night", label: "Tokyo Night", file: "theme-tokyo-night.png", swatch: ["#1a1b26", "#7aa2f7", "#bb9af7"] },
   { id: "nord", label: "Nord", file: "theme-nord.png", swatch: ["#2e3440", "#88c0d0", "#81a1c1"] },
   { id: "gruvbox-dark", label: "Gruvbox", file: "theme-gruvbox-dark.png", swatch: ["#282828", "#fe8019", "#b8bb26"] },
@@ -26,7 +27,7 @@ export function ThemeGallery() {
             onClick={() => setActive(t)}
             className={`flex shrink-0 items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm transition ${
               active.id === t.id
-                ? "border-layer-violet/50 bg-white/[0.06] text-white"
+                ? "border-brand/50 bg-white/[0.06] text-white"
                 : "border-white/5 text-mist-300 hover:border-white/15 hover:text-white"
             }`}
           >

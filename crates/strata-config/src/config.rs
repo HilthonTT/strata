@@ -187,7 +187,7 @@ pub struct General {
 impl Default for General {
     fn default() -> Self {
         Self {
-            theme: "catppuccin-mocha".into(),
+            theme: "strata".into(),
             keymap: KeymapPreset::Vim,
             transparent: false,
             show_hidden: false,
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn template_parses() {
         let c = Config::parse(Config::template()).unwrap();
-        assert_eq!(c.general.theme, "catppuccin-mocha");
+        assert_eq!(c.general.theme, "strata");
     }
 
     #[test]

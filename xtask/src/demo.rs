@@ -16,7 +16,7 @@ pub struct Demo {
 }
 
 const CONFIG: &str = r#"[general]
-theme = "catppuccin-mocha"
+theme = "strata"
 panels = 2
 
 [plugins]

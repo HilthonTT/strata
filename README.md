@@ -25,7 +25,7 @@ Everything you need, nothing you don't.
 - **NAS connections**: SMB, NFS and SFTP, with live reachability checks, a step-by-step connection test and passwords in your system keychain
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
-- **27 themes**: Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
+- **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
 - **Lua plugins**: add keys, commands, panels, status-line segments and previewers
 - **Vim-style keys**, all remappable
 

@@ -255,7 +255,7 @@ impl App {
             Some(t) => t.clone(),
             None => {
                 theme_error = Some(format!("unknown theme '{}', using the default", config.general.theme));
-                themes.get("catppuccin-mocha").cloned().expect("built-in theme exists")
+                themes.get("strata").cloned().expect("built-in theme exists")
             }
         };
         let theme = if config.general.transparent { theme.transparent() } else { theme };

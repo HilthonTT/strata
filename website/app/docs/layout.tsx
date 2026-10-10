@@ -19,7 +19,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
               <DocsSidebar />
             </div>
           </details>
-          <article className="prose prose-invert max-w-3xl prose-headings:tracking-tight prose-h1:text-4xl prose-h1:font-semibold prose-a:text-layer-sky prose-a:no-underline hover:prose-a:underline prose-strong:text-white prose-th:text-mist-100 prose-td:text-mist-300">
+          <article className="prose prose-invert max-w-3xl prose-headings:tracking-tight prose-h1:text-4xl prose-h1:font-semibold prose-a:text-brand-light prose-a:no-underline hover:prose-a:underline prose-strong:text-white prose-th:text-mist-100 prose-td:text-mist-300">
             {children}
           </article>
           <div className="max-w-3xl">

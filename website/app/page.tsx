@@ -23,7 +23,7 @@ import { SiteHeader } from "@/components/site-header";
 import { ThemeGallery } from "@/components/theme-gallery";
 import { site } from "@/lib/site";
 
-const strata = ["#cba6f7", "#b4befe", "#89b4fa", "#74c7ec", "#94e2d5"];
+const strata = ["#ff4d68", "#f0193d", "#c8102e", "#8f0f24", "#620e1c"];
 
 /** Soft horizontal bands, a nod to geological strata. */
 function Bands() {
@@ -64,7 +64,7 @@ function Section({
 }) {
   return (
     <section id={id} className="mx-auto max-w-7xl scroll-mt-24 px-5 py-24">
-      <p className="font-mono text-xs uppercase tracking-[0.25em] text-layer-violet">
+      <p className="font-mono text-xs uppercase tracking-[0.25em] text-brand">
         {eyebrow}
       </p>
       <h2 className="mt-3 max-w-3xl text-3xl font-semibold tracking-tight text-white sm:text-4xl">
@@ -100,7 +100,7 @@ function Showcase({
       className={`group flex flex-col overflow-hidden rounded-3xl border border-white/[0.07] bg-ink-850 ${className}`}
     >
       <div className="p-7 pb-0">
-        <span className="inline-flex rounded-xl bg-white/5 p-2.5 text-layer-sky ring-1 ring-white/10">
+        <span className="inline-flex rounded-xl bg-white/5 p-2.5 text-brand-light ring-1 ring-white/10">
           <Icon className="size-5" />
         </span>
         <h3 className="mt-4 text-lg font-semibold text-white">{title}</h3>
@@ -150,7 +150,7 @@ const capabilities = [
   },
   {
     icon: Palette,
-    title: "27 themes",
+    title: "28 themes",
     text: "Catppuccin, Nord, Tokyo Night, Gruvbox, Rosé Pine, Dracula and more.",
   },
   {
@@ -173,7 +173,7 @@ export default function Home() {
             href="/docs/"
             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 text-xs text-mist-300 transition hover:border-white/25 hover:text-white"
           >
-            <span className="size-1.5 rounded-full bg-layer-teal" />
+            <span className="size-1.5 rounded-full bg-ok" />
             Written in Rust · runs on Linux, macOS and Windows
             <ArrowRight className="size-3" />
           </Link>
@@ -207,7 +207,7 @@ export default function Home() {
         <div className="relative mx-auto max-w-6xl px-5">
           <div
             aria-hidden
-            className="absolute inset-x-16 top-10 -z-10 h-[80%] rounded-full bg-gradient-to-r from-layer-violet/25 via-layer-sky/20 to-layer-teal/25 blur-3xl"
+            className="absolute inset-x-16 top-10 -z-10 h-[80%] rounded-full bg-gradient-to-r from-brand/25 via-brand-deep/30 to-brand/20 blur-3xl"
           />
           <Media
             src="overview.gif"
@@ -262,7 +262,7 @@ export default function Home() {
           <div className="mt-5 grid gap-px overflow-hidden rounded-3xl border border-white/[0.07] bg-white/[0.07] sm:grid-cols-2 lg:grid-cols-4">
             {capabilities.map(({ icon: Icon, title, text }) => (
               <div key={title} className="bg-ink-850 p-7">
-                <Icon className="size-5 text-layer-violet" />
+                <Icon className="size-5 text-brand" />
                 <h3 className="mt-4 font-semibold text-white">{title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-mist-300">
                   {text}
@@ -295,27 +295,27 @@ export default function Home() {
                   -- ~/.config/strata/plugins/projects.lua
                 </span>
                 {"\n"}
-                <span className="text-layer-violet">strata</span>.map(
-                <span className="text-layer-teal">&quot;g p&quot;</span>,{" "}
-                <span className="text-layer-violet">function</span>(ctx){"\n"}
+                <span className="text-brand">strata</span>.map(
+                <span className="text-warn">&quot;g p&quot;</span>,{" "}
+                <span className="text-brand">function</span>(ctx){"\n"}
                 {"  "}
-                <span className="text-layer-violet">strata</span>.cd(os.getenv(
-                <span className="text-layer-teal">&quot;HOME&quot;</span>) ..{" "}
-                <span className="text-layer-teal">&quot;/projects&quot;</span>)
+                <span className="text-brand">strata</span>.cd(os.getenv(
+                <span className="text-warn">&quot;HOME&quot;</span>) ..{" "}
+                <span className="text-warn">&quot;/projects&quot;</span>)
                 {"\n"}
-                <span className="text-layer-violet">end</span>,{" "}
-                <span className="text-layer-teal">
+                <span className="text-brand">end</span>,{" "}
+                <span className="text-warn">
                   &quot;Go to projects&quot;
                 </span>
                 ){"\n\n"}
-                <span className="text-layer-violet">strata</span>.statusline(
-                <span className="text-layer-violet">function</span>(ctx){"\n"}
+                <span className="text-brand">strata</span>.statusline(
+                <span className="text-brand">function</span>(ctx){"\n"}
                 {"  "}
-                <span className="text-layer-violet">return</span> #ctx.selected
+                <span className="text-brand">return</span> #ctx.selected
                 ..{" "}
-                <span className="text-layer-teal">&quot; selected&quot;</span>
+                <span className="text-warn">&quot; selected&quot;</span>
                 {"\n"}
-                <span className="text-layer-violet">end</span>)
+                <span className="text-brand">end</span>)
               </code>
             </pre>
             <ul className="space-y-5 text-mist-300">
@@ -334,7 +334,7 @@ export default function Home() {
                 ],
               ].map(([title, text]) => (
                 <li key={title} className="flex gap-4">
-                  <span className="mt-1.5 size-2 shrink-0 rounded-full bg-gradient-to-br from-layer-violet to-layer-sky" />
+                  <span className="mt-1.5 size-2 shrink-0 rounded-full bg-gradient-to-br from-brand-light to-brand" />
                   <span>
                     <span className="font-semibold text-white">{title}.</span>{" "}
                     {text}
@@ -344,7 +344,7 @@ export default function Home() {
               <li>
                 <Link
                   href="/docs/plugins/"
-                  className="inline-flex items-center gap-2 font-semibold text-layer-sky hover:underline"
+                  className="inline-flex items-center gap-2 font-semibold text-brand-light hover:underline"
                 >
                   Read the plugin API <ArrowRight className="size-4" />
                 </Link>
@@ -358,7 +358,7 @@ export default function Home() {
           <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-ink-850 px-8 py-16 text-center">
             <div
               aria-hidden
-              className="absolute inset-0 -z-0 bg-gradient-to-br from-layer-violet/10 via-transparent to-layer-teal/10"
+              className="absolute inset-0 -z-0 bg-gradient-to-br from-brand/10 via-transparent to-brand-deep/20"
             />
             <h2 className="relative text-3xl font-semibold tracking-tight text-white sm:text-4xl">
               Install strata in under a minute.

@@ -2,23 +2,25 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
 
-  --color-ink-950: #07080c;
-  --color-ink-900: #0b0c12;
-  --color-ink-850: #10121a;
-  --color-ink-800: #151824;
-  --color-ink-700: #1e2232;
-  --color-ink-600: #2a2f44;
-  --color-mist-400: #8b91a8;
-  --color-mist-300: #b4b9cc;
-  --color-mist-100: #e6e8f0;
-  --color-layer-violet: #cba6f7;
-  --color-layer-sky: #89b4fa;
-  --color-layer-teal: #94e2d5;
-  --color-layer-peach: #fab387;
-  --color-layer-rose: #f38ba8;
+  /* Neutrals and accents from hilthon.vercel.app. */
+  --color-ink-950: #000000;
+  --color-ink-900: #050505;
+  --color-ink-850: #0d0d0d;
+  --color-ink-800: #151314;
+  --color-ink-700: #2c2627;
+  --color-ink-600: #3d3536;
+  --color-mist-400: #858585;
+  --color-mist-300: #cccccc;
+  --color-mist-100: #f7f7f7;
+  --color-brand: #f0193d;
+  --color-brand-light: #ff4d68;
+  --color-brand-deep: #620e1c;
+  --color-info: #3d7af5;
+  --color-warn: #f9b81f;
+  --color-ok: #2ecc70;
 }
 
 :root {
@@ -35,16 +37,16 @@ body {
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-layer-violet) 40%, transparent);
+  background: color-mix(in oklab, var(--color-brand) 40%, transparent);
 }
 
 /* Gradient text for headings. */
 .text-layers {
   background: linear-gradient(
     100deg,
-    var(--color-layer-violet),
-    var(--color-layer-sky) 45%,
-    var(--color-layer-teal)
+    var(--color-mist-100),
+    var(--color-brand-light) 40%,
+    var(--color-brand)
   );
   -webkit-background-clip: text;
   background-clip: text;

@@ -153,6 +153,24 @@ pub fn builtin() -> Vec<Theme> {
     let t = Theme::from_palette;
     vec![
         t(
+            "strata",
+            palette!(
+                "#050505",
+                "#0d0d0d",
+                "#2c2627",
+                "#cccccc",
+                "#858585",
+                "#f0193d",
+                "#f7703b",
+                "#f9b81f",
+                "#2ecc70",
+                "#2ec4c4",
+                "#3d7af5",
+                "#b05cf5",
+                accent = "#f0193d"
+            ),
+        ),
+        t(
             "catppuccin-mocha",
             palette!(
                 "#1e1e2e",
@@ -702,7 +720,7 @@ impl ThemeRegistry {
         let file: ThemeFile = toml::from_str(&text)?;
         let stem = path.file_stem().context("no file name")?.to_string_lossy().into_owned();
         let name = file.name.clone().unwrap_or(stem);
-        let base = file.inherits.as_deref().unwrap_or("catppuccin-mocha");
+        let base = file.inherits.as_deref().unwrap_or("strata");
         let mut p = self.get(base).with_context(|| format!("unknown base theme '{base}'"))?.palette;
         let set = |slot: &mut Color, v: &Option<String>| -> Result<()> {
             if let Some(v) = v {
@@ -752,7 +770,7 @@ mod tests {
     fn has_twenty_plus_themes() {
         let reg = ThemeRegistry::default();
         assert!(reg.len() >= 20, "only {} themes", reg.len());
-        for name in ["catppuccin-mocha", "nord", "tokyo-night", "dracula", "gruvbox-dark", "rose-pine"] {
+        for name in ["strata", "catppuccin-mocha", "nord", "tokyo-night", "dracula", "gruvbox-dark", "rose-pine"] {
             assert!(reg.get(name).is_some(), "missing {name}");
         }
     }

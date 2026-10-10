@@ -62,10 +62,10 @@ pub fn all() -> Vec<Scene> {
     main.extend([Keys(&["1"]), Wait(300), Keys(&["?"]), Wait(400), Shot("help.png")]);
 
     vec![
-        Scene { name: "screens", theme: "catppuccin-mocha", two_panels: true, steps: main },
+        Scene { name: "screens", theme: "strata", two_panels: true, steps: main },
         Scene {
             name: "overview",
-            theme: "catppuccin-mocha",
+            theme: "strata",
             two_panels: true,
             steps: vec![
                 Gif("overview.gif"),
@@ -113,7 +113,7 @@ pub fn all() -> Vec<Scene> {
         },
         Scene {
             name: "file-operations",
-            theme: "catppuccin-mocha",
+            theme: "strata",
             two_panels: true,
             steps: vec![
                 Gif("file-operations.gif"),
@@ -152,21 +152,21 @@ pub fn all() -> Vec<Scene> {
         },
         Scene {
             name: "themes",
-            theme: "catppuccin-mocha",
+            theme: "strata",
             two_panels: true,
             steps: {
                 let mut s = open_main();
                 s.extend([Gif("themes.gif"), Wait(600), Keys(&["T"]), Wait(700)]);
                 for _ in 0..10 {
-                    s.extend([Keys(&["Down"]), Wait(650)]);
+                    s.extend([Keys(&["Up"]), Wait(650)]);
                 }
-                s.extend([Keys(&["Enter"]), Wait(1200), EndGif]);
+                s.extend([Keys(&["Escape"]), Wait(1200), EndGif]);
                 s
             },
         },
         Scene {
             name: "search",
-            theme: "tokyo-night",
+            theme: "strata",
             two_panels: true,
             steps: vec![
                 Gif("search.gif"),
@@ -198,6 +198,7 @@ pub fn all() -> Vec<Scene> {
                 EndGif,
             ],
         },
+        theme_shot("catppuccin-mocha", "theme-catppuccin-mocha.png"),
         theme_shot("nord", "theme-nord.png"),
         theme_shot("tokyo-night", "theme-tokyo-night.png"),
         theme_shot("gruvbox-dark", "theme-gruvbox-dark.png"),

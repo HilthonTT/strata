@@ -21,9 +21,9 @@ const PADDING: u32 = 14;
 const RADIUS: f32 = 12.0;
 
 /// Page colour around the window (matches the website background).
-pub const PAGE: Rgb = Rgb(0x0b, 0x0c, 0x12);
-const DEFAULT_BG: Rgb = Rgb(0x1e, 0x1e, 0x2e);
-const DEFAULT_FG: Rgb = Rgb(0xcd, 0xd6, 0xf4);
+pub const PAGE: Rgb = Rgb(0x05, 0x05, 0x05);
+const DEFAULT_BG: Rgb = Rgb(0x05, 0x05, 0x05);
+const DEFAULT_FG: Rgb = Rgb(0xcc, 0xcc, 0xcc);
 
 type GlyphKey = (char, u8);
 

@@ -29,7 +29,7 @@ export function DocsSidebar() {
                     href={link.href}
                     className={`block rounded-lg px-3 py-1.5 transition ${
                       active
-                        ? "bg-layer-violet/10 font-medium text-layer-violet"
+                        ? "bg-brand/10 font-medium text-brand"
                         : "text-mist-300 hover:bg-white/5 hover:text-white"
                     }`}
                   >
