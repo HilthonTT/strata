@@ -90,6 +90,27 @@ impl App {
             return;
         }
 
+        // Archives can be browsed and copied from, nothing else.
+        let changes_panel = matches!(
+            action,
+            Cut | MoveToOther
+                | Paste
+                | Delete
+                | DeletePermanent
+                | Rename
+                | BulkRename
+                | NewFile
+                | NewDir
+                | Duplicate
+                | PasteSymlink
+                | PasteRelativeSymlink
+                | PasteHardlink
+                | Chmod
+        );
+        if changes_panel && !self.ensure_writable() {
+            return;
+        }
+
         match action {
             Up => self.panel_mut().move_by(-1),
             Down => self.panel_mut().move_by(1),
@@ -100,7 +121,9 @@ impl App {
             HalfPageUp => self.page(-0.5),
             HalfPageDown => self.page(0.5),
             Parent => {
-                self.panel_mut().parent();
+                if !self.panel_mut().parent() {
+                    self.leave_archive();
+                }
             }
             Open => self.open_hovered(),
             Back => {
@@ -289,6 +312,9 @@ impl App {
         if entry.is_dir() {
             return self.cd(entry.path);
         }
+        if self.is_browsable_archive(&entry.name) && self.panel().vfs.is_local() {
+            return self.open_archive(entry.path);
+        }
         if !self.panel().vfs.is_local() {
             if super::external::prefers_system_open(&entry.extension()) {
                 self.notify("copy media files to a local folder to open them", Level::Warn);
@@ -437,6 +463,9 @@ impl App {
             return;
         }
         let other = &self.panels[(self.active + 1) % self.panels.len()];
+        if other.vfs.read_only() {
+            return self.notify("the next panel is an archive, which is read-only", Level::Warn);
+        }
         let transfer = Transfer {
             mode,
             src: self.panel().vfs.clone(),

@@ -85,6 +85,12 @@ pub enum AppEvent {
         text: String,
         message: String,
     },
+    /// An archive finished indexing for a panel.
+    ArchiveOpened {
+        panel: u64,
+        file: PathBuf,
+        result: Result<VfsRef, String>,
+    },
     Git {
         dir: PathBuf,
         status: Option<GitStatus>,

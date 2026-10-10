@@ -69,6 +69,9 @@ impl App {
         if after.is_none() || after == before {
             return self.notify("no changes to upload", Level::Info);
         }
+        if edit.vfs.read_only() {
+            return self.notify("archives are read-only: your changes were not saved", Level::Warn);
+        }
         let name = edit.remote.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         self.jobs.spawn(format!("Upload {name}"), move |progress| {
             let entry = LocalVfs::entry_for(&edit.local)?;

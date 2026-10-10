@@ -539,6 +539,7 @@ impl App {
                 actions::copy_to_clipboard(&text);
                 self.info(message);
             }
+            AppEvent::ArchiveOpened { panel, file, result } => self.on_archive_opened(panel, file, result),
         }
     }
 

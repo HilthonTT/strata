@@ -92,9 +92,11 @@ impl App {
             },
             "hardlink" => self.dispatch(Action::PasteHardlink),
             "chmod" if !args.is_empty() => {
-                let (vfs, paths) = (self.panel().vfs.clone(), self.panel().targets());
-                if !paths.is_empty() {
-                    self.start_chmod(vfs, paths, args);
+                if self.ensure_writable() {
+                    let (vfs, paths) = (self.panel().vfs.clone(), self.panel().targets());
+                    if !paths.is_empty() {
+                        self.start_chmod(vfs, paths, args);
+                    }
                 }
             }
             "chown" if !args.is_empty() => self.chown_command(args),

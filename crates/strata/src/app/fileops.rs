@@ -1,4 +1,5 @@
-//! File operations beyond copy, move and delete.
+//! File operations beyond copy, move and delete: links, duplicates,
+//! permissions and owners, comparing, checksums, the trash and archives.
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -11,7 +12,7 @@ use strata_core::ops::{Conflict, Transfer, TransferMode};
 use strata_core::perm::{self, ChangeLog, ModeSpec, Owner};
 use strata_core::trash::{self, TrashedItem};
 use strata_core::util::unique_name;
-use strata_core::vfs::same_vfs;
+use strata_core::vfs::{same_vfs, ArchiveFormat, ArchiveVfs};
 use strata_core::VfsRef;
 use strata_plugin::Level;
 
@@ -31,6 +32,17 @@ pub enum LinkKind {
 }
 
 impl App {
+    /// Warns and returns false when the focused panel cannot be changed.
+    pub(super) fn ensure_writable(&mut self) -> bool {
+        if self.panel().vfs.read_only() {
+            self.notify("archives are read-only: copy items out of them instead", Level::Warn);
+            return false;
+        }
+        true
+    }
+
+    // --- duplicate & links ----------------------------------------------------
+
     /// Copies the targets next to themselves as `name (1).ext`.
     pub(super) fn duplicate(&mut self) {
         let sources = self.panel().targets();
@@ -90,6 +102,8 @@ impl App {
             None => self.info(format!("created {count} {what}(s)")),
         }
     }
+
+    // --- permissions & owners -------------------------------------------------
 
     pub(super) fn prompt_chmod(&mut self) {
         let paths = self.panel().targets();
@@ -408,6 +422,53 @@ impl App {
             Ok(n) => self.info(format!("deleted {n} item(s) from the trash")),
             Err(e) => self.error(format!("{e:#}")),
         }
+    }
+
+    // --- archives -------------------------------------------------------------
+
+    /// True if `name` is an archive that `open` should browse.
+    pub(super) fn is_browsable_archive(&self, name: &str) -> bool {
+        self.config.general.browse_archives && ArchiveFormat::detect(name).is_some()
+    }
+
+    /// Indexes an archive in the background, then shows it in the panel.
+    pub(super) fn open_archive(&mut self, file: PathBuf) {
+        if !self.panel().vfs.is_local() {
+            return self.notify("copy the archive to a local folder to browse it", Level::Warn);
+        }
+        let (tx, panel) = (self.tx.clone(), self.panel().id);
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        self.info(format!("reading {name}…"));
+        std::thread::spawn(move || {
+            let result = ArchiveVfs::open(&file).map(|v| Arc::new(v) as VfsRef).map_err(|e| format!("{e:#}"));
+            let _ = tx.send(AppEvent::ArchiveOpened { panel, file, result });
+        });
+    }
+
+    pub(super) fn on_archive_opened(&mut self, panel: u64, file: PathBuf, result: Result<VfsRef, String>) {
+        let vfs = match result {
+            Ok(vfs) => vfs,
+            Err(e) => return self.error(e),
+        };
+        // Only if the panel is still where the archive was opened.
+        let Some(p) = self.panels.iter_mut().find(|p| p.id == panel) else { return };
+        if !p.vfs.is_local() || Some(p.cwd.as_path()) != file.parent() {
+            return;
+        }
+        p.switch_vfs(vfs, PathBuf::from("/"));
+        self.invalidate_preview();
+    }
+
+    /// Leaves an archive for the directory that holds it, with the cursor on
+    /// it. False if the focused panel is not at an archive's root.
+    pub(super) fn leave_archive(&mut self) -> bool {
+        let Some(file) = self.panel().vfs.container() else { return false };
+        let (Some(dir), Some(name)) = (file.parent(), file.file_name()) else { return false };
+        let name = name.to_string_lossy().into_owned();
+        let local = self.local.clone();
+        self.panel_mut().switch_vfs(local, dir.to_path_buf());
+        self.panel_mut().focus_name(&name);
+        true
     }
 }
 

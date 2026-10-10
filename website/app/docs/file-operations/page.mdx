@@ -83,6 +83,12 @@ To verify a download:
 
 Restoring refuses to replace something that has taken the item's place. Restores can be undone like other operations. `:empty-trash` empties the trash after asking. Browsing the trash works on Linux, the BSDs and Windows; macOS has no API to list it.
 
+## Archives
+
+<Kbd>enter</Kbd> on a zip or tar archive opens it like a directory: `.zip`, `.jar`, `.apk`, `.whl` and other zip-based files, and `.tar` with gzip, bzip2, xz or zstd (`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.tar.zst`…). Browse and preview inside it, and copy items out with <Kbd>c</Kbd> or <Kbd>y y</Kbd> and <Kbd>p</Kbd>. Archives are read-only: renaming, deleting or pasting into them is refused, and edits to files opened from them are not saved back. <Kbd>h</Kbd> at the archive's root goes back to the folder that holds it.
+
+The archive is indexed once when you open it, and files are read in archive order, so copying a whole `.tar.gz` out decompresses it only once. Set `browse_archives = false` to open archives with the system app instead. The `archive` plugin adds <Kbd>X</Kbd> to extract and `:compress`.
+
 ## Undo and redo
 
 Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:
@@ -100,7 +106,7 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 
 ## Open files
 
-<Kbd>enter</Kbd> opens text files in your editor and media or documents with the system app. <Kbd>o</Kbd> always uses the system app, and <Kbd>e</Kbd> / <Kbd>E</Kbd> open the file or the whole directory in your editor. To choose programs per file type, see [`open_with`](/docs/configuration/#open-with).
+<Kbd>enter</Kbd> opens text files in your editor, media or documents with the system app, and [archives](#archives) like directories. <Kbd>o</Kbd> always uses the system app, and <Kbd>e</Kbd> / <Kbd>E</Kbd> open the file or the whole directory in your editor. To choose programs per file type, see [`open_with`](/docs/configuration/#open-with).
 
 ## Remote files
 

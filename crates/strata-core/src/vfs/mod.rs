@@ -1,6 +1,7 @@
 //! A small virtual filesystem abstraction so panels can browse local disks,
-//! SFTP servers and Docker containers through one interface.
+//! SFTP servers, Docker containers and archives through one interface.
 
+mod archive;
 mod docker;
 mod local;
 #[cfg(feature = "sftp")]
@@ -15,6 +16,7 @@ use anyhow::{bail, Result};
 
 use crate::Entry;
 
+pub use archive::{ArchiveFormat, ArchiveVfs};
 pub use docker::DockerVfs;
 pub use local::LocalVfs;
 #[cfg(feature = "sftp")]
@@ -32,6 +34,11 @@ pub trait Vfs: Send + Sync + fmt::Debug {
     /// Human readable location, shown in panel titles.
     fn label(&self) -> String;
     fn is_local(&self) -> bool {
+        false
+    }
+    /// True for backends that can only be browsed and copied from, such as
+    /// archives.
+    fn read_only(&self) -> bool {
         false
     }
     /// Directory a fresh panel opens at.
@@ -97,6 +104,12 @@ pub trait Vfs: Send + Sync + fmt::Debug {
     /// Path on the local disk, if this backend exposes one (used for
     /// previews, editors and shells).
     fn local_path(&self, _path: &Path) -> Option<PathBuf> {
+        None
+    }
+
+    /// The local file this filesystem is read from, for archives. Leaving
+    /// its root goes back to the file's directory.
+    fn container(&self) -> Option<PathBuf> {
         None
     }
 
