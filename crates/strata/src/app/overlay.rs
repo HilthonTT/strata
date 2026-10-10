@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use strata_core::nas::Connection;
 use strata_core::search::{Fuzzy, Match};
+use strata_core::trash::TrashedItem;
 use strata_core::VfsRef;
 
 /// What a text prompt is for.
@@ -127,6 +128,7 @@ pub enum PickerPurpose {
     Plugin(usize),
     Sort,
     Grep { root: PathBuf, hits: Vec<super::grep::GrepHit> },
+    Trash { items: Vec<TrashedItem> },
 }
 
 pub struct PickerState {
@@ -202,6 +204,9 @@ pub enum Confirm {
         name: String,
         password: String,
     },
+    /// Delete items from the trash for good.
+    PurgeTrash(Vec<TrashedItem>),
+    EmptyTrash,
     Quit,
 }
 

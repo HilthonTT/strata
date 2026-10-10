@@ -71,6 +71,18 @@ To verify a download:
 - `:verify <hash>` checks the hovered file against a hash you paste. The algorithm follows from the hash's length.
 - `:verify` on a checksum file (`SHA256SUMS`, `MD5SUMS`, `app.iso.sha256`…) checks every file it lists, in GNU (`hash  file`) or BSD (`SHA256 (file) = hash`) format.
 
+## Trash
+
+<Kbd>U</Kbd> (or `:trash`) lists what is in the trash, newest first: name, when it was deleted and where from. Type to filter. In the list:
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>enter</Kbd> | Restore the item where it came from and show it |
+| <Kbd>ctrl+d</Kbd> | Delete the item for good |
+| <Kbd>ctrl+e</Kbd> | Empty the trash |
+
+Restoring refuses to replace something that has taken the item's place. Restores can be undone like other operations. `:empty-trash` empties the trash after asking. Browsing the trash works on Linux, the BSDs and Windows; macOS has no API to list it.
+
 ## Undo and redo
 
 Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:
@@ -80,6 +92,7 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 - copies (the copies go to the trash),
 - moves (items go back where they came from, even across filesystems),
 - trashing (items are restored from the trash — Linux and Windows),
+- restores from the trash browser (they go back to the trash),
 - links and duplicates (they go to the trash),
 - permission and owner changes (the old ones are set again).
 

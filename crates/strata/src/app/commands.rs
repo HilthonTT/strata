@@ -28,6 +28,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("compare", "compare — diff two marked items, or the hovered one with the next panel"),
     ("checksum", "checksum [md5|sha1|sha256|sha512] — show checksums, or copy one"),
     ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
+    ("trash", "trash — browse, restore and delete trashed items"),
+    ("empty-trash", "empty-trash — delete everything in the trash for good"),
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
     ("set", "set hidden|preview|sidebar|footer [on|off]"),
@@ -100,6 +102,18 @@ impl App {
             "compare" | "diff" => self.dispatch(Action::Compare),
             "checksum" | "hash" => self.checksum(Some(args)),
             "verify" => self.verify(args),
+            "trash" => self.dispatch(Action::OpenTrash),
+            "empty-trash" => match strata_core::trash::list() {
+                Ok(items) if items.is_empty() => self.info("the trash is empty"),
+                Ok(items) => {
+                    let message = format!("Empty the trash ({} items)? This cannot be undone.", items.len());
+                    self.overlay = Some(Overlay::Confirm(super::overlay::ConfirmState {
+                        message,
+                        action: super::overlay::Confirm::EmptyTrash,
+                    }));
+                }
+                Err(e) => self.error(format!("{e:#}")),
+            },
             "theme" if args.is_empty() => self.open_theme_picker(),
             "theme" => {
                 if self.apply_theme(args, true) {
@@ -388,6 +402,11 @@ impl App {
             PickerPurpose::Sort => {
                 if let Some(index) = picker.selected_index() {
                     self.apply_sort_choice(index);
+                }
+            }
+            PickerPurpose::Trash { mut items } => {
+                if let Some(i) = selected_index.filter(|&i| i < items.len()) {
+                    self.restore_trashed(items.swap_remove(i));
                 }
             }
         }

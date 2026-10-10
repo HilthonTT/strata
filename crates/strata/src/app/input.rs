@@ -86,6 +86,11 @@ impl App {
                     KeyCode::Enter => return self.submit_picker(),
                     KeyCode::Up => picker.move_by(-1),
                     KeyCode::Down | KeyCode::Tab => picker.move_by(1),
+                    KeyCode::Char(c @ ('d' | 'e')) if ctrl => {
+                        if self.trash_picker_key(c) {
+                            return;
+                        }
+                    }
                     KeyCode::Char('k') | KeyCode::Char('p') if ctrl => picker.move_by(-1),
                     KeyCode::Char('j') | KeyCode::Char('n') if ctrl => picker.move_by(1),
                     KeyCode::PageUp => picker.move_by(-10),
@@ -167,7 +172,10 @@ impl App {
                     self.apply_theme(&original, false);
                 }
                 PickerPurpose::Plugin(callback) => self.call_plugin(callback, Some(None)),
-                PickerPurpose::Find { .. } | PickerPurpose::Sort | PickerPurpose::Grep { .. } => {}
+                PickerPurpose::Find { .. }
+                | PickerPurpose::Sort
+                | PickerPurpose::Grep { .. }
+                | PickerPurpose::Trash { .. } => {}
             },
             other => self.overlay = other,
         }
@@ -197,6 +205,8 @@ impl App {
                 }
                 Err(e) => self.error(format!("{e:#}")),
             },
+            Confirm::PurgeTrash(items) => self.purge_trash(Some(items)),
+            Confirm::EmptyTrash => self.purge_trash(None),
             Confirm::Quit => {
                 self.jobs.cancel_all();
                 self.quit();

@@ -9,6 +9,7 @@ use strata_core::compare::{self, FileDiff};
 use strata_core::inspect::{self, HashAlgo};
 use strata_core::ops::{Conflict, Transfer, TransferMode};
 use strata_core::perm::{self, ChangeLog, ModeSpec, Owner};
+use strata_core::trash::{self, TrashedItem};
 use strata_core::util::unique_name;
 use strata_core::vfs::same_vfs;
 use strata_core::VfsRef;
@@ -16,7 +17,7 @@ use strata_plugin::Level;
 
 use super::actions::short_path;
 use super::external::{After, External, Wait};
-use super::overlay::{InputPurpose, InputState, Overlay};
+use super::overlay::{Confirm, ConfirmState, InputPurpose, InputState, Overlay, PickerPurpose, PickerState};
 use super::undo::{PendingUndo, UndoOp};
 use super::App;
 use crate::event::AppEvent;
@@ -331,6 +332,82 @@ impl App {
             let _ = tx.send(AppEvent::Report { title: format!("Verify · {}", entry.name), lines });
             Ok(())
         });
+    }
+
+    // --- trash ----------------------------------------------------------------
+
+    pub(super) fn open_trash(&mut self) {
+        if !trash::SUPPORTED {
+            return self.notify("browsing the trash is not supported on this platform", Level::Warn);
+        }
+        let items = match trash::list() {
+            Ok(items) => items,
+            Err(e) => return self.error(format!("{e:#}")),
+        };
+        if items.is_empty() {
+            return self.info("the trash is empty");
+        }
+        let width = items.iter().map(|i| i.name.chars().count()).max().unwrap_or(0).min(40);
+        let format = &self.config.general.date_format;
+        let rows = items
+            .iter()
+            .map(|i| {
+                let when = chrono::DateTime::<chrono::Local>::from(i.deleted).format(format);
+                format!("{:<width$}  {when}  {}", i.name, short_path(&i.original))
+            })
+            .collect();
+        let title = format!("Trash ({}) · enter restore · ctrl+d delete · ctrl+e empty", items.len());
+        self.overlay = Some(Overlay::Picker(PickerState::new(title, rows, PickerPurpose::Trash { items })));
+    }
+
+    pub(super) fn restore_trashed(&mut self, item: TrashedItem) {
+        let path = item.original_path();
+        match trash::restore(vec![item]) {
+            Ok(()) => {
+                let local = self.local.clone();
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                self.push_undo(format!("restore {name}"), vec![UndoOp::Created { vfs: local, path: path.clone() }]);
+                self.reload_all();
+                self.reveal(path.clone());
+                self.info(format!("restored {}", short_path(&path)));
+            }
+            Err(e) => self.error(format!("{e:#}")),
+        }
+    }
+
+    /// Picker keys beyond enter and esc: `ctrl+d` deletes the selected trash
+    /// item for good and `ctrl+e` empties the trash.
+    pub(super) fn trash_picker_key(&mut self, ctrl_char: char) -> bool {
+        let Some(Overlay::Picker(picker)) = &self.overlay else { return false };
+        let PickerPurpose::Trash { items } = &picker.purpose else { return false };
+        let confirm = match ctrl_char {
+            'd' => {
+                let Some(item) = picker.selected_index().and_then(|i| items.get(i)).cloned() else { return true };
+                let message = format!("Delete '{}' from the trash for good? This cannot be undone.", item.name);
+                ConfirmState { message, action: Confirm::PurgeTrash(vec![item]) }
+            }
+            'e' => {
+                let message = format!("Empty the trash ({} items)? This cannot be undone.", items.len());
+                ConfirmState { message, action: Confirm::EmptyTrash }
+            }
+            _ => return false,
+        };
+        self.overlay = Some(Overlay::Confirm(confirm));
+        true
+    }
+
+    pub(super) fn purge_trash(&mut self, items: Option<Vec<TrashedItem>>) {
+        let result = match items {
+            Some(items) => {
+                let n = items.len();
+                trash::purge(items).map(|()| n)
+            }
+            None => trash::empty(),
+        };
+        match result {
+            Ok(n) => self.info(format!("deleted {n} item(s) from the trash")),
+            Err(e) => self.error(format!("{e:#}")),
+        }
     }
 }
 

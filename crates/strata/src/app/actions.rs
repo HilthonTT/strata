@@ -228,6 +228,7 @@ impl App {
             Chmod => self.prompt_chmod(),
             Compare => self.compare(),
             Checksum => self.checksum(None),
+            OpenTrash => self.open_trash(),
             _ => {}
         }
     }
