@@ -12,6 +12,7 @@ Everything you need, nothing you don't.
 
 - **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR`, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them
 - **Trash browser**: restore, delete or empty, newest first
+- **Sync**: make one folder match another (`:sync`), with a dry run and undo
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`
 - **Folder sizes** in the file list (`d c`), measured in the background

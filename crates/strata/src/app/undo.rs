@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use anyhow::{bail, Result};
@@ -15,6 +15,7 @@ use strata_core::bulk::{self, Rename};
 use strata_core::jobs::{JobState, Progress};
 use strata_core::ops::{self, TransferLog, TransferMode};
 use strata_core::perm::{self, ChangeLog, Changes};
+use strata_core::sync::SyncLog;
 use strata_core::VfsRef;
 use strata_plugin::Level;
 
@@ -48,6 +49,13 @@ pub enum UndoOp {
         current: PathBuf,
     },
     Trashed {
+        paths: Vec<PathBuf>,
+        since: SystemTime,
+    },
+    /// Local items replaced by new versions; the old versions went to the
+    /// trash after `since`.
+    Replaced {
+        vfs: VfsRef,
         paths: Vec<PathBuf>,
         since: SystemTime,
     },
@@ -93,6 +101,10 @@ impl UndoOp {
             UndoOp::Trashed { paths, .. } => {
                 paths.iter().map(|p| UndoOp::Created { vfs: local.clone(), path: p.clone() }).collect()
             }
+            // Undo trashed the new versions, so redo swaps them back.
+            UndoOp::Replaced { vfs, paths, .. } => {
+                vec![UndoOp::Replaced { vfs: vfs.clone(), paths: paths.clone(), since: now }]
+            }
             UndoOp::Mode { vfs, changes } => vec![UndoOp::Mode {
                 vfs: vfs.clone(),
                 changes: changes.iter().map(|(p, old, new)| (p.clone(), *new, *old)).collect(),
@@ -135,6 +147,9 @@ impl UndoEntry {
                 UndoOp::Trashed { paths, since } => {
                     ops::restore_from_trash(&paths, since)?;
                 }
+                UndoOp::Replaced { vfs, paths, since } => {
+                    ops::swap_with_trashed(&*vfs, &paths, since)?;
+                }
                 UndoOp::Mode { vfs, changes } => {
                     let modes: Vec<_> = changes.iter().map(|(path, old, _)| (path.clone(), *old)).collect();
                     perm::set_modes(&*vfs, &modes)?;
@@ -168,6 +183,12 @@ pub enum PendingUndo {
     },
     Owner {
         log: Arc<ChangeLog<(u32, u32)>>,
+    },
+    /// A sync into `vfs`, started at `since`.
+    Sync {
+        vfs: VfsRef,
+        since: SystemTime,
+        log: Arc<Mutex<SyncLog>>,
     },
     /// An undo (or redo) job; on success its inverse goes on the other stack.
     Inverse {
@@ -225,6 +246,19 @@ impl App {
             PendingUndo::Owner { log } => {
                 let changes = std::mem::take(&mut *log.lock().unwrap_or_else(|e| e.into_inner()));
                 (!changes.is_empty()).then(|| UndoOp::Owner { changes }).into_iter().collect()
+            }
+            // Replaced and deleted items are only recoverable from a trash.
+            PendingUndo::Sync { vfs, since, log } => {
+                let log = std::mem::take(&mut *log.lock().unwrap_or_else(|e| e.into_inner()));
+                let mut ops: Vec<UndoOp> =
+                    log.created.into_iter().map(|path| UndoOp::Created { vfs: vfs.clone(), path }).collect();
+                if vfs.is_local() && !log.trashed.is_empty() {
+                    ops.push(UndoOp::Trashed { paths: log.trashed, since });
+                }
+                if vfs.is_local() && !log.replaced.is_empty() {
+                    ops.push(UndoOp::Replaced { vfs, paths: log.replaced, since });
+                }
+                ops
             }
             PendingUndo::Inverse { entry, to_redo } => {
                 if *state == JobState::Done && !entry.ops.is_empty() {

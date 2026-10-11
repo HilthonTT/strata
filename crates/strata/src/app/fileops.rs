@@ -507,7 +507,7 @@ fn parse_algo(name: &str) -> Option<HashAlgo> {
 }
 
 /// `~/dir/file` for local paths, `sftp:me@nas:/dir/file` for others.
-fn location(vfs: &VfsRef, path: &Path) -> String {
+pub(super) fn location(vfs: &VfsRef, path: &Path) -> String {
     if vfs.is_local() {
         short_path(path)
     } else {

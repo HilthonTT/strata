@@ -269,11 +269,35 @@ pub fn tree_size(vfs: &dyn crate::Vfs, entry: &Entry, progress: &Progress) -> Re
 
 /// Restores items trashed since `since` to their original locations.
 /// Returns how many were restored.
+pub fn restore_from_trash(paths: &[PathBuf], since: std::time::SystemTime) -> Result<usize> {
+    let chosen = latest_trashed(paths, since)?;
+    if chosen.is_empty() {
+        bail!("the items are no longer in the trash");
+    }
+    restore_items(chosen)
+}
+
+/// Swaps local `paths` with their versions trashed since `since`: the
+/// current items go to the trash and the trashed ones come back. The
+/// versions to restore are picked before anything is trashed, so a swap
+/// within the same second as the trashing still restores the right ones.
+pub fn swap_with_trashed(vfs: &dyn Vfs, paths: &[PathBuf], since: std::time::SystemTime) -> Result<usize> {
+    let chosen = latest_trashed(paths, since)?;
+    if chosen.is_empty() {
+        bail!("the items are no longer in the trash");
+    }
+    for path in paths.iter().filter(|p| vfs.exists(p)) {
+        vfs.trash(path)?;
+    }
+    restore_items(chosen)
+}
+
+/// The latest version of each of `paths` trashed since `since`.
 #[cfg(any(
     target_os = "windows",
     all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
 ))]
-pub fn restore_from_trash(paths: &[PathBuf], since: std::time::SystemTime) -> Result<usize> {
+fn latest_trashed(paths: &[PathBuf], since: std::time::SystemTime) -> Result<Vec<trash::TrashItem>> {
     let since = since.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0) - 2;
     let mut chosen: Vec<trash::TrashItem> = Vec::new();
     for item in trash::os_limited::list().context("cannot read the trash")? {
@@ -286,9 +310,14 @@ pub fn restore_from_trash(paths: &[PathBuf], since: std::time::SystemTime) -> Re
             None => chosen.push(item),
         }
     }
-    if chosen.is_empty() {
-        bail!("the items are no longer in the trash");
-    }
+    Ok(chosen)
+}
+
+#[cfg(any(
+    target_os = "windows",
+    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+))]
+fn restore_items(chosen: Vec<trash::TrashItem>) -> Result<usize> {
     let count = chosen.len();
     trash::os_limited::restore_all(chosen).context("cannot restore from the trash")?;
     Ok(count)
@@ -298,7 +327,15 @@ pub fn restore_from_trash(paths: &[PathBuf], since: std::time::SystemTime) -> Re
     target_os = "windows",
     all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
 )))]
-pub fn restore_from_trash(_paths: &[PathBuf], _since: std::time::SystemTime) -> Result<usize> {
+fn latest_trashed(_paths: &[PathBuf], _since: std::time::SystemTime) -> Result<Vec<()>> {
+    bail!("restoring from the trash is not supported on this platform")
+}
+
+#[cfg(not(any(
+    target_os = "windows",
+    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+)))]
+fn restore_items(_chosen: Vec<()>) -> Result<usize> {
     bail!("restoring from the trash is not supported on this platform")
 }
 

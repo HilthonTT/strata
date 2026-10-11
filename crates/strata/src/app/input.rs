@@ -207,6 +207,7 @@ impl App {
             },
             Confirm::PurgeTrash(items) => self.purge_trash(Some(items)),
             Confirm::EmptyTrash => self.purge_trash(None),
+            Confirm::Sync(request) => self.start_sync(*request),
             Confirm::Quit => {
                 self.jobs.cancel_all();
                 self.quit();

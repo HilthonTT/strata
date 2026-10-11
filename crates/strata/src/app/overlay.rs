@@ -209,6 +209,7 @@ pub enum Confirm {
     /// Delete items from the trash for good.
     PurgeTrash(Vec<TrashedItem>),
     EmptyTrash,
+    Sync(Box<super::sync::SyncRequest>),
     Quit,
 }
 

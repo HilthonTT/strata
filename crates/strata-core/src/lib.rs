@@ -16,6 +16,7 @@ pub mod perm;
 pub mod search;
 pub mod secrets;
 pub mod sort;
+pub mod sync;
 pub mod trash;
 pub mod util;
 pub mod vfs;

@@ -27,6 +27,7 @@ mod preview_nav;
 mod remote_edit;
 mod session;
 pub mod sidebar;
+pub mod sync;
 mod tabs;
 mod undo;
 mod vcs;
@@ -602,6 +603,7 @@ impl App {
             AppEvent::Report { title, lines } => {
                 self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll: 0, colored: true }));
             }
+            AppEvent::SyncPlanned(request) => self.on_sync_planned(*request),
             AppEvent::Clipboard { text, message } => {
                 actions::copy_to_clipboard(&text);
                 self.info(message);
