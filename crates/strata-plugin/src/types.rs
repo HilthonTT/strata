@@ -36,6 +36,22 @@ pub enum Request {
     /// Run a command with the terminal handed over (editors, pagers...).
     Exec(String),
     Refresh,
+    /// Mark these paths in the focused panel (`clear` drops other marks).
+    Mark {
+        paths: Vec<String>,
+        clear: bool,
+    },
+    /// Show these paths as a flat list in the focused panel.
+    Show {
+        title: String,
+        paths: Vec<String>,
+    },
+    /// Add or remove a tag on these paths.
+    Tag {
+        paths: Vec<String>,
+        tag: String,
+        add: bool,
+    },
 }
 
 /// Snapshot of the UI passed to every Lua callback as a table.
@@ -52,6 +68,14 @@ pub struct Context {
     pub scheme: String,
     /// Whether Nerd Font icons are enabled.
     pub icons: bool,
+    /// Tags of the hovered item.
+    pub tags: Vec<String>,
+    /// The panel's filter text.
+    pub filter: String,
+    /// What a flat listing (`:find`, `:flatten`) shows, if one is open.
+    pub listing: Option<String>,
+    /// Tab number (0-based here, 1-based in Lua).
+    pub tab: usize,
 }
 
 impl IntoLua for Context {
@@ -66,11 +90,16 @@ impl IntoLua for Context {
         t.set("theme", self.theme)?;
         t.set("scheme", self.scheme)?;
         t.set("icons", self.icons)?;
+        t.set("tags", self.tags)?;
+        t.set("filter", self.filter)?;
+        t.set("listing", self.listing)?;
+        t.set("tab", self.tab + 1)?;
         Ok(Value::Table(t))
     }
 }
 
-/// Plugin options from `config.toml`, converted without depending on toml.
+/// Plugin options from `config.toml`, converted without depending on toml;
+/// also the data passed to event handlers.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PluginValue {
     Nil,
@@ -80,6 +109,22 @@ pub enum PluginValue {
     Str(String),
     List(Vec<PluginValue>),
     Map(Vec<(String, PluginValue)>),
+}
+
+impl PluginValue {
+    /// A table from `(key, value)` pairs.
+    pub fn map<K: Into<String>>(pairs: impl IntoIterator<Item = (K, PluginValue)>) -> Self {
+        Self::Map(pairs.into_iter().map(|(k, v)| (k.into(), v)).collect())
+    }
+
+    pub fn str(s: impl Into<String>) -> Self {
+        Self::Str(s.into())
+    }
+
+    /// A list of strings, e.g. paths.
+    pub fn strings<S: Into<String>>(items: impl IntoIterator<Item = S>) -> Self {
+        Self::List(items.into_iter().map(|s| Self::Str(s.into())).collect())
+    }
 }
 
 impl IntoLua for PluginValue {

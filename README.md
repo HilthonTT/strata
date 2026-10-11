@@ -29,7 +29,7 @@ Everything you need, nothing you don't.
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
-- **Lua plugins**: add keys, commands, panels, status-line segments and previewers
+- **Lua plugins**: add keys, commands, panels, status-line segments and previewers, and react to events such as `rename`, `open`, `tag`, `delete` and `job_done`
 - **Vim-style keys**, all remappable
 
 ## Install

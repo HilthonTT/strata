@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use strata_core::util::human_size;
-use strata_plugin::Level;
+use strata_plugin::{Level, PluginValue};
 use strata_sys::drives::{self, Drive};
 
 use super::external::{After, External, Wait};
@@ -134,7 +134,12 @@ impl App {
         match drive.and_then(|d| d.mount.map(|m| (d.label, m))) {
             Some((label, mount)) => {
                 self.info(format!("mounted {} at {}", label.as_deref().unwrap_or(device), mount.display()));
+                let data = PluginValue::map([
+                    ("device", PluginValue::str(device)),
+                    ("path", PluginValue::str(mount.to_string_lossy())),
+                ]);
                 self.cd_local(mount);
+                self.emit_plugin_event_with("mount", data);
             }
             None => self.notify(format!("{device}: the mount finished but the drive was not found"), Level::Warn),
         }
@@ -142,6 +147,7 @@ impl App {
 
     pub(super) fn drive_ejected(&mut self, name: &str) {
         self.info(format!("{name} can be removed safely"));
+        self.emit_plugin_event_with("unmount", PluginValue::map([("device", PluginValue::str(name))]));
     }
 }
 

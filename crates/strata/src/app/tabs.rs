@@ -79,5 +79,7 @@ impl App {
     fn after_tab_switch(&mut self) {
         self.panels.iter_mut().for_each(Panel::reload);
         self.invalidate_preview();
+        let data = strata_plugin::PluginValue::map([("tab", strata_plugin::PluginValue::Int(self.tab as i64 + 1))]);
+        self.emit_plugin_event_with("tab", data);
     }
 }

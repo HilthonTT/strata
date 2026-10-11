@@ -10,7 +10,7 @@ use strata_core::ops::{self, Conflict, Transfer, TransferLog, TransferMode};
 use strata_core::sort::SortKey;
 use strata_core::util::posix;
 use strata_core::VfsRef;
-use strata_plugin::Level;
+use strata_plugin::{Level, PluginValue};
 
 use super::external::External;
 use super::fileops::LinkKind;
@@ -288,7 +288,11 @@ impl App {
     }
 
     pub fn set_view(&mut self, view: View) {
-        self.view = view;
+        if self.view != view {
+            let name = view.title().to_lowercase();
+            self.view = view;
+            self.emit_plugin_event_with("view", PluginValue::map([("view", PluginValue::Str(name))]));
+        }
         match view {
             View::Docker => self.refresh_docker(),
             View::Connections => {
@@ -349,6 +353,10 @@ impl App {
         if self.chooser {
             return self.choose();
         }
+        self.emit_plugin_event_with(
+            "open",
+            PluginValue::map([("path", PluginValue::str(entry.path.to_string_lossy()))]),
+        );
         if self.is_browsable_archive(&entry.name) && self.panel().vfs.is_local() {
             return self.open_archive(entry.path);
         }
@@ -635,6 +643,11 @@ impl App {
         let undo =
             (!permanent).then(|| PendingUndo::Trash { paths: paths.clone(), since: std::time::SystemTime::now() });
         let undo_label = format!("trash {} item(s)", paths.len());
+        let data = PluginValue::map([
+            ("paths", PluginValue::strings(paths.iter().map(|p| p.to_string_lossy().into_owned()))),
+            ("permanent", PluginValue::Bool(permanent)),
+        ]);
+        self.emit_plugin_event_with("delete", data);
         let job = self.jobs.spawn(label, move |progress| ops::delete(&vfs, &paths, !permanent, progress));
         if let Some(pending) = undo {
             self.track_job(job, undo_label, pending);
@@ -692,6 +705,9 @@ impl App {
             self.config.general.theme = name.to_string();
         }
         self.on_theme_changed();
+        if persist_name {
+            self.emit_plugin_event_with("theme", PluginValue::map([("name", PluginValue::str(name))]));
+        }
         true
     }
 

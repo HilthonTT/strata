@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use strata_core::tags::COLORS;
-use strata_plugin::Level;
+use strata_plugin::{Level, PluginValue};
 
 use super::overlay::{Overlay, PickerPurpose, PickerState};
 use super::App;
@@ -117,6 +117,12 @@ impl App {
             Err(e) => return self.error(format!("tag: {e:#}")),
         }
         self.rebuild_sidebar();
+        let data = PluginValue::map([
+            ("paths", PluginValue::strings(paths.iter().map(|p| p.to_string_lossy().into_owned()))),
+            ("tag", PluginValue::str(tag.to_lowercase())),
+            ("added", PluginValue::Bool(add)),
+        ]);
+        self.emit_plugin_event_with("tag", data);
     }
 
     /// `:select tag:<name>` marks the listed items with that tag.

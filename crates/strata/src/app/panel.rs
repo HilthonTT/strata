@@ -39,7 +39,7 @@ pub struct Flat {
     pub source: FlatSource,
     /// The listing stopped at [`find::LIMIT`] entries.
     pub truncated: bool,
-    /// The result was reported (no matches, truncated) after it arrived.
+    /// The result was reported (no matches, truncated, plugin event) after it arrived.
     pub announced: bool,
 }
 

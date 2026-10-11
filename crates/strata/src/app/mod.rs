@@ -60,7 +60,7 @@ use strata_core::sort::SortOptions;
 use strata_core::tags::TagDb;
 use strata_core::vfs::LocalVfs;
 use strata_core::VfsRef;
-use strata_plugin::{Level, PluginHost};
+use strata_plugin::{Level, PluginHost, PluginValue};
 use strata_sys::docker::Container;
 use strata_sys::du::UsageReport;
 
@@ -230,6 +230,8 @@ pub struct App {
     dupes: Option<dupes::DupeScan>,
     /// Tags and colour labels on local items.
     pub tags: TagDb,
+    /// The item last reported to plugins as hovered.
+    last_hover: Option<PathBuf>,
     /// Border characters, from `border` and `border_chars`.
     pub border: ratatui::symbols::border::Set<'static>,
     last_click: Option<(Instant, u16, u16)>,
@@ -365,6 +367,7 @@ impl App {
             retryable: HashMap::new(),
             dupes: None,
             tags: TagDb::default(),
+            last_hover: None,
             border,
             last_click: None,
             external: None,
@@ -538,6 +541,12 @@ impl App {
                 self.job_finished_for_undo(done.id, &done.state);
                 self.remote_download_finished(done.id, &done.state);
                 self.prune_retryable(done.id, &done.state);
+                let (state, error) = match &done.state {
+                    JobState::Done => ("done", None),
+                    JobState::Failed(e) => ("failed", Some(e.clone())),
+                    JobState::Cancelled => ("cancelled", None),
+                    JobState::Running => ("running", None),
+                };
                 match &done.state {
                     JobState::Done => self.info(format!("✓ {}", done.label)),
                     JobState::Failed(e) => self.error(format!("{} failed: {e}", done.label)),
@@ -546,7 +555,9 @@ impl App {
                 }
                 self.dir_sizes.clear();
                 self.reload_all();
-                self.emit_plugin_event("job_done");
+                let mut data = vec![("label", PluginValue::str(&done.label)), ("state", PluginValue::str(state))];
+                data.extend(error.map(|e| ("error", PluginValue::Str(e))));
+                self.emit_plugin_event_with("job_done", PluginValue::map(data));
             }
             AppEvent::Metrics(m) => {
                 let disks_changed = m.disks.len() != self.metrics.disks.len()
@@ -638,6 +649,7 @@ impl App {
             self.flush_pending_keys();
         }
         self.track_location();
+        self.track_hover();
         self.update_preview();
         self.update_inspection();
         self.update_git();
@@ -671,6 +683,24 @@ impl App {
             self.last_location = Some(here);
             self.emit_plugin_event("cd");
             self.refresh_plugin_ui();
+        }
+    }
+
+    /// Tells plugins when the cursor lands on another item.
+    fn track_hover(&mut self) {
+        if self.view != View::Files {
+            return;
+        }
+        let hovered = self.panel().hovered().map(|e| e.path.clone());
+        if hovered == self.last_hover {
+            return;
+        }
+        self.last_hover = hovered.clone();
+        if let Some(path) = hovered {
+            self.emit_plugin_event_with(
+                "hover",
+                PluginValue::map([("path", PluginValue::str(path.to_string_lossy()))]),
+            );
         }
     }
 

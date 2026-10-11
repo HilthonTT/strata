@@ -62,6 +62,10 @@ impl App {
             theme: self.theme.name.clone(),
             scheme: p.vfs.scheme().to_string(),
             icons: self.config.general.icons,
+            tags: hovered.map(|e| self.tags.get(&e.path).to_vec()).unwrap_or_default(),
+            filter: p.filter.clone(),
+            listing: p.flat.as_ref().map(|f| f.title.clone()),
+            tab: self.tab,
         }
     }
 
@@ -90,11 +94,16 @@ impl App {
     }
 
     pub(super) fn emit_plugin_event(&mut self, event: &str) {
+        self.emit_plugin_event_with(event, PluginValue::Nil);
+    }
+
+    /// Fires `event` with a data table: handlers get `(ctx, data)`.
+    pub(super) fn emit_plugin_event_with(&mut self, event: &str, data: PluginValue) {
         let Some(host) = &self.plugins else { return };
         if !host.has_handlers(event) {
             return;
         }
-        let errors = host.emit(event, &self.plugin_context());
+        let errors = host.emit(event, &self.plugin_context(), data);
         for e in errors {
             self.error(format!("plugin ({event}): {e}"));
         }
@@ -158,6 +167,19 @@ impl App {
                 self.queue_external(External::Run { argv, cwd, wait: Wait::Always, after: After::Reload });
             }
             Request::Refresh => self.reload_all(),
+            Request::Mark { paths, clear } => {
+                let p = self.panel_mut();
+                if clear {
+                    p.clear_marks();
+                }
+                p.mark_paths(&paths.into_iter().map(std::path::PathBuf::from).collect());
+            }
+            Request::Show { title, paths } => {
+                self.show_paths(title, paths.into_iter().map(|p| expand_tilde(&p)).collect());
+            }
+            Request::Tag { paths, tag, add } => {
+                self.apply_tag(paths.into_iter().map(|p| expand_tilde(&p)).collect(), &tag, add);
+            }
         }
     }
 

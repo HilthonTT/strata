@@ -327,9 +327,14 @@ impl App {
                 self.panel_mut().reload();
                 let first = name.split(['/', '\\']).next().unwrap_or(name).to_string();
                 self.panel_mut().focus_name(&first);
+                let data = strata_plugin::PluginValue::map([
+                    ("path", strata_plugin::PluginValue::str(path.to_string_lossy())),
+                    ("dir", strata_plugin::PluginValue::Bool(dir)),
+                ]);
                 if let Some(path) = created {
                     self.push_undo(format!("create {first}"), vec![super::undo::UndoOp::Created { vfs, path }]);
                 }
+                self.emit_plugin_event_with("create", data);
             }
             Err(e) => self.error(format!("{e:#}")),
         }
@@ -353,6 +358,7 @@ impl App {
                 if vfs.is_local() {
                     self.tags.moved(&from, &to);
                 }
+                self.emit_rename_event(&from, &to);
                 self.panel_mut().reload();
                 self.panel_mut().focus_path(&to);
                 self.push_undo(format!("rename to {new_name}"), vec![super::undo::UndoOp::Rename { vfs, from, to }]);

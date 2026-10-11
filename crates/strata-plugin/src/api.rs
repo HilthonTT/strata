@@ -191,6 +191,39 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
 
     let r = reg.clone();
     strata.set(
+        "mark",
+        lua.create_function(move |_, (paths, clear): (OneOrMany, Option<bool>)| {
+            push(&r, Request::Mark { paths: paths.0, clear: clear.unwrap_or(false) });
+            Ok(())
+        })?,
+    )?;
+    let r = reg.clone();
+    strata.set(
+        "show",
+        lua.create_function(move |_, (title, paths): (String, Vec<String>)| {
+            push(&r, Request::Show { title, paths });
+            Ok(())
+        })?,
+    )?;
+    let r = reg.clone();
+    strata.set(
+        "tag",
+        lua.create_function(move |_, (paths, tag): (OneOrMany, String)| {
+            push(&r, Request::Tag { paths: paths.0, tag, add: true });
+            Ok(())
+        })?,
+    )?;
+    let r = reg.clone();
+    strata.set(
+        "untag",
+        lua.create_function(move |_, (paths, tag): (OneOrMany, Option<String>)| {
+            push(&r, Request::Tag { paths: paths.0, tag: tag.unwrap_or_default(), add: false });
+            Ok(())
+        })?,
+    )?;
+
+    let r = reg.clone();
+    strata.set(
         "select",
         lua.create_function(move |_, (title, items, f): (String, Vec<String>, Function)| {
             let callback = r.borrow_mut().store(f);
@@ -246,6 +279,18 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
 
     lua.globals().set("strata", strata)?;
     Ok(())
+}
+
+/// A path or a list of paths.
+struct OneOrMany(Vec<String>);
+
+impl mlua::FromLua for OneOrMany {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        match value {
+            Value::String(s) => Ok(Self(vec![s.to_str()?.to_string()])),
+            other => Ok(Self(Vec::<String>::from_lua(other, lua)?)),
+        }
+    }
 }
 
 fn strata_which(program: &str) -> bool {

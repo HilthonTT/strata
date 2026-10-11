@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use strata_core::find::{Query, LIMIT};
-use strata_plugin::Level;
+use strata_plugin::{Level, PluginValue};
 
 use super::overlay::{InputPurpose, InputState, Overlay};
 use super::panel::{Flat, FlatSource};
@@ -101,5 +101,11 @@ impl App {
         } else if count == 0 {
             self.info(format!("{}: no matches", flat.title));
         }
+        let data = PluginValue::map([
+            ("title", PluginValue::str(flat.title)),
+            ("count", PluginValue::Int(count as i64)),
+            ("truncated", PluginValue::Bool(flat.truncated)),
+        ]);
+        self.emit_plugin_event_with("find", data);
     }
 }

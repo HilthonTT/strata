@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use strata_core::bulk;
 use strata_core::pattern::{self, Item, Pattern};
 use strata_core::VfsRef;
-use strata_plugin::Level;
+use strata_plugin::{Level, PluginValue};
 
 use super::overlay::{InputPurpose, InputState, Overlay, RenamePreview};
 use super::undo::UndoOp;
@@ -96,14 +96,23 @@ impl App {
         self.reload_all();
     }
 
-    /// Carries tags along with each rename in `dir`.
+    /// Carries tags along and tells plugins about each rename in `dir`.
     pub(super) fn after_renames(&mut self, vfs: &VfsRef, dir: &std::path::Path, renames: &[bulk::Rename]) {
-        if !vfs.is_local() {
-            return;
-        }
         for r in renames {
-            self.tags.moved(&dir.join(&r.from), &dir.join(&r.to));
+            let (from, to) = (vfs.join(dir, &r.from), vfs.join(dir, &r.to));
+            if vfs.is_local() {
+                self.tags.moved(&from, &to);
+            }
+            self.emit_rename_event(&from, &to);
         }
+    }
+
+    pub(super) fn emit_rename_event(&mut self, from: &std::path::Path, to: &std::path::Path) {
+        let data = PluginValue::map([
+            ("from", PluginValue::str(from.to_string_lossy())),
+            ("to", PluginValue::str(to.to_string_lossy())),
+        ]);
+        self.emit_plugin_event_with("rename", data);
     }
 
     /// `:rename-pattern <pattern>` renames without the prompt.

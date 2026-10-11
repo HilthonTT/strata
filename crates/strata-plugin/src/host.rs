@@ -147,10 +147,13 @@ impl PluginHost {
         f.call::<R>(args).map_err(lua_err)
     }
 
-    /// Fires an event (`cd`, `hover`, `startup`, `paste`...) at every handler.
-    pub fn emit(&self, event: &str, ctx: &Context) -> Vec<String> {
+    /// Fires an event (`cd`, `hover`, `startup`, `paste`...) at every
+    /// handler, as `handler(ctx, data)`. Returns the errors.
+    pub fn emit(&self, event: &str, ctx: &Context, data: PluginValue) -> Vec<String> {
         let ids = self.reg.borrow().handlers.get(event).cloned().unwrap_or_default();
-        ids.into_iter().filter_map(|id| self.call(id, ctx.clone()).err().map(|e| format!("{e:#}"))).collect()
+        ids.into_iter()
+            .filter_map(|id| self.call(id, (ctx.clone(), data.clone())).err().map(|e| format!("{e:#}")))
+            .collect()
     }
 
     pub fn has_handlers(&self, event: &str) -> bool {
@@ -285,9 +288,41 @@ mod tests {
         let mut h = host();
         assert!(h.load("bad", "this is not lua", false, None).is_err());
         h.load("ok", "strata.on('cd', function() error('boom') end)", false, None).unwrap();
-        let errors = h.emit("cd", &Context::default());
+        let errors = h.emit("cd", &Context::default(), PluginValue::Nil);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("boom"));
+    }
+
+    #[test]
+    fn events_carry_data_and_new_requests_queue() {
+        let mut h = host();
+        h.load(
+            "ev",
+            r#"
+            strata.on("rename", function(ctx, e)
+              strata.notify(e.from .. " -> " .. e.to .. " in tab " .. ctx.tab)
+              strata.mark({ e.to })
+              strata.tag(e.to, "red")
+              strata.untag({ e.from })
+              strata.show("Renamed", { e.to })
+            end)
+            "#,
+            false,
+            None,
+        )
+        .unwrap();
+        let data = PluginValue::map([("from", PluginValue::str("/a")), ("to", PluginValue::str("/b"))]);
+        assert!(h.emit("rename", &Context::default(), data).is_empty());
+        assert_eq!(
+            h.drain(),
+            vec![
+                Request::Notify { message: "/a -> /b in tab 1".into(), level: crate::Level::Info },
+                Request::Mark { paths: vec!["/b".into()], clear: false },
+                Request::Tag { paths: vec!["/b".into()], tag: "red".into(), add: true },
+                Request::Tag { paths: vec!["/a".into()], tag: String::new(), add: false },
+                Request::Show { title: "Renamed".into(), paths: vec!["/b".into()] },
+            ]
+        );
     }
 
     #[test]
