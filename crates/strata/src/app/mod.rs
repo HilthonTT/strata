@@ -9,6 +9,7 @@ mod archives;
 pub use actions::short_path;
 mod commands;
 mod dirsize;
+mod dupes;
 pub use commands::COMMANDS;
 mod external;
 mod fileops;
@@ -220,6 +221,8 @@ pub struct App {
     pub dir_sizes: dirsize::DirSizes,
     /// Transfers that can be resumed if their job fails, by job id.
     retryable: HashMap<u64, (strata_core::ops::Transfer, Arc<strata_core::ops::TransferLog>)>,
+    /// The last `:dupes` scan, for `:dupes keep` and the picker.
+    dupes: Option<dupes::DupeScan>,
     /// Border characters, from `border` and `border_chars`.
     pub border: ratatui::symbols::border::Set<'static>,
     last_click: Option<(Instant, u16, u16)>,
@@ -353,6 +356,7 @@ impl App {
             layout: LayoutCache::default(),
             dir_sizes: dirsize::DirSizes::default(),
             retryable: HashMap::new(),
+            dupes: None,
             border,
             last_click: None,
             external: None,
@@ -604,6 +608,7 @@ impl App {
                 self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll: 0, colored: true }));
             }
             AppEvent::SyncPlanned(request) => self.on_sync_planned(*request),
+            AppEvent::Dupes { root, report } => self.on_dupes_found(root, report),
             AppEvent::Clipboard { text, message } => {
                 actions::copy_to_clipboard(&text);
                 self.info(message);

@@ -82,6 +82,11 @@ pub enum AppEvent {
     },
     /// A sync plan is ready to confirm (or to show, for a dry run).
     SyncPlanned(Box<crate::app::sync::SyncRequest>),
+    /// Duplicate files found below `root`.
+    Dupes {
+        root: PathBuf,
+        report: strata_core::dupes::DupeReport,
+    },
     /// Text to put on the system clipboard (from the UI thread).
     Clipboard {
         text: String,

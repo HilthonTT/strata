@@ -87,7 +87,7 @@ impl App {
                     KeyCode::Up => picker.move_by(-1),
                     KeyCode::Down | KeyCode::Tab => picker.move_by(1),
                     KeyCode::Char(c @ ('d' | 'e')) if ctrl => {
-                        if self.trash_picker_key(c) {
+                        if self.trash_picker_key(c) || self.dupes_picker_key(c) {
                             return;
                         }
                     }
@@ -175,7 +175,8 @@ impl App {
                 PickerPurpose::Find { .. }
                 | PickerPurpose::Sort
                 | PickerPurpose::Grep { .. }
-                | PickerPurpose::Trash { .. } => {}
+                | PickerPurpose::Trash { .. }
+                | PickerPurpose::Dupes { .. } => {}
             },
             other => self.overlay = other,
         }
@@ -208,6 +209,7 @@ impl App {
             Confirm::PurgeTrash(items) => self.purge_trash(Some(items)),
             Confirm::EmptyTrash => self.purge_trash(None),
             Confirm::Sync(request) => self.start_sync(*request),
+            Confirm::TrashDupe(path) => self.trash_dupe(path),
             Confirm::Quit => {
                 self.jobs.cancel_all();
                 self.quit();

@@ -125,12 +125,26 @@ impl InputState {
 
 /// What a picker selection does.
 pub enum PickerPurpose {
-    Theme { original: String },
-    Find { vfs: VfsRef, root: PathBuf },
+    Theme {
+        original: String,
+    },
+    Find {
+        vfs: VfsRef,
+        root: PathBuf,
+    },
     Plugin(usize),
     Sort,
-    Grep { root: PathBuf, hits: Vec<super::grep::GrepHit> },
-    Trash { items: Vec<TrashedItem> },
+    Grep {
+        root: PathBuf,
+        hits: Vec<super::grep::GrepHit>,
+    },
+    Trash {
+        items: Vec<TrashedItem>,
+    },
+    /// The file behind each row of the duplicates picker.
+    Dupes {
+        paths: Vec<PathBuf>,
+    },
 }
 
 pub struct PickerState {
@@ -210,6 +224,8 @@ pub enum Confirm {
     PurgeTrash(Vec<TrashedItem>),
     EmptyTrash,
     Sync(Box<super::sync::SyncRequest>),
+    /// Trash one copy of a duplicate, then show the duplicates again.
+    TrashDupe(PathBuf),
     Quit,
 }
 

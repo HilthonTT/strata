@@ -27,6 +27,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("chown", "chown [-R] <user[:group]> — change the owner"),
     ("compare", "compare — diff two marked items, or the hovered one with the next panel"),
     ("sync", "sync [--mirror] [--newer] [--dry-run] — copy missing and changed files into the next panel"),
+    ("dupes", "dupes [keep oldest|newest|shortest] — find duplicate files here, or trash all but one copy"),
     ("checksum", "checksum [md5|sha1|sha256|sha512] — show checksums, or copy one"),
     ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
     ("compress", "compress [name] — pack marked items into a .zip or .tar.* archive"),
@@ -108,6 +109,7 @@ impl App {
             "chown" => self.error("usage: chown [-R] user[:group]"),
             "compare" | "diff" => self.dispatch(Action::Compare),
             "sync" => self.sync_command(args),
+            "dupes" | "duplicates" => self.dupes_command(args),
             "checksum" | "hash" => self.checksum(Some(args)),
             "compress" => self.compress_command(args),
             "extract" => self.extract_command(),
@@ -417,6 +419,11 @@ impl App {
             PickerPurpose::Sort => {
                 if let Some(index) = picker.selected_index() {
                     self.apply_sort_choice(index);
+                }
+            }
+            PickerPurpose::Dupes { paths } => {
+                if let Some(path) = selected_index.and_then(|i| paths.get(i)) {
+                    self.reveal(path.clone());
                 }
             }
             PickerPurpose::Trash { mut items } => {

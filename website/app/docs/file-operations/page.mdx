@@ -74,6 +74,17 @@ diff_tool = "nvim -d"   # or "meld", "code --diff --wait", "delta"…
 
 Files are compared by content, like <Kbd>C</Kbd>, so a sync works across local, SFTP and Docker locations. Replaced and deleted items go to the trash on local folders, and the whole sync can be undone; on remote folders they are removed for good, and only the copies can be undone. One failing item does not stop the others.
 
+## Duplicates
+
+`:dupes` finds duplicate files below the current folder: files of the same size are compared by content (SHA-256). Empty files, symbolic links and extra hard links to the same file are left out, and so are hidden files unless they are shown. The results open in a list, biggest savings first, numbered by group:
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>enter</Kbd> | Go to the file |
+| <Kbd>ctrl+d</Kbd> | Trash this copy, then show the list again |
+
+`:dupes keep oldest`, `keep newest` or `keep shortest` (the shortest path, usually the original rather than `copy (2)`) trashes every other copy in each group, after asking. Files that changed since the scan are left alone, and the trashing can be undone. Finding duplicates works on local folders.
+
 ## Checksums
 
 <Kbd>#</Kbd> shows the MD5, SHA-1 and SHA-256 of the marked files. `:checksum sha256` (or `md5`, `sha1`, `sha512`) copies the hovered file's checksum to the clipboard instead.
