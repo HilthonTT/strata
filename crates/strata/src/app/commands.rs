@@ -20,9 +20,12 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
     ("rename-pattern", "rename-pattern <pattern> — rename marked items: photo-{n:3}{.ext}, s/find/repl/gi"),
-    ("select", "select <glob> — mark matching items"),
-    ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] — list matches below here"),
+    ("select", "select <glob>|tag:<name> — mark matching items"),
+    ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] [--tag t] — list matches below here"),
     ("flatten", "flatten — list every file below this folder, or go back"),
+    ("tag", "tag [name] — tag or colour-label marked items (no name: menu)"),
+    ("untag", "untag [name] — remove a tag, or every tag, from marked items"),
+    ("tags", "tags [prune] — browse tagged items, or forget missing ones"),
     ("duplicate", "duplicate — copy marked items next to themselves"),
     ("link", "link [-r] — paste the clipboard as (relative) symbolic links"),
     ("hardlink", "hardlink — paste the clipboard as hard links"),
@@ -90,12 +93,18 @@ impl App {
                 }
             }
             "select" => {
-                let n = self.panel_mut().mark_glob(if args.is_empty() { "*" } else { args });
+                let n = match args.strip_prefix("tag:") {
+                    Some(tag) => self.select_tagged(tag),
+                    None => self.panel_mut().mark_glob(if args.is_empty() { "*" } else { args }),
+                };
                 self.info(format!("marked {n} item(s)"));
             }
             "rename-pattern" | "rename-all" | "rp" => self.rename_pattern_command(args),
             "find" => self.find_command(args),
             "flatten" | "flat" => self.toggle_flatten(),
+            "tag" => self.tag_command(args),
+            "untag" => self.untag_command(args),
+            "tags" => self.tags_command(args),
             "duplicate" | "dup" => self.dispatch(Action::Duplicate),
             "link" | "symlink" | "ln" => match args {
                 "" => self.dispatch(Action::PasteSymlink),
@@ -334,6 +343,9 @@ impl App {
         }
         match vfs.rename(&from, &to) {
             Ok(()) => {
+                if vfs.is_local() {
+                    self.tags.moved(&from, &to);
+                }
                 self.panel_mut().reload();
                 self.panel_mut().focus_path(&to);
                 self.push_undo(format!("rename to {new_name}"), vec![super::undo::UndoOp::Rename { vfs, from, to }]);
@@ -435,6 +447,15 @@ impl App {
                     self.restore_trashed(items.swap_remove(i));
                 }
             }
+            PickerPurpose::Tag { paths, tags } => {
+                let tag = selected_index.and_then(|i| tags.get(i)).cloned();
+                self.tag_menu_chosen(paths, tag, picker.query);
+            }
+            PickerPurpose::Tags { tags } => {
+                if let Some(tag) = selected_index.and_then(|i| tags.get(i)).cloned() {
+                    self.show_tagged(&tag);
+                }
+            }
         }
     }
 
@@ -468,6 +489,13 @@ impl App {
                     .filter(|c| c.name.starts_with(arg))
                     .map(|c| format!("{cmd} {}", c.name))
                     .collect(),
+                Some((cmd @ ("tag" | "untag"), arg)) => {
+                    let mut names: Vec<String> = strata_core::tags::COLORS.iter().map(|c| c.to_string()).collect();
+                    names.extend(self.tags.all().into_keys());
+                    names.sort();
+                    names.dedup();
+                    names.into_iter().filter(|n| n.starts_with(arg)).map(|n| format!("{cmd} {n}")).collect()
+                }
                 Some((cmd @ ("cd" | "local"), arg)) => {
                     self.complete_path(arg).into_iter().map(|p| format!("{cmd} {p}")).collect()
                 }

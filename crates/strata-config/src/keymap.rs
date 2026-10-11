@@ -90,8 +90,9 @@ actions! {
     RetryJob => "retry_job", "Resume the latest failed or cancelled copy";
     Filter => "filter", "Filter the current directory";
     FuzzyFind => "fuzzy_find", "Fuzzy-find files recursively";
-    FindPrompt => "find_prompt", "Find files by name, size, age or type";
+    FindPrompt => "find_prompt", "Find files by name, size, age, type or tag";
     Flatten => "flatten", "List every file below this folder / back";
+    TagMenu => "tag_menu", "Tag or colour-label marked items";
     ContentSearch => "content_search", "Search file contents (ripgrep)";
     Undo => "undo", "Undo the last file operation";
     Redo => "redo", "Redo what was undone";
@@ -359,6 +360,7 @@ const COMMON: &[(&str, &str)] = &[
     ("#", "checksum"),
     ("U", "open_trash"),
     ("X", ":extract"),
+    (",", "tag_menu"),
     ("q", "quit"),
     ("Q", "quit_cd"),
     ("ctrl+g", "content_search"),

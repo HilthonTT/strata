@@ -181,7 +181,9 @@ impl App {
                 | PickerPurpose::Sort
                 | PickerPurpose::Grep { .. }
                 | PickerPurpose::Trash { .. }
-                | PickerPurpose::Dupes { .. } => {}
+                | PickerPurpose::Dupes { .. }
+                | PickerPurpose::Tag { .. }
+                | PickerPurpose::Tags { .. } => {}
             },
             other => self.overlay = other,
         }

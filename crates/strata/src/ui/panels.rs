@@ -13,7 +13,7 @@ use strata_core::util::{human_size, permissions_string};
 use strata_core::EntryKind;
 use unicode_width::UnicodeWidthStr;
 
-use super::{block, fit, icons, panels_focused, truncate, truncate_left};
+use super::{block, fit, icons, panels_focused, tag_color, truncate, truncate_left};
 use crate::app::{short_path, App};
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -140,7 +140,10 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
             let icon = icons::icon(entry, general.icons);
             spans.push(Span::styled(format!("{icon} "), Style::default().fg(icons::color(entry, theme))));
 
-            let name_room = name_w.saturating_sub(icon.width() + 1);
+            // Coloured dots for tags, after the name.
+            let tags = app.tags.get(&entry.path);
+            let dots = tags.len().min(3);
+            let name_room = name_w.saturating_sub(icon.width() + 1 + if dots > 0 { dots + 1 } else { 0 });
             let label = panel.label(entry);
             let name = truncate(&label, name_room);
             for (ci, ch) in name.chars().enumerate() {
@@ -150,6 +153,12 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
                     name_style
                 };
                 spans.push(Span::styled(ch.to_string(), style));
+            }
+            if dots > 0 {
+                spans.push(Span::raw(" "));
+                for tag in &tags[..dots] {
+                    spans.push(Span::styled("●", Style::default().fg(tag_color(tag, theme))));
+                }
             }
             spans.push(Span::raw(" ".repeat(name_room.saturating_sub(name.width()))));
 

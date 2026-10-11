@@ -153,6 +153,21 @@ pub fn block<'a>(theme: &Theme, border_set: border::Set<'static>, title: &str, f
     }
 }
 
+/// Colour of a tag: its own for colour names, the accent for the rest.
+pub fn tag_color(tag: &str, theme: &Theme) -> Color {
+    let p = &theme.palette;
+    match tag {
+        "red" => p.red,
+        "orange" => p.orange,
+        "yellow" => p.yellow,
+        "green" => p.green,
+        "blue" => p.blue,
+        "purple" => p.purple,
+        "gray" => p.muted,
+        _ => p.accent,
+    }
+}
+
 pub fn panels_focused(app: &App) -> bool {
     app.focus == Focus::Panels && app.overlay.is_none()
 }

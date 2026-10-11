@@ -27,9 +27,11 @@ pub struct Listing {
 pub enum FlatSource {
     /// Everything below the directory matching a query (`:find`, `:flatten`).
     Walk(Query),
+    /// A fixed set of paths (from a plugin).
+    Paths(Vec<PathBuf>),
 }
 
-/// A recursive listing shown in place of the directory.
+/// A recursive or hand-picked listing shown in place of the directory.
 #[derive(Clone)]
 pub struct Flat {
     /// Shown in the panel title, e.g. `find *.log --size +1M`.
@@ -194,6 +196,7 @@ impl Panel {
                     (Ok(found.entries), found.truncated)
                 }
                 FlatSource::Walk(_) => (Err("searching works on local folders".into()), false),
+                FlatSource::Paths(paths) => (Ok(paths.iter().filter_map(|p| vfs.stat(p).ok()).collect()), false),
             }
         };
         match self.lister.clone() {
@@ -497,6 +500,15 @@ impl Panel {
             .collect()
     }
 
+    /// Marks the listed entries among `paths`. Returns how many.
+    pub fn mark_paths(&mut self, paths: &HashSet<PathBuf>) -> usize {
+        let found: Vec<PathBuf> =
+            self.entries.iter().filter(|e| paths.contains(&e.path)).map(|e| e.path.clone()).collect();
+        let n = found.len();
+        self.marked.extend(found);
+        n
+    }
+
     /// Like [`Panel::targets`], with the full entries.
     pub fn target_entries(&self) -> Vec<Entry> {
         if self.marked.is_empty() {
@@ -597,6 +609,15 @@ mod tests {
         assert!(p.cd(dir.path().join("a")));
         assert!(p.flat.is_none());
         assert_eq!(p.hovered().unwrap().name, "b");
+
+        let fixed = vec![dir.path().join("top.txt"), dir.path().join("missing")];
+        p.set_flat(Some(Flat {
+            title: "x".into(),
+            source: FlatSource::Paths(fixed),
+            truncated: false,
+            announced: false,
+        }));
+        assert_eq!(p.len(), 1, "paths that do not exist are left out");
     }
 
     /// Pretends to be remote so listings go through the background path.

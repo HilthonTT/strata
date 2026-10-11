@@ -231,6 +231,7 @@ impl App {
             RenamePattern => self.rename_pattern(""),
             FindPrompt => self.find_prompt(),
             Flatten => self.toggle_flatten(),
+            TagMenu => self.tag_menu(),
             NewFile => self.overlay = Some(Overlay::Input(InputState::new("New file", "", InputPurpose::NewFile))),
             NewDir => self.overlay = Some(Overlay::Input(InputState::new("New directory", "", InputPurpose::NewDir))),
             CopyPath => self.copy_path(),
@@ -427,6 +428,7 @@ impl App {
         match item {
             SidebarItem::Place { path, .. } | SidebarItem::Pinned(path) => self.cd_local(path),
             SidebarItem::Disk { mount, .. } => self.cd_local(mount),
+            SidebarItem::Tag { name, .. } => self.show_tagged(&name),
             SidebarItem::Connection(name) => {
                 if let Some(conn) = self.config.connections.iter().find(|c| c.name == name).cloned() {
                     self.open_connection(conn);
@@ -442,6 +444,7 @@ impl App {
             &self.pinned,
             &self.metrics.disks,
             &self.config.connections,
+            &self.tags.all(),
         );
     }
 

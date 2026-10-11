@@ -1,11 +1,12 @@
-//! Recursive listings filtered by name, size, age, type and extension,
+//! Recursive listings filtered by name, size, age, type, extension and tag,
 //! for `:find` and `:flatten`.
 //!
 //! A query is a list of words: `*.log --size +100M --mtime -7d --type f`.
 //! Words that are not flags are name globs; a name matching any of them
 //! passes. Every flag must match.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
@@ -52,6 +53,10 @@ pub struct Query {
     pub kind: Option<KindFilter>,
     /// Lower-case extensions without the dot.
     pub exts: Vec<String>,
+    /// Tags the entry must all have.
+    pub tags: Vec<String>,
+    /// Paths carrying every tag in `tags`, filled in by the caller.
+    pub tagged: Option<HashSet<PathBuf>>,
     /// Levels below the root to descend; `None` is unlimited.
     pub max_depth: Option<usize>,
     /// Also descend into `.git`, `node_modules`, `target`...
@@ -109,6 +114,9 @@ impl Query {
                         .filter(|e| !e.is_empty()),
                 ),
                 "name" => q.names.push(value("name")?),
+                "tag" => {
+                    q.tags.extend(value("tag")?.split(',').map(str::trim).filter(|t| !t.is_empty()).map(String::from))
+                }
                 "depth" | "maxdepth" => {
                     let v = value("depth")?;
                     q.max_depth = Some(v.parse().with_context(|| format!("--depth: '{v}' is not a number"))?);
@@ -151,6 +159,11 @@ impl Query {
         }
         if !self.exts.is_empty() && !self.exts.contains(&entry.extension()) {
             return false;
+        }
+        if let Some(tagged) = &self.tagged {
+            if !tagged.contains(&entry.path) {
+                return false;
+            }
         }
         if self.empty && !is_empty(entry) {
             return false;
@@ -315,5 +328,17 @@ mod tests {
         assert_eq!(names("--depth 2 --type f", false), vec!["big.log"]);
         assert_eq!(names("note", false), vec!["notes.txt"]);
         assert_eq!(names("--mtime +1d", false), Vec::<String>::new());
+    }
+
+    #[test]
+    fn tags_restrict_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a"), "").unwrap();
+        std::fs::write(dir.path().join("b"), "").unwrap();
+        let mut q = Query::parse("--tag red").unwrap();
+        q.tagged = Some([dir.path().join("b")].into_iter().collect());
+        let found = walk(dir.path(), &q, false, &AtomicBool::new(false));
+        assert_eq!(found.entries.len(), 1);
+        assert_eq!(found.entries[0].name, "b");
     }
 }

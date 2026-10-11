@@ -261,6 +261,10 @@ impl App {
                 ops
             }
             PendingUndo::Inverse { entry, to_redo } => {
+                if *state == JobState::Done {
+                    // The inverse describes the state undo or redo left behind.
+                    self.follow_tags(&entry.ops);
+                }
                 if *state == JobState::Done && !entry.ops.is_empty() {
                     let stack = if to_redo { &mut self.undo.redo } else { &mut self.undo.entries };
                     push_capped(stack, entry);
@@ -268,7 +272,26 @@ impl App {
                 return;
             }
         };
+        self.follow_tags(&ops);
         self.push_undo(label, ops);
+    }
+
+    /// Moves tags along with items that were renamed or moved locally.
+    fn follow_tags(&mut self, ops: &[UndoOp]) {
+        for op in ops {
+            match op {
+                UndoOp::Rename { vfs, from, to } if vfs.is_local() => self.tags.moved(from, to),
+                UndoOp::BulkRename { vfs, dir, plan } if vfs.is_local() => {
+                    for r in plan {
+                        self.tags.moved(&dir.join(&r.from), &dir.join(&r.to));
+                    }
+                }
+                UndoOp::Moved { from_vfs, original, to_vfs, current } if from_vfs.is_local() && to_vfs.is_local() => {
+                    self.tags.moved(original, current)
+                }
+                _ => {}
+            }
+        }
     }
 
     pub(super) fn undo(&mut self) {

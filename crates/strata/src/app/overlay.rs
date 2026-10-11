@@ -161,6 +161,15 @@ pub enum PickerPurpose {
     Dupes {
         paths: Vec<PathBuf>,
     },
+    /// The tag menu for these items; `tags[i]` is row `i` (`""` clears).
+    Tag {
+        paths: Vec<PathBuf>,
+        tags: Vec<String>,
+    },
+    /// Every tag, to list what carries it.
+    Tags {
+        tags: Vec<String>,
+    },
 }
 
 pub struct PickerState {

@@ -1,5 +1,7 @@
-//! Sidebar: well-known places, pinned directories, disks and NAS connections.
+//! Sidebar: well-known places, pinned directories, disks, NAS connections
+//! and tags.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use strata_config::SidebarSection;
@@ -13,6 +15,7 @@ pub enum SidebarItem {
     Pinned(PathBuf),
     Disk { label: String, mount: PathBuf, ratio: f64, network: bool },
     Connection(String),
+    Tag { name: String, count: usize },
 }
 
 impl SidebarItem {
@@ -35,6 +38,7 @@ impl Sidebar {
         pinned: &[PathBuf],
         disks: &[DiskInfo],
         connections: &[Connection],
+        tags: &BTreeMap<String, usize>,
     ) {
         let mut items = Vec::new();
         let mut shown = Vec::new();
@@ -64,6 +68,10 @@ impl Sidebar {
                 SidebarSection::Network if !connections.is_empty() => {
                     items.push(SidebarItem::Header("Network"));
                     items.extend(connections.iter().map(|c| SidebarItem::Connection(c.name.clone())));
+                }
+                SidebarSection::Tags if !tags.is_empty() => {
+                    items.push(SidebarItem::Header("Tags"));
+                    items.extend(tags.iter().map(|(name, &count)| SidebarItem::Tag { name: name.clone(), count }));
                 }
                 _ => {}
             }
@@ -154,7 +162,7 @@ mod tests {
     #[test]
     fn cursor_skips_headers() {
         let mut s = Sidebar::default();
-        s.rebuild(&SidebarSection::ALL, &[PathBuf::from("/tmp")], &[], &[]);
+        s.rebuild(&SidebarSection::ALL, &[PathBuf::from("/tmp")], &[], &[], &BTreeMap::new());
         assert!(s.selected().is_some());
         s.last();
         s.move_by(-100);
@@ -166,10 +174,19 @@ mod tests {
     #[test]
     fn sections_follow_the_config() {
         let mut s = Sidebar::default();
-        s.rebuild(&[SidebarSection::Pinned, SidebarSection::Pinned], &[PathBuf::from("/tmp")], &[], &[]);
+        s.rebuild(
+            &[SidebarSection::Pinned, SidebarSection::Pinned],
+            &[PathBuf::from("/tmp")],
+            &[],
+            &[],
+            &BTreeMap::new(),
+        );
         assert!(matches!(s.items[..], [SidebarItem::Header("Pinned"), SidebarItem::Pinned(_)]));
-        s.rebuild(&[], &[PathBuf::from("/tmp")], &[], &[]);
+        s.rebuild(&[], &[PathBuf::from("/tmp")], &[], &[], &BTreeMap::new());
         assert!(s.items.is_empty());
         assert!(s.selected().is_none());
+        let tags = BTreeMap::from([("red".to_string(), 2)]);
+        s.rebuild(&[SidebarSection::Tags], &[], &[], &[], &tags);
+        assert!(matches!(&s.items[1], SidebarItem::Tag { name, count: 2 } if name == "red"));
     }
 }

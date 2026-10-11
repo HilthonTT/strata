@@ -8,7 +8,7 @@ use ratatui::Frame;
 use strata_core::nas::Reachability;
 use unicode_width::UnicodeWidthStr;
 
-use super::{block, truncate};
+use super::{block, tag_color, truncate};
 use crate::app::sidebar::SidebarItem;
 use crate::app::{App, Focus};
 
@@ -113,6 +113,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                         Span::styled(truncate(name, width.saturating_sub(4)), style),
                     ])
                 }
+                SidebarItem::Tag { name, count } => {
+                    let count = format!(" {count}");
+                    let name_w = width.saturating_sub(4 + count.width());
+                    Line::from(vec![
+                        cursor,
+                        Span::styled("● ", Style::default().fg(tag_color(name, theme))),
+                        Span::styled(format!("{:<name_w$}", truncate(name, name_w)), style),
+                        Span::styled(count, Style::default().fg(theme.muted)),
+                    ])
+                }
             }
         })
         .collect();
@@ -124,6 +134,7 @@ fn header_icon(header: &str) -> &'static str {
         "Pinned" => "\u{f08d}",
         "Disks" => "\u{f0a0}",
         "Network" => "\u{f0c2}",
+        "Tags" => "\u{f02c}",
         _ => "\u{f015}",
     }
 }

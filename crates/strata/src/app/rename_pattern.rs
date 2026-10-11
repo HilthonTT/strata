@@ -76,6 +76,7 @@ impl App {
                 failed = Some(format!("{}: {e:#}", dir.display()));
                 break;
             }
+            self.after_renames(&vfs, &dir, &renames);
             ops.push(UndoOp::BulkRename { vfs: vfs.clone(), dir, plan: renames });
         }
         let done: usize = ops
@@ -93,6 +94,16 @@ impl App {
         }
         self.panel_mut().clear_marks();
         self.reload_all();
+    }
+
+    /// Carries tags along with each rename in `dir`.
+    pub(super) fn after_renames(&mut self, vfs: &VfsRef, dir: &std::path::Path, renames: &[bulk::Rename]) {
+        if !vfs.is_local() {
+            return;
+        }
+        for r in renames {
+            self.tags.moved(&dir.join(&r.from), &dir.join(&r.to));
+        }
     }
 
     /// `:rename-pattern <pattern>` renames without the prompt.

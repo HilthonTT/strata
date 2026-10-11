@@ -84,10 +84,11 @@ pub enum SidebarSection {
     Pinned,
     Disks,
     Network,
+    Tags,
 }
 
 impl SidebarSection {
-    pub const ALL: [Self; 4] = [Self::Places, Self::Pinned, Self::Disks, Self::Network];
+    pub const ALL: [Self; 5] = [Self::Places, Self::Pinned, Self::Disks, Self::Network, Self::Tags];
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

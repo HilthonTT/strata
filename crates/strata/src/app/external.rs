@@ -346,6 +346,7 @@ impl App {
             Ok(plan) if plan.is_empty() => self.info("nothing renamed"),
             Ok(plan) => {
                 self.info(format!("renamed {} item(s)", plan.len()));
+                self.after_renames(&vfs, &dir, &plan);
                 let label = format!("rename {} items", plan.len());
                 self.push_undo(label, vec![super::undo::UndoOp::BulkRename { vfs, dir, plan }]);
             }

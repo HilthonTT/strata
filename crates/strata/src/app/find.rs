@@ -2,6 +2,8 @@
 //! folder that matches a query, shown in the panel itself so every file
 //! operation works on the results.
 
+use std::path::PathBuf;
+
 use strata_core::find::{Query, LIMIT};
 use strata_plugin::Level;
 
@@ -10,7 +12,7 @@ use super::panel::{Flat, FlatSource};
 use super::App;
 
 pub const FIND_USAGE: &str = "find [glob…] [--size +100M|-1K] [--mtime -7d|+1y] [--type f|d|l] [--ext a,b] \
-                              [--depth n] [--empty] [--all]";
+                              [--tag t] [--depth n] [--empty] [--all]";
 
 impl App {
     /// `:find <query>` lists matches below the focused folder.
@@ -21,10 +23,13 @@ impl App {
         if !self.panel().vfs.is_local() {
             return self.notify("finding works on local folders", Level::Warn);
         }
-        let query = match Query::parse(args) {
+        let mut query = match Query::parse(args) {
             Ok(q) => q,
             Err(e) => return self.error(format!("find: {e:#} — usage: {FIND_USAGE}")),
         };
+        if !query.tags.is_empty() {
+            query.tagged = Some(self.tags.with_all(&query.tags));
+        }
         self.show_flat(format!("find {args}"), FlatSource::Walk(query));
     }
 
@@ -33,7 +38,8 @@ impl App {
             Some(title) => title.strip_prefix("find ").unwrap_or("").to_string(),
             None => String::new(),
         };
-        let input = InputState::new("Find (*.log --size +10M --mtime -7d --type f)", current, InputPurpose::Find);
+        let input =
+            InputState::new("Find (*.log --size +10M --mtime -7d --type f --tag red)", current, InputPurpose::Find);
         self.overlay = Some(Overlay::Input(input));
     }
 
@@ -46,6 +52,19 @@ impl App {
             return self.notify("flattening works on local folders", Level::Warn);
         }
         self.show_flat("flatten".into(), FlatSource::Walk(Query::files()));
+    }
+
+    /// Shows `paths` as a flat listing (plugins, tags).
+    pub(super) fn show_paths(&mut self, title: String, paths: Vec<PathBuf>) {
+        if paths.is_empty() {
+            return self.info(format!("{title}: nothing to show"));
+        }
+        if !self.panel().vfs.is_local() {
+            let local = self.local.clone();
+            let home = dirs::home_dir().unwrap_or_default();
+            self.panel_mut().switch_vfs(local, home);
+        }
+        self.show_flat(title, FlatSource::Paths(paths));
     }
 
     fn show_flat(&mut self, title: String, source: FlatSource) {

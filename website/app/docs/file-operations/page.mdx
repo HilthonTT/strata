@@ -54,6 +54,20 @@ s/ +/_/g                      my file.txt   → my_file.txt
 
 Add `|upper`, `|lower` or `|title` to any token: `{name|title}`. Substitutions take the flags `g` (every match) and `i` (ignore case). strata refuses a pattern that gives two items the same name or would overwrite another file.
 
+## Tags
+
+<Kbd>,</Kbd> opens the tag menu for the marked items: pick a colour (`red`, `orange`, `yellow`, `green`, `blue`, `purple`, `gray`) or a tag to switch it on or off, or type a new tag and press <Kbd>enter</Kbd>. Tagged items show coloured dots after their names, and every tag gets an entry in the sidebar that lists what carries it.
+
+| Command | Action |
+| --- | --- |
+| `:tag <name>` / `:untag [name]` | Add a tag / remove one, or all of them |
+| `:tags` | Pick a tag and list everything tagged with it |
+| `:select tag:<name>` | Mark the listed items with that tag |
+| `:find --tag <name>` | Find tagged items below the current folder |
+| `:tags prune` | Forget the tags of items that no longer exist |
+
+Tags are kept in `~/.local/share/strata/tags.tsv` and follow items you rename or move in strata, including through undo. On Linux they are also written to the `user.xdg.tags` extended attribute, which other file managers such as Dolphin read and which survives moves made elsewhere.
+
 ## Duplicate and link
 
 | Keys | Action |

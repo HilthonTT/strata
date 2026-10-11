@@ -32,6 +32,7 @@ mod session;
 pub mod sidebar;
 pub mod sync;
 mod tabs;
+mod tags;
 mod undo;
 mod vcs;
 mod views;
@@ -55,6 +56,7 @@ use strata_core::jobs::Progress;
 use strata_core::jobs::{JobManager, JobState};
 use strata_core::ops::TransferMode;
 use strata_core::sort::SortOptions;
+use strata_core::tags::TagDb;
 use strata_core::vfs::LocalVfs;
 use strata_core::VfsRef;
 use strata_plugin::{Level, PluginHost};
@@ -225,6 +227,8 @@ pub struct App {
     retryable: HashMap<u64, (strata_core::ops::Transfer, Arc<strata_core::ops::TransferLog>)>,
     /// The last `:dupes` scan, for `:dupes keep` and the picker.
     dupes: Option<dupes::DupeScan>,
+    /// Tags and colour labels on local items.
+    pub tags: TagDb,
     /// Border characters, from `border` and `border_chars`.
     pub border: ratatui::symbols::border::Set<'static>,
     last_click: Option<(Instant, u16, u16)>,
@@ -359,6 +363,7 @@ impl App {
             dir_sizes: dirsize::DirSizes::default(),
             retryable: HashMap::new(),
             dupes: None,
+            tags: TagDb::default(),
             border,
             last_click: None,
             external: None,
@@ -380,6 +385,10 @@ impl App {
             .chain(border_error)
             .chain(date_error)
             .for_each(|e| app.notify(e, Level::Warn));
+        match TagDb::load(strata_config::data_dir().join("tags.tsv")) {
+            Ok(tags) => app.tags = tags,
+            Err(e) => app.notify(format!("tags: {e:#}"), Level::Warn),
+        }
         if opts.load_plugins {
             app.load_plugins();
         }
