@@ -26,6 +26,10 @@ pub enum After {
     Reload,
     Mounted(String),
     Unmounted,
+    /// A removable drive (by device) was mounted: open it.
+    DriveMounted(String),
+    /// A removable drive (by name) was ejected.
+    DriveEjected(String),
 }
 
 pub enum External {
@@ -322,6 +326,8 @@ impl App {
                 self.probe_connections();
                 self.info("unmounted");
             }
+            After::DriveMounted(device) => self.drive_mounted(&device),
+            After::DriveEjected(name) => self.drive_ejected(&name),
         }
     }
 

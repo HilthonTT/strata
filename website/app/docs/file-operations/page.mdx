@@ -124,6 +124,14 @@ Files are compared by content, like <Kbd>C</Kbd>, so a sync works across local, 
 
 `:dupes keep oldest`, `keep newest` or `keep shortest` (the shortest path, usually the original rather than `copy (2)`) trashes every other copy in each group, after asking. Files that changed since the scan are left alone, and the trashing can be undone. Finding duplicates works on local folders.
 
+## Removable drives
+
+`:drives` lists USB sticks, SD cards and external disks, mounted or not. <Kbd>enter</Kbd> opens one, mounting it first if needed; <Kbd>ctrl+e</Kbd> ejects it. `:mount <label>` mounts and opens a drive directly.
+
+`:eject` unmounts the drive holding the current folder and powers it off so it can be pulled out safely; `:eject <label>` picks one by name, and <Kbd>d d</Kbd> on a removable disk in the sidebar ejects that one. Panels inside the drive step out of it first.
+
+On Linux this uses `udisksctl` (from udisks2, installed on most desktops; no root needed), on macOS `diskutil`, which mounts external drives by itself.
+
 ## Checksums
 
 <Kbd>#</Kbd> shows the MD5, SHA-1 and SHA-256 of the marked files. `:checksum sha256` (or `md5`, `sha1`, `sha512`) copies the hovered file's checksum to the clipboard instead.

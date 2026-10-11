@@ -415,6 +415,14 @@ impl App {
                     self.rebuild_sidebar();
                 }
             }
+            Action::Delete | Action::DeletePermanent => match self.sidebar.selected().cloned() {
+                Some(SidebarItem::Disk { mount, removable: true, .. }) => {
+                    if !self.eject_sidebar_disk(&mount) {
+                        self.notify("this disk cannot be ejected from here", Level::Warn);
+                    }
+                }
+                _ => self.notify("only removable disks can be ejected from the sidebar", Level::Warn),
+            },
             _ => return false,
         }
         true

@@ -170,6 +170,9 @@ pub enum PickerPurpose {
     Tags {
         tags: Vec<String>,
     },
+    Drives {
+        drives: Vec<strata_sys::drives::Drive>,
+    },
 }
 
 pub struct PickerState {

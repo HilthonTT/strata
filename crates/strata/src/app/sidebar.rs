@@ -13,7 +13,7 @@ pub enum SidebarItem {
     Header(&'static str),
     Place { label: String, path: PathBuf, icon: &'static str },
     Pinned(PathBuf),
-    Disk { label: String, mount: PathBuf, ratio: f64, network: bool },
+    Disk { label: String, mount: PathBuf, ratio: f64, network: bool, removable: bool },
     Connection(String),
     Tag { name: String, count: usize },
 }
@@ -63,6 +63,7 @@ impl Sidebar {
                         mount: d.mount_point.clone(),
                         ratio: d.used_ratio(),
                         network: d.network,
+                        removable: d.removable,
                     }));
                 }
                 SidebarSection::Network if !connections.is_empty() => {

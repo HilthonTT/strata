@@ -9,6 +9,7 @@ mod archives;
 pub use actions::short_path;
 mod commands;
 mod dirsize;
+mod drives;
 mod dupes;
 pub use commands::COMMANDS;
 mod external;

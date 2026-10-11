@@ -5,6 +5,7 @@
 
 pub mod disks;
 pub mod docker;
+pub mod drives;
 pub mod du;
 pub mod history;
 pub mod io;

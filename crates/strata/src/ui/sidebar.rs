@@ -88,9 +88,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                     let s = if here { style.fg(theme.palette.accent) } else { style };
                     Line::from(vec![cursor, Span::styled(truncate(&name, width - 2), s)])
                 }
-                SidebarItem::Disk { label, ratio, network, .. } => {
+                SidebarItem::Disk { label, ratio, network, removable, .. } => {
                     let pct = format!("{:>3.0}%", ratio * 100.0);
-                    let glyph = if *network { icon("\u{f0c2} ", "~ ") } else { icon("\u{f0a0} ", "") };
+                    let glyph = match (network, removable) {
+                        (true, _) => icon("\u{f0c2} ", "~ "),
+                        (false, true) => icon("\u{f052} ", "⏏ "),
+                        (false, false) => icon("\u{f0a0} ", ""),
+                    };
                     let name_w = width.saturating_sub(2 + glyph.width() + pct.width() + 1);
                     Line::from(vec![
                         cursor,

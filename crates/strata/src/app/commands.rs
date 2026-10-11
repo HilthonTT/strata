@@ -26,6 +26,9 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("tag", "tag [name] — tag or colour-label marked items (no name: menu)"),
     ("untag", "untag [name] — remove a tag, or every tag, from marked items"),
     ("tags", "tags [prune] — browse tagged items, or forget missing ones"),
+    ("drives", "drives — removable drives: open, mount or eject"),
+    ("mount", "mount <drive> — mount a removable drive and open it"),
+    ("eject", "eject [drive] — unmount and power off a removable drive"),
     ("duplicate", "duplicate — copy marked items next to themselves"),
     ("link", "link [-r] — paste the clipboard as (relative) symbolic links"),
     ("hardlink", "hardlink — paste the clipboard as hard links"),
@@ -105,6 +108,9 @@ impl App {
             "tag" => self.tag_command(args),
             "untag" => self.untag_command(args),
             "tags" => self.tags_command(args),
+            "drives" => self.drives_command(""),
+            "mount" => self.drives_command(args),
+            "eject" => self.eject_command(args),
             "duplicate" | "dup" => self.dispatch(Action::Duplicate),
             "link" | "symlink" | "ln" => match args {
                 "" => self.dispatch(Action::PasteSymlink),
@@ -154,6 +160,7 @@ impl App {
             "connect" => self.connect_command(args),
             "disconnect" | "unmount" => match self.connection(args) {
                 Some(conn) => self.unmount(conn),
+                None if cmd == "unmount" => self.eject_command(args),
                 None => self.error(format!("no connection named '{args}'")),
             },
             "diagnose" | "test" => match self.connection(args) {
@@ -454,6 +461,11 @@ impl App {
             PickerPurpose::Tags { tags } => {
                 if let Some(tag) = selected_index.and_then(|i| tags.get(i)).cloned() {
                     self.show_tagged(&tag);
+                }
+            }
+            PickerPurpose::Drives { drives } => {
+                if let Some(drive) = selected_index.and_then(|i| drives.get(i)).cloned() {
+                    self.open_drive(drive);
                 }
             }
         }

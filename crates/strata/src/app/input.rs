@@ -87,7 +87,7 @@ impl App {
                     KeyCode::Up => picker.move_by(-1),
                     KeyCode::Down | KeyCode::Tab => picker.move_by(1),
                     KeyCode::Char(c @ ('d' | 'e')) if ctrl => {
-                        if self.trash_picker_key(c) || self.dupes_picker_key(c) {
+                        if self.trash_picker_key(c) || self.dupes_picker_key(c) || self.drives_picker_key(c) {
                             return;
                         }
                     }
@@ -183,7 +183,8 @@ impl App {
                 | PickerPurpose::Trash { .. }
                 | PickerPurpose::Dupes { .. }
                 | PickerPurpose::Tag { .. }
-                | PickerPurpose::Tags { .. } => {}
+                | PickerPurpose::Tags { .. }
+                | PickerPurpose::Drives { .. } => {}
             },
             other => self.overlay = other,
         }
