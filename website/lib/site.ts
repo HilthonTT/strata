@@ -2,7 +2,8 @@ export const site = {
   name: "strata",
   tagline: "A fast, extensible terminal file explorer",
   repo: "https://github.com/HilthonTT/strata",
-  install: "cargo install --locked --git https://github.com/HilthonTT/strata strata",
+  install:
+    "cargo install --locked --git https://github.com/HilthonTT/strata strata",
 };
 
 /** Prefixes public assets with the deploy base path (GitHub Pages). */

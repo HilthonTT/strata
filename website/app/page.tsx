@@ -301,18 +301,14 @@ export default function Home() {
                 {"  "}
                 <span className="text-brand">strata</span>.cd(os.getenv(
                 <span className="text-warn">&quot;HOME&quot;</span>) ..{" "}
-                <span className="text-warn">&quot;/projects&quot;</span>)
-                {"\n"}
+                <span className="text-warn">&quot;/projects&quot;</span>){"\n"}
                 <span className="text-brand">end</span>,{" "}
-                <span className="text-warn">
-                  &quot;Go to projects&quot;
-                </span>
-                ){"\n\n"}
+                <span className="text-warn">&quot;Go to projects&quot;</span>)
+                {"\n\n"}
                 <span className="text-brand">strata</span>.statusline(
                 <span className="text-brand">function</span>(ctx){"\n"}
                 {"  "}
-                <span className="text-brand">return</span> #ctx.selected
-                ..{" "}
+                <span className="text-brand">return</span> #ctx.selected ..{" "}
                 <span className="text-warn">&quot; selected&quot;</span>
                 {"\n"}
                 <span className="text-brand">end</span>)

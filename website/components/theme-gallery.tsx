@@ -5,14 +5,54 @@ import { useState } from "react";
 import { asset } from "@/lib/site";
 
 const themes = [
-  { id: "strata", label: "Strata", file: "main.png", swatch: ["#050505", "#f0193d", "#3d7af5"] },
-  { id: "catppuccin-mocha", label: "Catppuccin Mocha", file: "theme-catppuccin-mocha.png", swatch: ["#1e1e2e", "#cba6f7", "#89b4fa"] },
-  { id: "tokyo-night", label: "Tokyo Night", file: "theme-tokyo-night.png", swatch: ["#1a1b26", "#7aa2f7", "#bb9af7"] },
-  { id: "nord", label: "Nord", file: "theme-nord.png", swatch: ["#2e3440", "#88c0d0", "#81a1c1"] },
-  { id: "gruvbox-dark", label: "Gruvbox", file: "theme-gruvbox-dark.png", swatch: ["#282828", "#fe8019", "#b8bb26"] },
-  { id: "rose-pine", label: "Rosé Pine", file: "theme-rose-pine.png", swatch: ["#191724", "#c4a7e7", "#ebbcba"] },
-  { id: "dracula", label: "Dracula", file: "theme-dracula.png", swatch: ["#282a36", "#bd93f9", "#ff79c6"] },
-  { id: "catppuccin-latte", label: "Catppuccin Latte", file: "theme-catppuccin-latte.png", swatch: ["#eff1f5", "#8839ef", "#1e66f5"] },
+  {
+    id: "strata",
+    label: "Strata",
+    file: "main.png",
+    swatch: ["#050505", "#f0193d", "#3d7af5"],
+  },
+  {
+    id: "catppuccin-mocha",
+    label: "Catppuccin Mocha",
+    file: "theme-catppuccin-mocha.png",
+    swatch: ["#1e1e2e", "#cba6f7", "#89b4fa"],
+  },
+  {
+    id: "tokyo-night",
+    label: "Tokyo Night",
+    file: "theme-tokyo-night.png",
+    swatch: ["#1a1b26", "#7aa2f7", "#bb9af7"],
+  },
+  {
+    id: "nord",
+    label: "Nord",
+    file: "theme-nord.png",
+    swatch: ["#2e3440", "#88c0d0", "#81a1c1"],
+  },
+  {
+    id: "gruvbox-dark",
+    label: "Gruvbox",
+    file: "theme-gruvbox-dark.png",
+    swatch: ["#282828", "#fe8019", "#b8bb26"],
+  },
+  {
+    id: "rose-pine",
+    label: "Rosé Pine",
+    file: "theme-rose-pine.png",
+    swatch: ["#191724", "#c4a7e7", "#ebbcba"],
+  },
+  {
+    id: "dracula",
+    label: "Dracula",
+    file: "theme-dracula.png",
+    swatch: ["#282a36", "#bd93f9", "#ff79c6"],
+  },
+  {
+    id: "catppuccin-latte",
+    label: "Catppuccin Latte",
+    file: "theme-catppuccin-latte.png",
+    swatch: ["#eff1f5", "#8839ef", "#1e66f5"],
+  },
 ];
 
 export function ThemeGallery() {
@@ -44,7 +84,8 @@ export function ThemeGallery() {
           </button>
         ))}
         <p className="hidden px-1 pt-2 text-sm text-mist-400 lg:block">
-          …and 20 more, plus your own in <code className="font-mono text-mist-300">themes/*.toml</code>.
+          …and 20 more, plus your own in{" "}
+          <code className="font-mono text-mist-300">themes/*.toml</code>.
         </p>
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}

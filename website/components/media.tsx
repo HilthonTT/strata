@@ -9,7 +9,13 @@ type MediaProps = {
 };
 
 /** A screenshot or GIF of strata, recorded with `cargo xtask media`. */
-export function Media({ src, alt, caption, className = "", priority }: MediaProps) {
+export function Media({
+  src,
+  alt,
+  caption,
+  className = "",
+  priority,
+}: MediaProps) {
   const img = (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -23,7 +29,9 @@ export function Media({ src, alt, caption, className = "", priority }: MediaProp
   return (
     <figure className="not-prose my-8">
       {img}
-      <figcaption className="mt-3 text-center text-sm text-mist-400">{caption}</figcaption>
+      <figcaption className="mt-3 text-center text-sm text-mist-400">
+        {caption}
+      </figcaption>
     </figure>
   );
 }
