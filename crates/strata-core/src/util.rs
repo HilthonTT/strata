@@ -42,6 +42,22 @@ pub fn permissions_string(mode: u32) -> String {
     out
 }
 
+/// Minimal glob: `*` matches any run, `?` one character; case-insensitive.
+pub fn glob_match(pattern: &str, name: &str) -> bool {
+    fn go(p: &[char], n: &[char]) -> bool {
+        match (p.first(), n.first()) {
+            (None, None) => true,
+            (Some('*'), _) => go(&p[1..], n) || (!n.is_empty() && go(p, &n[1..])),
+            (Some('?'), Some(_)) => go(&p[1..], &n[1..]),
+            (Some(a), Some(b)) if a.eq_ignore_ascii_case(b) => go(&p[1..], &n[1..]),
+            _ => false,
+        }
+    }
+    let p: Vec<char> = pattern.chars().collect();
+    let n: Vec<char> = name.chars().collect();
+    go(&p, &n)
+}
+
 /// Converts a path to a forward-slash string, as remote backends expect.
 pub fn posix(path: &Path) -> String {
     let s = path.to_string_lossy().replace('\\', "/");

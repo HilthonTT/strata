@@ -1,10 +1,13 @@
 //! One file panel: a directory listing with cursor, marks, filter and history.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
+use strata_core::find::{self, Query};
 use strata_core::search::Fuzzy;
 use strata_core::sort::{sort_entries, SortKey, SortOptions};
 use strata_core::{Entry, EntryKind, VfsRef};
@@ -15,6 +18,27 @@ pub struct Listing {
     generation: u64,
     path: PathBuf,
     result: Result<Vec<Entry>, String>,
+    /// A flat listing stopped at its limit.
+    truncated: bool,
+}
+
+/// What a flat listing shows instead of the directory's own entries.
+#[derive(Clone)]
+pub enum FlatSource {
+    /// Everything below the directory matching a query (`:find`, `:flatten`).
+    Walk(Query),
+}
+
+/// A recursive listing shown in place of the directory.
+#[derive(Clone)]
+pub struct Flat {
+    /// Shown in the panel title, e.g. `find *.log --size +1M`.
+    pub title: String,
+    pub source: FlatSource,
+    /// The listing stopped at [`find::LIMIT`] entries.
+    pub truncated: bool,
+    /// The result was reported (no matches, truncated) after it arrived.
+    pub announced: bool,
 }
 
 /// Where background listings are delivered.
@@ -54,6 +78,10 @@ pub struct Panel {
     pub listed: u64,
     /// `(listed, sizes version)` last given folder sizes.
     pub sizes_seen: (u64, u64),
+    /// A flat listing replacing the directory's entries, if any.
+    pub flat: Option<Flat>,
+    /// Stops the walk of the flat listing being built.
+    walk_cancel: Arc<AtomicBool>,
 }
 
 impl Panel {
@@ -81,6 +109,8 @@ impl Panel {
             pending_focus: None,
             listed: 0,
             sizes_seen: (0, 0),
+            flat: None,
+            walk_cancel: Arc::new(AtomicBool::new(false)),
         };
         panel.reload();
         panel
@@ -98,12 +128,41 @@ impl Panel {
         self.entry_at(self.cursor)
     }
 
+    /// How an entry is listed: its name, or in a flat listing its path
+    /// relative to the directory.
+    pub fn label<'a>(&self, entry: &'a Entry) -> Cow<'a, str> {
+        if self.flat.is_none() {
+            return Cow::Borrowed(&entry.name);
+        }
+        match entry.path.strip_prefix(&self.cwd) {
+            Ok(rel) => Cow::Owned(strata_core::util::posix(rel)),
+            Err(_) => Cow::Owned(super::short_path(&entry.path)),
+        }
+    }
+
+    /// Replaces the listing with a flat one; `None` goes back to the
+    /// directory's own entries.
+    pub fn set_flat(&mut self, flat: Option<Flat>) {
+        self.flat = flat;
+        self.filter.clear();
+        self.marked.clear();
+        self.visual_anchor = None;
+        self.cursor = 0;
+        self.offset = 0;
+        self.entries.clear();
+        self.visible.clear();
+        self.reload();
+    }
+
     /// Re-reads the directory, keeping the cursor on the same name if
     /// possible. Remote locations are listed in the background so a slow
     /// server never freezes the UI.
     pub fn reload(&mut self) {
         if self.pending_focus.is_none() {
-            self.pending_focus = self.hovered().map(|e| e.name.clone());
+            self.pending_focus = self.hovered().map(|e| self.label(e).into_owned());
+        }
+        if let Some(flat) = &self.flat {
+            return self.reload_flat(flat.source.clone());
         }
         match self.lister.clone().filter(|_| !self.vfs.is_local()) {
             Some(tx) => {
@@ -112,11 +171,46 @@ impl Panel {
                 let (vfs, path, panel, generation) = (self.vfs.clone(), self.cwd.clone(), self.id, self.generation);
                 std::thread::spawn(move || {
                     let result = vfs.read_dir(&path).map_err(|e| format!("{e:#}"));
-                    let _ = tx.send(Listing { panel, generation, path, result });
+                    let _ = tx.send(Listing { panel, generation, path, result, truncated: false });
                 });
             }
             None => {
                 let result = self.vfs.read_dir(&self.cwd).map_err(|e| format!("{e:#}"));
+                self.apply_entries(result);
+            }
+        }
+    }
+
+    /// Builds a flat listing, in the background when there is a lister.
+    fn reload_flat(&mut self, source: FlatSource) {
+        self.walk_cancel.store(true, Ordering::Relaxed);
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.walk_cancel = cancel.clone();
+        let (vfs, root, show_hidden) = (self.vfs.clone(), self.cwd.clone(), self.show_hidden);
+        let build = move || -> (Result<Vec<Entry>, String>, bool) {
+            match source {
+                FlatSource::Walk(query) if vfs.is_local() => {
+                    let found = find::walk(&root, &query, show_hidden, &cancel);
+                    (Ok(found.entries), found.truncated)
+                }
+                FlatSource::Walk(_) => (Err("searching works on local folders".into()), false),
+            }
+        };
+        match self.lister.clone() {
+            Some(tx) => {
+                self.generation += 1;
+                self.loading = true;
+                let (path, panel, generation) = (self.cwd.clone(), self.id, self.generation);
+                std::thread::spawn(move || {
+                    let (result, truncated) = build();
+                    let _ = tx.send(Listing { panel, generation, path, result, truncated });
+                });
+            }
+            None => {
+                let (result, truncated) = build();
+                if let Some(flat) = &mut self.flat {
+                    flat.truncated = truncated;
+                }
                 self.apply_entries(result);
             }
         }
@@ -128,6 +222,9 @@ impl Panel {
             return false;
         }
         self.loading = false;
+        if let Some(flat) = &mut self.flat {
+            flat.truncated = listing.truncated;
+        }
         self.apply_entries(listing.result);
         true
     }
@@ -189,8 +286,9 @@ impl Panel {
             candidates.into_iter().map(|i| (i, Vec::new())).collect()
         } else {
             let mut fuzzy = Fuzzy::default();
-            let names = candidates.iter().map(|&i| self.entries[i].name.as_str());
-            fuzzy.filter(&self.filter, names).into_iter().map(|m| (candidates[m.index], m.positions)).collect()
+            let labels: Vec<Cow<str>> = candidates.iter().map(|&i| self.label(&self.entries[i])).collect();
+            let matches = fuzzy.filter(&self.filter, labels.iter().map(|l| l.as_ref()));
+            matches.into_iter().map(|m| (candidates[m.index], m.positions)).collect()
         };
         self.clamp();
     }
@@ -232,6 +330,8 @@ impl Panel {
     }
 
     fn after_cd(&mut self, previous: Option<&Path>) {
+        self.flat = None;
+        self.walk_cancel.store(true, Ordering::Relaxed);
         self.filter.clear();
         self.marked.clear();
         self.visual_anchor = None;
@@ -275,8 +375,16 @@ impl Panel {
         true
     }
 
+    /// Puts the cursor on the entry listed as `name` (see [`Panel::label`]).
     pub fn focus_name(&mut self, name: &str) {
-        if let Some(row) = self.visible.iter().position(|(i, _)| self.entries[*i].name == name) {
+        if let Some(row) = self.visible.iter().position(|(i, _)| self.label(&self.entries[*i]) == name) {
+            self.cursor = row;
+            self.clamp();
+        }
+    }
+
+    pub fn focus_path(&mut self, path: &Path) {
+        if let Some(row) = self.visible.iter().position(|(i, _)| self.entries[*i].path == path) {
             self.cursor = row;
             self.clamp();
         }
@@ -396,21 +504,7 @@ impl Panel {
     }
 }
 
-/// Minimal glob: `*` matches any run, `?` one character; case-insensitive.
-pub fn glob_match(pattern: &str, name: &str) -> bool {
-    fn go(p: &[char], n: &[char]) -> bool {
-        match (p.first(), n.first()) {
-            (None, None) => true,
-            (Some('*'), _) => go(&p[1..], n) || (!n.is_empty() && go(p, &n[1..])),
-            (Some('?'), Some(_)) => go(&p[1..], &n[1..]),
-            (Some(a), Some(b)) if a.eq_ignore_ascii_case(b) => go(&p[1..], &n[1..]),
-            _ => false,
-        }
-    }
-    let p: Vec<char> = pattern.chars().collect();
-    let n: Vec<char> = name.chars().collect();
-    go(&p, &n)
-}
+pub use strata_core::util::glob_match;
 
 #[cfg(test)]
 mod tests {
@@ -463,6 +557,31 @@ mod tests {
         assert_eq!(p.marked.len(), 3);
         p.toggle_visual();
         assert_eq!(p.marked.len(), 3, "leaving visual mode keeps marks");
+    }
+
+    #[test]
+    fn flat_listings_show_relative_paths_and_leave_on_cd() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("a/b")).unwrap();
+        std::fs::write(dir.path().join("a/b/deep.txt"), "").unwrap();
+        std::fs::write(dir.path().join("top.txt"), "").unwrap();
+        let mut p = panel_in(dir.path());
+        p.set_flat(Some(Flat {
+            title: "flatten".into(),
+            source: FlatSource::Walk(Query::files()),
+            truncated: false,
+            announced: false,
+        }));
+        let labels: Vec<String> = (0..p.len()).map(|r| p.label(p.entry_at(r).unwrap()).into_owned()).collect();
+        assert_eq!(labels, ["a/b/deep.txt", "top.txt"]);
+        p.set_filter("deep");
+        assert_eq!(p.len(), 1);
+        assert_eq!(p.hovered().unwrap().name, "deep.txt", "entries keep their real names");
+        p.reload();
+        assert_eq!(p.hovered().unwrap().name, "deep.txt", "the cursor stays on the same item");
+        assert!(p.cd(dir.path().join("a")));
+        assert!(p.flat.is_none());
+        assert_eq!(p.hovered().unwrap().name, "b");
     }
 
     /// Pretends to be remote so listings go through the background path.

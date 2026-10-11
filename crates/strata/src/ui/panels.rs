@@ -36,11 +36,14 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     let general = &app.config.general;
     let panel = &app.panels[index];
 
-    let location = if panel.vfs.is_local() {
+    let mut location = if panel.vfs.is_local() {
         short_path(&panel.cwd)
     } else {
         format!("{}:{}", panel.vfs.label(), panel.cwd.display())
     };
+    if let Some(flat) = &panel.flat {
+        location = format!("{location} · {}{}", flat.title, if flat.truncated { " (first matches)" } else { "" });
+    }
     let folder = if general.icons { "\u{f07b} " } else { "" };
     let title = format!("{folder}{}", truncate_left(&location, area.width.saturating_sub(8) as usize));
 
@@ -81,10 +84,11 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         return frame.render_widget(p, list);
     }
     if panel.len() == 0 {
-        let msg = match (panel.loading, panel.filter.is_empty()) {
+        let msg = match (panel.loading, panel.filter.is_empty() && panel.flat.is_none()) {
+            (true, _) if panel.flat.is_some() => "   searching…",
             (true, _) => "   loading…",
             (false, true) => "   empty directory",
-            (false, false) => "   no matches",
+            (false, false) => "   no matches · esc goes back",
         };
         return frame.render_widget(Paragraph::new(Line::styled(msg, muted)), list);
     }
@@ -137,7 +141,8 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
             spans.push(Span::styled(format!("{icon} "), Style::default().fg(icons::color(entry, theme))));
 
             let name_room = name_w.saturating_sub(icon.width() + 1);
-            let name = truncate(&entry.name, name_room);
+            let label = panel.label(entry);
+            let name = truncate(&label, name_room);
             for (ci, ch) in name.chars().enumerate() {
                 let style = if positions.contains(&(ci as u32)) {
                     name_style.fg(theme.palette.accent).add_modifier(Modifier::UNDERLINED)

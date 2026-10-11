@@ -131,6 +131,7 @@ impl App {
             PageDown => self.page(1.0),
             HalfPageUp => self.page(-0.5),
             HalfPageDown => self.page(0.5),
+            Parent if self.panel().flat.is_some() => self.leave_flat(),
             Parent => {
                 if !self.panel_mut().parent() {
                     self.leave_archive();
@@ -191,8 +192,12 @@ impl App {
             InvertSelection => self.panel_mut().invert_marks(),
             Clear => {
                 let p = self.panel_mut();
-                if !p.clear_marks() && !p.filter.is_empty() {
-                    p.set_filter("");
+                if !p.clear_marks() {
+                    if !p.filter.is_empty() {
+                        p.set_filter("");
+                    } else if p.flat.is_some() {
+                        self.leave_flat();
+                    }
                 }
             }
             VisualMode => self.panel_mut().toggle_visual(),
@@ -222,6 +227,8 @@ impl App {
                 }
             }
             BulkRename => self.bulk_rename(),
+            FindPrompt => self.find_prompt(),
+            Flatten => self.toggle_flatten(),
             NewFile => self.overlay = Some(Overlay::Input(InputState::new("New file", "", InputPurpose::NewFile))),
             NewDir => self.overlay = Some(Overlay::Input(InputState::new("New directory", "", InputPurpose::NewDir))),
             CopyPath => self.copy_path(),

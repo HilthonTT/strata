@@ -171,12 +171,15 @@ impl App {
 
     pub(super) fn bulk_rename(&mut self) {
         let p = self.panel();
-        let names: Vec<String> =
-            p.targets().iter().filter_map(|t| t.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
-        if names.is_empty() {
-            return;
+        let targets = p.targets();
+        let Some(dir) = targets.first().and_then(|t| p.vfs.parent(t)) else { return };
+        // A flat listing can mark items from several folders.
+        if targets.iter().any(|t| p.vfs.parent(t).as_ref() != Some(&dir)) {
+            return self.notify("the items are in several folders: rename them from each folder", Level::Warn);
         }
-        self.external = Some(External::BulkRename { vfs: p.vfs.clone(), dir: p.cwd.clone(), names });
+        let names: Vec<String> =
+            targets.iter().filter_map(|t| t.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
+        self.external = Some(External::BulkRename { vfs: p.vfs.clone(), dir, names });
     }
 
     /// Runs a shell command line in the focused directory.

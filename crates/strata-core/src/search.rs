@@ -50,7 +50,7 @@ impl Fuzzy {
 }
 
 /// Directories never worth descending into when searching.
-const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", ".cache", "__pycache__", ".venv"];
+pub(crate) const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", ".cache", "__pycache__", ".venv"];
 
 /// Recursively lists files below `root` (relative paths), for fuzzy finding.
 pub fn walk_files(root: &Path, limit: usize, show_hidden: bool, cancel: &AtomicBool) -> Vec<PathBuf> {

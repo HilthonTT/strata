@@ -8,6 +8,7 @@ pub mod compare;
 pub mod compress;
 pub mod dupes;
 pub mod entry;
+pub mod find;
 pub mod git;
 pub mod inspect;
 pub mod jobs;

@@ -13,6 +13,7 @@ mod dupes;
 pub use commands::COMMANDS;
 mod external;
 mod fileops;
+mod find;
 pub mod grep;
 mod highlight;
 mod input;
@@ -512,6 +513,7 @@ impl App {
                 .find(|p| p.id == id);
             if panel.is_some_and(|p| p.apply_listing(listing)) && active {
                 self.invalidate_preview();
+                self.on_flat_listed();
             }
         }
         while let Ok(event) = self.rx.try_recv() {

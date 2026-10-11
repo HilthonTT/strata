@@ -20,6 +20,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
     ("select", "select <glob> — mark matching items"),
+    ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] — list matches below here"),
+    ("flatten", "flatten — list every file below this folder, or go back"),
     ("duplicate", "duplicate — copy marked items next to themselves"),
     ("link", "link [-r] — paste the clipboard as (relative) symbolic links"),
     ("hardlink", "hardlink — paste the clipboard as hard links"),
@@ -90,6 +92,8 @@ impl App {
                 let n = self.panel_mut().mark_glob(if args.is_empty() { "*" } else { args });
                 self.info(format!("marked {n} item(s)"));
             }
+            "find" => self.find_command(args),
+            "flatten" | "flat" => self.toggle_flatten(),
             "duplicate" | "dup" => self.dispatch(Action::Duplicate),
             "link" | "symlink" | "ln" => match args {
                 "" => self.dispatch(Action::PasteSymlink),
@@ -329,7 +333,7 @@ impl App {
         match vfs.rename(&from, &to) {
             Ok(()) => {
                 self.panel_mut().reload();
-                self.panel_mut().focus_name(new_name);
+                self.panel_mut().focus_path(&to);
                 self.push_undo(format!("rename to {new_name}"), vec![super::undo::UndoOp::Rename { vfs, from, to }]);
             }
             Err(e) => self.error(format!("{e:#}")),
@@ -371,6 +375,7 @@ impl App {
                 None => self.error("use smb://user@host/share, nfs://host/export or sftp://user@host:port/path"),
             },
             InputPurpose::Chmod { vfs, paths } if !value.is_empty() => self.start_chmod(vfs, paths, &value),
+            InputPurpose::Find if !value.is_empty() => self.find_command(&value),
             InputPurpose::Compress(items) if !value.is_empty() => self.compress(items, &value),
             InputPurpose::AddConnectionName(mut conn) if !value.is_empty() => {
                 conn.name = value;

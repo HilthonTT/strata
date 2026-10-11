@@ -12,6 +12,34 @@ export const metadata = { title: "Search" };
 
 <Kbd>f</Kbd> (<Kbd>ctrl+f</Kbd> in the classic preset) indexes every file below the current directory and opens a picker. Type to narrow it down, then <Kbd>enter</Kbd> jumps to the file — or into the directory. Hidden files are included when they are shown in the panel; `.git`, `node_modules` and `target` are always skipped.
 
+## Find by size, age or type
+
+<Kbd>g s</Kbd> (<Kbd>alt+f</Kbd> in the classic preset) or `:find` lists everything below the current folder that matches, right in the panel, with each item's path relative to the folder. Every key works on the results: mark them, copy, move, trash or rename them. <Kbd>esc</Kbd> or <Kbd>h</Kbd> goes back to the folder.
+
+```text
+:find *.log --size +100M          # big logs
+:find --mtime -1d --type f        # files changed today
+:find --older 1y --ext mp4,mkv    # videos untouched for a year
+:find report --depth 2 --empty    # empty files or folders named *report*
+```
+
+| Option | Matches |
+| --- | --- |
+| `*.log`, `report` | Names matching a glob, or containing the word (any one of them) |
+| `--size +100M` / `-1K` | At least / less than a size (`K`, `M`, `G`, `T`) |
+| `--mtime -7d` / `+1y` | Changed within / longer ago than (`s`, `m`, `h`, `d`, `w`, `mo`, `y`); also `--newer 7d`, `--older 1y` |
+| `--type f\|d\|l` | Files, directories or symbolic links |
+| `--ext jpg,png` | These extensions |
+| `--depth 2` | At most this many levels down |
+| `--empty` | Empty files and folders |
+| `--all` | Also look inside `.git`, `node_modules`, `target` and similar |
+
+Hidden items are included when they are shown in the panel. A search stops at 50,000 matches.
+
+## Flatten a folder
+
+<Kbd>g a</Kbd> (<Kbd>alt+a</Kbd>) or `:flatten` lists every file below the current folder in one list, so you can gather files from nested folders with a few keys: sort them, mark them, then copy or move them all. Press it again, <Kbd>esc</Kbd> or <Kbd>h</Kbd> to go back.
+
 ## Search file contents
 
 <Kbd>ctrl+g</Kbd> asks for a pattern and searches every file below the current directory with [ripgrep](https://github.com/BurntSushi/ripgrep) — falling back to `grep` when ripgrep is not installed. You can also run `:grep <pattern>`.

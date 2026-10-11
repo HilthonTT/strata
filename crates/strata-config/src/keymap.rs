@@ -89,6 +89,8 @@ actions! {
     RetryJob => "retry_job", "Resume the latest failed or cancelled copy";
     Filter => "filter", "Filter the current directory";
     FuzzyFind => "fuzzy_find", "Fuzzy-find files recursively";
+    FindPrompt => "find_prompt", "Find files by name, size, age or type";
+    Flatten => "flatten", "List every file below this folder / back";
     ContentSearch => "content_search", "Search file contents (ripgrep)";
     Undo => "undo", "Undo the last file operation";
     Redo => "redo", "Redo what was undone";
@@ -437,6 +439,8 @@ const VIM: &[(&str, &str)] = &[
     ("g q", "close_tab"),
     ("g l", "paste_symlink"),
     ("g L", "paste_relative_symlink"),
+    ("g s", "find_prompt"),
+    ("g a", "flatten"),
 ];
 
 /// Mirrors superfile's default hotkeys where strata has the feature.
@@ -484,6 +488,8 @@ const STANDARD: &[(&str, &str)] = &[
     ("alt+w", "close_tab"),
     ("alt+right", "next_tab"),
     ("alt+left", "prev_tab"),
+    ("alt+f", "find_prompt"),
+    ("alt+a", "flatten"),
 ];
 
 impl Keymap {

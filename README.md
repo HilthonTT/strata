@@ -19,7 +19,7 @@ Everything you need, nothing you don't.
 - **Jobs you control**: pause copies (`alt+p`) and resume failed or cancelled ones where they stopped (`alt+R`)
 - **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
-- **Search**: filter, fuzzy find, and content search with ripgrep
+- **Search**: filter, fuzzy find, content search with ripgrep, and `:find` by name, size, age or type with the results listed in the panel; `:flatten` lists every file below a folder
 - **Git status** markers next to every file, and **tabs** on top of multiple panels
 - **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
@@ -62,6 +62,7 @@ strata [DIR...]           # one panel per directory
 | `d c` | folder sizes | `X` | extract the archive |
 | `alt+p` | pause / resume the latest job | `alt+R` | resume a failed copy |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
+| `g s` | find by size, age, type | `g a` | flatten / back |
 | `?` | all keys | `q` | quit |
 
 Prefer superfile's keys (`ctrl+c`, `ctrl+x`, `ctrl+v`, `ctrl+d`…)? Set `keymap = "default"` under `[general]`.

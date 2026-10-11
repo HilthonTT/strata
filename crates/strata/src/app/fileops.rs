@@ -50,17 +50,25 @@ impl App {
             return;
         }
         let vfs = self.panel().vfs.clone();
-        let transfer = Transfer {
-            mode: TransferMode::Copy,
-            src: vfs.clone(),
-            sources,
-            dst: vfs,
-            dest_dir: self.panel().cwd.clone(),
-            conflict: Conflict::KeepBoth,
-            targets: Default::default(),
-        };
+        // A flat listing can mark items from several folders: each copy
+        // goes next to its original.
+        let mut by_dir: std::collections::BTreeMap<std::path::PathBuf, Vec<std::path::PathBuf>> = Default::default();
+        for source in sources {
+            let dir = vfs.parent(&source).unwrap_or_else(|| self.panel().cwd.clone());
+            by_dir.entry(dir).or_default().push(source);
+        }
         self.panel_mut().clear_marks();
-        self.start_transfer(transfer);
+        for (dest_dir, sources) in by_dir {
+            self.start_transfer(Transfer {
+                mode: TransferMode::Copy,
+                src: vfs.clone(),
+                sources,
+                dst: vfs.clone(),
+                dest_dir,
+                conflict: Conflict::KeepBoth,
+                targets: Default::default(),
+            });
+        }
     }
 
     /// Creates links in the focused directory to the clipboard items.
@@ -285,7 +293,8 @@ impl App {
         let Some(entry) = self.panel().hovered().filter(|e| !e.is_dir()).cloned() else {
             return self.notify("hover a file to verify", Level::Warn);
         };
-        let (vfs, dir) = (self.panel().vfs.clone(), self.panel().cwd.clone());
+        let vfs = self.panel().vfs.clone();
+        let dir = vfs.parent(&entry.path).unwrap_or_else(|| self.panel().cwd.clone());
         let tx = self.tx.clone();
         let expected = args.trim().to_ascii_lowercase();
         if !expected.is_empty() {

@@ -30,6 +30,8 @@ pub enum InputPurpose {
         vfs: VfsRef,
         paths: Vec<PathBuf>,
     },
+    /// A `:find` query for the focused folder.
+    Find,
 }
 
 pub struct InputState {
