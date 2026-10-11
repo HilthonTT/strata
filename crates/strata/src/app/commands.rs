@@ -210,11 +210,7 @@ impl App {
         let p = self.panel();
         if p.vfs.is_local() {
             let path = expand_tilde(input);
-            if path.is_absolute() {
-                path
-            } else {
-                p.cwd.join(path)
-            }
+            normalize(&if path.is_absolute() { path } else { p.cwd.join(path) })
         } else if input.starts_with('/') {
             PathBuf::from(input)
         } else if input == "~" {
@@ -546,6 +542,26 @@ impl App {
     }
 }
 
+/// Drops `.` and resolves `..` without touching the disk, so `:cd ..`
+/// lands on the parent's real path (symlinks are kept as typed).
+fn normalize(path: &std::path::Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir if out.parent().is_some() => {
+                out.pop();
+            }
+            // `..` at the root stays at the root.
+            Component::ParentDir if out.has_root() => {}
+            Component::ParentDir => out.push(c),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 fn common_prefix(items: &[String]) -> String {
     let first = &items[0];
     let mut len = first.len();
@@ -561,6 +577,12 @@ fn common_prefix(items: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_paths_are_normalized() {
+        assert_eq!(normalize(std::path::Path::new("/a/b/../c/./d")), PathBuf::from("/a/c/d"));
+        assert_eq!(normalize(std::path::Path::new("/..")), PathBuf::from("/"));
+    }
 
     #[test]
     fn common_prefix_of_candidates() {
