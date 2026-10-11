@@ -32,6 +32,18 @@ pub enum InputPurpose {
     },
     /// A `:find` query for the focused folder.
     Find,
+    /// A pattern to rename these items with.
+    RenamePattern(super::rename_pattern::PatternTargets),
+}
+
+/// New names shown under the pattern-rename prompt as it is typed.
+pub struct RenamePreview {
+    /// `(old, new)` for the first items.
+    pub rows: Vec<(String, String)>,
+    /// Why the pattern cannot be applied, if it cannot.
+    pub error: Option<String>,
+    /// How many items are being renamed.
+    pub total: usize,
 }
 
 pub struct InputState {
@@ -41,12 +53,14 @@ pub struct InputState {
     pub cursor: usize,
     pub masked: bool,
     pub purpose: InputPurpose,
+    /// Live preview drawn under a pattern-rename prompt.
+    pub preview: Option<RenamePreview>,
 }
 
 impl InputState {
     pub fn new(prompt: impl Into<String>, value: impl Into<String>, purpose: InputPurpose) -> Self {
         let value = value.into();
-        Self { prompt: prompt.into(), cursor: value.chars().count(), value, masked: false, purpose }
+        Self { prompt: prompt.into(), cursor: value.chars().count(), value, masked: false, purpose, preview: None }
     }
 
     pub fn masked(mut self) -> Self {

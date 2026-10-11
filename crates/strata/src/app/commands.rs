@@ -19,6 +19,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("mkdir", "mkdir <name> — create a directory"),
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
+    ("rename-pattern", "rename-pattern <pattern> — rename marked items: photo-{n:3}{.ext}, s/find/repl/gi"),
     ("select", "select <glob> — mark matching items"),
     ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] — list matches below here"),
     ("flatten", "flatten — list every file below this folder, or go back"),
@@ -92,6 +93,7 @@ impl App {
                 let n = self.panel_mut().mark_glob(if args.is_empty() { "*" } else { args });
                 self.info(format!("marked {n} item(s)"));
             }
+            "rename-pattern" | "rename-all" | "rp" => self.rename_pattern_command(args),
             "find" => self.find_command(args),
             "flatten" | "flat" => self.toggle_flatten(),
             "duplicate" | "dup" => self.dispatch(Action::Duplicate),
@@ -376,6 +378,7 @@ impl App {
             },
             InputPurpose::Chmod { vfs, paths } if !value.is_empty() => self.start_chmod(vfs, paths, &value),
             InputPurpose::Find if !value.is_empty() => self.find_command(&value),
+            InputPurpose::RenamePattern(targets) if !value.is_empty() => self.apply_rename_pattern(targets, &value),
             InputPurpose::Compress(items) if !value.is_empty() => self.compress(items, &value),
             InputPurpose::AddConnectionName(mut conn) if !value.is_empty() => {
                 conn.name = value;

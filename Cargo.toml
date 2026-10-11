@@ -48,6 +48,7 @@ lzma-rs = "0.3"
 ruzstd = "0.8"
 keyring = "4"
 notify = "8"
+regex = "1"
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
 
 [profile.release]

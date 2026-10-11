@@ -110,6 +110,7 @@ impl App {
                 | DeletePermanent
                 | Rename
                 | BulkRename
+                | RenamePattern
                 | NewFile
                 | NewDir
                 | Duplicate
@@ -227,6 +228,7 @@ impl App {
                 }
             }
             BulkRename => self.bulk_rename(),
+            RenamePattern => self.rename_pattern(""),
             FindPrompt => self.find_prompt(),
             Flatten => self.toggle_flatten(),
             NewFile => self.overlay = Some(Overlay::Input(InputState::new("New file", "", InputPurpose::NewFile))),

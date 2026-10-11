@@ -8,7 +8,7 @@ use ratatui::Frame;
 use unicode_width::UnicodeWidthStr;
 
 use super::{block, centered, fit, truncate};
-use crate::app::overlay::{Overlay, PickerState};
+use crate::app::overlay::{Overlay, PickerState, RenamePreview};
 use crate::app::{App, View};
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
@@ -20,6 +20,9 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         Overlay::Input(input) => {
             let rect = centered(area, 64.max(input.prompt.width() as u16 + 8), 3);
             let rect = Rect { y: area.height / 3, ..rect };
+            if let Some(preview) = &input.preview {
+                draw_rename_preview(frame, app, preview, rect, area);
+            }
             frame.render_widget(Clear, rect);
             let b = block(&app.theme, app.border, &input.prompt, true);
             let inner = b.inner(rect);
@@ -105,6 +108,42 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         Overlay::Help { scroll } => draw_help(frame, app, area, *scroll),
         Overlay::Text(t) => draw_text(frame, app, area, &t.title, &t.lines, t.scroll, t.colored),
     }
+}
+
+/// New names under the pattern-rename prompt, `old → new`.
+fn draw_rename_preview(frame: &mut Frame, app: &App, preview: &RenamePreview, prompt: Rect, area: Rect) {
+    let theme = &app.theme;
+    let room = area.bottom().saturating_sub(prompt.bottom() + 1);
+    let rows = preview.rows.len().min(12) as u16;
+    let height = (rows + 2 + u16::from(preview.error.is_some()) + u16::from(preview.total > rows as usize)).min(room);
+    if height < 3 {
+        return;
+    }
+    let rect = Rect { y: prompt.bottom(), height, ..prompt };
+    frame.render_widget(Clear, rect);
+    let b = block(theme, app.border, "Preview", false);
+    let inner = b.inner(rect);
+    frame.render_widget(b, rect);
+    let width = inner.width as usize;
+    let mut lines = Vec::new();
+    if let Some(e) = &preview.error {
+        lines.push(Line::styled(truncate(&format!(" ✗ {e}"), width), Style::default().fg(theme.error)));
+    }
+    let half = width.saturating_sub(5) / 2;
+    for (old, new) in preview.rows.iter().take(rows as usize) {
+        let changed = old != new;
+        let new_style = Style::default().fg(if changed { theme.success } else { theme.muted });
+        lines.push(Line::from(vec![
+            Span::styled(format!(" {}", fit(&truncate(old, half), half)), Style::default().fg(theme.muted)),
+            Span::styled(" → ", Style::default().fg(theme.border)),
+            Span::styled(truncate(new, half), new_style),
+        ]));
+    }
+    if preview.total > rows as usize {
+        let more = format!(" … and {} more", preview.total - rows as usize);
+        lines.push(Line::styled(more, Style::default().fg(theme.muted)));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_picker(frame: &mut Frame, app: &App, picker: &PickerState, area: Rect) {

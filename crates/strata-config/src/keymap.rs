@@ -72,6 +72,7 @@ actions! {
     DeletePermanent => "delete_permanent", "Delete marked items permanently";
     Rename => "rename", "Rename item";
     BulkRename => "bulk_rename", "Rename marked items in $EDITOR";
+    RenamePattern => "rename_pattern", "Rename marked items with a pattern";
     NewFile => "new_file", "Create a file";
     NewDir => "new_dir", "Create a directory";
     Duplicate => "duplicate", "Duplicate marked items here";
@@ -439,6 +440,7 @@ const VIM: &[(&str, &str)] = &[
     ("g q", "close_tab"),
     ("g l", "paste_symlink"),
     ("g L", "paste_relative_symlink"),
+    ("g r", "rename_pattern"),
     ("g s", "find_prompt"),
     ("g a", "flatten"),
 ];
@@ -488,6 +490,7 @@ const STANDARD: &[(&str, &str)] = &[
     ("alt+w", "close_tab"),
     ("alt+right", "next_tab"),
     ("alt+left", "prev_tab"),
+    ("alt+m", "rename_pattern"),
     ("alt+f", "find_prompt"),
     ("alt+a", "flatten"),
 ];

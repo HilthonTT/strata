@@ -175,7 +175,7 @@ impl App {
         let Some(dir) = targets.first().and_then(|t| p.vfs.parent(t)) else { return };
         // A flat listing can mark items from several folders.
         if targets.iter().any(|t| p.vfs.parent(t).as_ref() != Some(&dir)) {
-            return self.notify("the items are in several folders: rename them from each folder", Level::Warn);
+            return self.notify("the items are in several folders: use rename_pattern (g r) instead", Level::Warn);
         }
         let names: Vec<String> =
             targets.iter().filter_map(|t| t.file_name().map(|n| n.to_string_lossy().into_owned())).collect();

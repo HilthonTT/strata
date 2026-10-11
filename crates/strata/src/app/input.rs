@@ -145,7 +145,12 @@ impl App {
             }
             None => {}
         }
-        // Keep the live filter in sync with what is typed.
+        // Keep the live filter and the rename preview in sync with what is typed.
+        if let Some(Overlay::Input(input)) = &mut self.overlay {
+            if matches!(input.purpose, InputPurpose::RenamePattern(_)) {
+                super::rename_pattern::update_preview(input);
+            }
+        }
         if let Some(Overlay::Input(input)) = &self.overlay {
             if matches!(input.purpose, InputPurpose::Filter) && input.value != self.panel().filter {
                 let value = input.value.clone();

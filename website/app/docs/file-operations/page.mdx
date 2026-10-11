@@ -24,10 +24,35 @@ Transfers run in the background, so you can keep working. Their progress appears
 | <Kbd>a</Kbd> / <Kbd>A</Kbd> | New file / directory (`docs/notes.md` creates the folder too) |
 | <Kbd>r</Kbd> | Rename |
 | <Kbd>R</Kbd> | Bulk rename the marked items in `$EDITOR` |
+| <Kbd>g r</Kbd> | Rename the marked items with a pattern |
 | <Kbd>d d</Kbd> | Move to the trash |
 | <Kbd>D</Kbd> | Delete permanently |
 
 Bulk rename opens one name per line in your editor; change the lines, save and quit. Swapping two names works, and strata refuses to overwrite files that are not part of the rename.
+
+## Rename with a pattern
+
+<Kbd>g r</Kbd> (<Kbd>alt+m</Kbd> in the classic preset) asks for a pattern and shows the new names as you type. Enter renames every marked item, in the order they are listed, as one step you can undo. `:rename-pattern <pattern>` does the same without the prompt. Items can be in different folders, for example after a [`:find`](/docs/search/#find-by-size-age-type-or-tag).
+
+A pattern is a template for the whole new name, or a regex substitution:
+
+```text
+photo-{n:3}{.ext}             IMG_4821.JPG  → photo-001.JPG
+{date}_{name|lower}{.ext}     Notes.TXT     → 2026-10-11_notes.TXT
+s/IMG_(\d+)/trip-$1/          IMG_4821.JPG  → trip-4821.JPG
+s/ +/_/g                      my file.txt   → my_file.txt
+```
+
+| Token | Value |
+| --- | --- |
+| `{name}`, `{ext}`, `{.ext}` | Name without the extension; the extension without / with its dot (empty when there is none) |
+| `{full}` | The whole current name |
+| `{n}`, `{n:3}`, `{n:3:10}` | A counter, zero-padded to 3 digits, starting at 10 |
+| `{date}`, `{date:%Y%m%d}` | The modification date |
+| `{parent}` | The containing folder's name |
+| `$1`, `{1}`… | Regex groups, in substitutions |
+
+Add `|upper`, `|lower` or `|title` to any token: `{name|title}`. Substitutions take the flags `g` (every match) and `i` (ignore case). strata refuses a pattern that gives two items the same name or would overwrite another file.
 
 ## Duplicate and link
 

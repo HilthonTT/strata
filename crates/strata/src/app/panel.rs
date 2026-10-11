@@ -482,6 +482,21 @@ impl Panel {
         }
     }
 
+    /// Marked items (or the hovered one) in the order they are listed.
+    pub fn targets_in_order(&self) -> Vec<Entry> {
+        (0..self.len())
+            .filter_map(|r| self.entry_at(r))
+            .filter(|e| {
+                if self.marked.is_empty() {
+                    self.hovered().is_some_and(|h| h.path == e.path)
+                } else {
+                    self.marked.contains(&e.path)
+                }
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Like [`Panel::targets`], with the full entries.
     pub fn target_entries(&self) -> Vec<Entry> {
         if self.marked.is_empty() {

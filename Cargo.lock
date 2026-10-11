@@ -3015,6 +3015,7 @@ dependencies = [
  "lzma-rs",
  "md-5",
  "nucleo-matcher",
+ "regex",
  "ruzstd",
  "serde",
  "sha1",

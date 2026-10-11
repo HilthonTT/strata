@@ -10,7 +10,7 @@
 
 Everything you need, nothing you don't.
 
-- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR`, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them
+- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR` or with a pattern (`photo-{n:3}{.ext}`, `s/old/new/`) and a live preview, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them
 - **Trash browser**: restore, delete or empty, newest first
 - **Sync and dedupe**: make one folder match another (`:sync`, with a dry run and undo) and find duplicate files (`:dupes`)
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
@@ -63,6 +63,7 @@ strata [DIR...]           # one panel per directory
 | `alt+p` | pause / resume the latest job | `alt+R` | resume a failed copy |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
 | `g s` | find by size, age, type | `g a` | flatten / back |
+| `g r` | rename with a pattern | | |
 | `?` | all keys | `q` | quit |
 
 Prefer superfile's keys (`ctrl+c`, `ctrl+x`, `ctrl+v`, `ctrl+d`…)? Set `keymap = "default"` under `[general]`.

@@ -27,6 +27,7 @@ mod preview_markdown;
 mod preview_media;
 mod preview_nav;
 mod remote_edit;
+mod rename_pattern;
 mod session;
 pub mod sidebar;
 pub mod sync;
