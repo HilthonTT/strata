@@ -232,6 +232,8 @@ pub struct App {
     pub tags: TagDb,
     /// The item last reported to plugins as hovered.
     last_hover: Option<PathBuf>,
+    /// The view last reported to plugins.
+    last_view: View,
     /// Border characters, from `border` and `border_chars`.
     pub border: ratatui::symbols::border::Set<'static>,
     last_click: Option<(Instant, u16, u16)>,
@@ -368,6 +370,7 @@ impl App {
             dupes: None,
             tags: TagDb::default(),
             last_hover: None,
+            last_view: View::Files,
             border,
             last_click: None,
             external: None,
@@ -649,6 +652,7 @@ impl App {
             self.flush_pending_keys();
         }
         self.track_location();
+        self.track_view();
         self.track_hover();
         self.update_preview();
         self.update_inspection();
@@ -683,6 +687,15 @@ impl App {
             self.last_location = Some(here);
             self.emit_plugin_event("cd");
             self.refresh_plugin_ui();
+        }
+    }
+
+    /// Tells plugins when the view changes, however it was changed.
+    fn track_view(&mut self) {
+        if self.view != self.last_view {
+            self.last_view = self.view;
+            let name = self.view.title().to_lowercase();
+            self.emit_plugin_event_with("view", PluginValue::map([("view", PluginValue::Str(name))]));
         }
     }
 

@@ -282,9 +282,8 @@ impl App {
             match op {
                 UndoOp::Rename { vfs, from, to } if vfs.is_local() => self.tags.moved(from, to),
                 UndoOp::BulkRename { vfs, dir, plan } if vfs.is_local() => {
-                    for r in plan {
-                        self.tags.moved(&dir.join(&r.from), &dir.join(&r.to));
-                    }
+                    let moves: Vec<_> = plan.iter().map(|r| (dir.join(&r.from), dir.join(&r.to))).collect();
+                    self.tags.moved_all(&moves);
                 }
                 UndoOp::Moved { from_vfs, original, to_vfs, current } if from_vfs.is_local() && to_vfs.is_local() => {
                     self.tags.moved(original, current)

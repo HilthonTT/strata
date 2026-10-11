@@ -172,7 +172,7 @@ impl App {
                 if clear {
                     p.clear_marks();
                 }
-                p.mark_paths(&paths.into_iter().map(std::path::PathBuf::from).collect());
+                p.mark_paths(&paths.into_iter().map(|p| expand_tilde(&p)).collect());
             }
             Request::Show { title, paths } => {
                 self.show_paths(title, paths.into_iter().map(|p| expand_tilde(&p)).collect());

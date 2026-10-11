@@ -112,17 +112,27 @@ impl TagDb {
     /// Carries tags along when `from` is renamed or moved to `to`,
     /// including everything inside it.
     pub fn moved(&mut self, from: &Path, to: &Path) {
-        let affected: Vec<PathBuf> = self.tags.keys().filter(|p| p.starts_with(from)).cloned().collect();
-        if affected.is_empty() {
-            return;
-        }
-        for old in affected {
-            let rest = old.strip_prefix(from).unwrap_or(Path::new(""));
-            let new = if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) };
-            if let Some(tags) = self.tags.remove(&old) {
-                self.tags.insert(new, tags);
+        self.moved_all(&[(from.to_path_buf(), to.to_path_buf())]);
+    }
+
+    /// Like [`TagDb::moved`] for renames that happen together, so swaps
+    /// (`a` -> `b`, `b` -> `a`) keep each item's tags.
+    pub fn moved_all(&mut self, moves: &[(PathBuf, PathBuf)]) {
+        let mut taken = Vec::new();
+        for (from, to) in moves {
+            let affected: Vec<PathBuf> = self.tags.keys().filter(|p| p.starts_with(from)).cloned().collect();
+            for old in affected {
+                let rest = old.strip_prefix(from).unwrap_or(Path::new(""));
+                let new = if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) };
+                if let Some(tags) = self.tags.remove(&old) {
+                    taken.push((new, tags));
+                }
             }
         }
+        if taken.is_empty() {
+            return;
+        }
+        self.tags.extend(taken);
         let _ = self.save();
     }
 
@@ -222,6 +232,16 @@ mod tests {
         assert_eq!(db.get(Path::new("/y/renamed")), ["blue"]);
         assert_eq!(db.get(Path::new("/y/renamed/inner.txt")), ["blue"]);
         assert_eq!(db.get(Path::new("/x/dirt")), ["blue"], "a sibling with a common prefix stays");
+    }
+
+    #[test]
+    fn swapped_names_keep_their_tags() {
+        let mut db = TagDb::in_memory();
+        db.add(&[PathBuf::from("/d/a")], "red").unwrap();
+        db.add(&[PathBuf::from("/d/b")], "blue").unwrap();
+        db.moved_all(&[(PathBuf::from("/d/a"), PathBuf::from("/d/b")), (PathBuf::from("/d/b"), PathBuf::from("/d/a"))]);
+        assert_eq!(db.get(Path::new("/d/b")), ["red"]);
+        assert_eq!(db.get(Path::new("/d/a")), ["blue"]);
     }
 
     #[test]

@@ -288,11 +288,7 @@ impl App {
     }
 
     pub fn set_view(&mut self, view: View) {
-        if self.view != view {
-            let name = view.title().to_lowercase();
-            self.view = view;
-            self.emit_plugin_event_with("view", PluginValue::map([("view", PluginValue::Str(name))]));
-        }
+        self.view = view;
         match view {
             View::Docker => self.refresh_docker(),
             View::Connections => {

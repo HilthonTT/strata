@@ -98,12 +98,12 @@ impl App {
 
     /// Carries tags along and tells plugins about each rename in `dir`.
     pub(super) fn after_renames(&mut self, vfs: &VfsRef, dir: &std::path::Path, renames: &[bulk::Rename]) {
-        for r in renames {
-            let (from, to) = (vfs.join(dir, &r.from), vfs.join(dir, &r.to));
-            if vfs.is_local() {
-                self.tags.moved(&from, &to);
-            }
-            self.emit_rename_event(&from, &to);
+        let moves: Vec<_> = renames.iter().map(|r| (vfs.join(dir, &r.from), vfs.join(dir, &r.to))).collect();
+        if vfs.is_local() {
+            self.tags.moved_all(&moves);
+        }
+        for (from, to) in &moves {
+            self.emit_rename_event(from, to);
         }
     }
 
