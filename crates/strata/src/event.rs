@@ -103,6 +103,7 @@ pub enum AppEvent {
         dest: PathBuf,
         result: Result<VfsRef, String>,
     },
+    GitDone(Result<crate::app::GitReply, String>),
     Git {
         dir: PathBuf,
         status: Option<GitStatus>,

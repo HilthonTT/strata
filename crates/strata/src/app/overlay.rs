@@ -35,6 +35,8 @@ pub enum InputPurpose {
     Find,
     /// A pattern to rename these items with.
     RenamePattern(super::rename_pattern::PatternTargets),
+    /// A commit message for the repository at this root.
+    GitCommit(PathBuf),
 }
 
 /// New names shown under the pattern-rename prompt as it is typed.
@@ -174,6 +176,11 @@ pub enum PickerPurpose {
     Drives {
         drives: Vec<strata_sys::drives::Drive>,
     },
+    /// The git menu; `ops[i]` is row `i`.
+    Git {
+        target: super::vcs::GitTarget,
+        ops: Vec<super::vcs::GitOp>,
+    },
 }
 
 pub struct PickerState {
@@ -255,6 +262,11 @@ pub enum Confirm {
     Sync(Box<super::sync::SyncRequest>),
     /// Trash one copy of a duplicate, then show the duplicates again.
     TrashDupe(PathBuf),
+    /// Throw away unstaged changes to these files.
+    GitDiscard {
+        root: PathBuf,
+        paths: Vec<PathBuf>,
+    },
     Quit,
 }
 

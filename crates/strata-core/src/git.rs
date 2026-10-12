@@ -1,8 +1,11 @@
-//! Per-file git status for the file panels.
+//! Per-file git status for the file panels, and the git actions run on
+//! marked files: stage, unstage, discard, diff, log, blame and commit.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+use anyhow::{bail, Context, Result};
 
 /// Status of a path, ordered by how much it matters when summarising a
 /// directory (a directory shows its most important child).
@@ -75,6 +78,113 @@ fn git(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
         .output()
         .ok()?;
     out.status.success().then_some(out.stdout)
+}
+
+/// Top-level directory of the repository containing `dir`.
+pub fn repo_root(dir: &Path) -> Option<PathBuf> {
+    let root = git(dir, &["rev-parse", "--show-toplevel"])?;
+    Some(PathBuf::from(String::from_utf8_lossy(&root).trim()))
+}
+
+/// Current branch name, or the short commit hash when detached.
+pub fn branch(root: &Path) -> Option<String> {
+    let name = git(root, &["symbolic-ref", "--short", "-q", "HEAD"])
+        .or_else(|| git(root, &["rev-parse", "--short", "HEAD"]))?;
+    Some(String::from_utf8_lossy(&name).trim().to_string()).filter(|n| !n.is_empty())
+}
+
+/// Runs git in `root` with `args`, then `--` and `paths`. Returns stdout,
+/// or git's own error message.
+fn run(root: &Path, args: &[&str], paths: &[PathBuf]) -> Result<String> {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(root).args(args);
+    if !paths.is_empty() {
+        cmd.arg("--").args(paths);
+    }
+    let out = cmd
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_EDITOR", "true")
+        .stdin(Stdio::null())
+        .output()
+        .context("failed to run git")?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let line = err.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with("hint:"));
+        bail!("{}", line.unwrap_or("git failed").trim_start_matches("fatal: ").trim_start_matches("error: "));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// True when the repository has at least one commit.
+fn has_head(root: &Path) -> bool {
+    git(root, &["rev-parse", "--verify", "-q", "HEAD"]).is_some()
+}
+
+/// Stages new, changed and deleted files (and everything below folders).
+pub fn stage(root: &Path, paths: &[PathBuf]) -> Result<()> {
+    run(root, &["add", "-A"], paths).map(drop)
+}
+
+/// Takes files out of the index, keeping the changes in the work tree.
+pub fn unstage(root: &Path, paths: &[PathBuf]) -> Result<()> {
+    if has_head(root) {
+        run(root, &["reset", "-q", "HEAD"], paths).map(drop)
+    } else {
+        // Nothing committed yet: there is no HEAD to reset to.
+        run(root, &["rm", "-r", "-q", "--cached"], paths).map(drop)
+    }
+}
+
+/// Throws away unstaged changes to tracked files. Untracked files are left
+/// alone (they can be deleted, which the trash can undo).
+pub fn discard(root: &Path, paths: &[PathBuf]) -> Result<()> {
+    let tracked = run(root, &["ls-files", "-z"], paths)?;
+    let tracked: Vec<PathBuf> = tracked.split('\0').filter(|r| !r.is_empty()).map(|r| root.join(r)).collect();
+    if tracked.is_empty() {
+        bail!("nothing tracked to discard");
+    }
+    run(root, &["checkout"], &tracked).map(drop)
+}
+
+/// Staged and unstaged changes against the last commit, plus untracked
+/// files shown as wholly added.
+pub fn diff(root: &Path, paths: &[PathBuf]) -> Result<String> {
+    let base: &[&str] =
+        if has_head(root) { &["diff", "--no-color", "HEAD"] } else { &["diff", "--no-color", "--cached"] };
+    let mut out = run(root, base, paths)?;
+    let untracked = run(root, &["ls-files", "--others", "--exclude-standard", "-z"], paths)?;
+    for rel in untracked.split('\0').filter(|r| !r.is_empty()) {
+        // `--no-index` exits with 1 when the files differ, which they do.
+        let added = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["diff", "--no-color", "--no-index", "--", "/dev/null", rel])
+            .stdin(Stdio::null())
+            .output()
+            .context("failed to run git")?;
+        out.push_str(&String::from_utf8_lossy(&added.stdout));
+    }
+    Ok(out)
+}
+
+/// Recent commits touching `paths` (the whole repository when empty).
+pub fn log(root: &Path, paths: &[PathBuf]) -> Result<String> {
+    run(root, &["log", "--no-color", "-n", "300", "--date=short", "--format=%h  %ad  %<(16,trunc)%an  %s"], paths)
+}
+
+/// Who last changed each line of `file`.
+pub fn blame(root: &Path, file: &Path) -> Result<String> {
+    run(root, &["blame", "--date=short", "-w"], &[file.to_path_buf()])
+}
+
+/// Commits what is staged. Returns git's one-line summary.
+pub fn commit(root: &Path, message: &str) -> Result<String> {
+    if message.trim().is_empty() {
+        bail!("the commit message is empty");
+    }
+    let out = run(root, &["commit", "-q", "-m", message], &[])?;
+    let summary = run(root, &["log", "-1", "--format=%h %s"], &[]).unwrap_or(out);
+    Ok(summary.trim().to_string())
 }
 
 /// Parses `git status --porcelain=v1 -z` output.
@@ -150,5 +260,50 @@ mod tests {
         let root = s.root.clone();
         assert_eq!(s.get(&root.join("new.txt")), Some(GitState::Untracked));
         assert!(status(&std::env::temp_dir().join("definitely-not-a-repo-xyz")).is_none());
+    }
+
+    #[test]
+    fn stages_diffs_commits_and_discards() {
+        if !crate::nas::which("git") {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let git = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(root).args(args).output().unwrap();
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        let root = &repo_root(root).unwrap();
+        let file = root.join("a.txt");
+        std::fs::write(&file, "one\n").unwrap();
+
+        // Before the first commit, untracked files show as added.
+        assert!(diff(root, std::slice::from_ref(&file)).unwrap().contains("+one"));
+        stage(root, std::slice::from_ref(&file)).unwrap();
+        assert_eq!(status(root).unwrap().get(&file), Some(GitState::Added));
+        unstage(root, std::slice::from_ref(&file)).unwrap();
+        assert_eq!(status(root).unwrap().get(&file), Some(GitState::Untracked), "unstaged with no HEAD yet");
+
+        stage(root, std::slice::from_ref(&file)).unwrap();
+        assert!(commit(root, "  ").is_err());
+        let summary = commit(root, "first").unwrap();
+        assert!(summary.ends_with(" first"), "{summary}");
+        assert_eq!(branch(root).as_deref(), Some("main"));
+
+        std::fs::write(&file, "two\n").unwrap();
+        let d = diff(root, std::slice::from_ref(&file)).unwrap();
+        assert!(d.contains("-one") && d.contains("+two"), "{d}");
+        stage(root, std::slice::from_ref(&file)).unwrap();
+        unstage(root, std::slice::from_ref(&file)).unwrap();
+        std::fs::write(root.join("new.txt"), "x").unwrap();
+        discard(root, &[file.clone(), root.join("new.txt")]).unwrap();
+        assert!(root.join("new.txt").exists(), "untracked files are kept");
+        assert!(discard(root, &[root.join("new.txt")]).is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "one\n");
+        assert!(log(root, std::slice::from_ref(&file)).unwrap().contains("first"));
+        assert!(blame(root, &file).unwrap().contains("one"));
+        assert!(stage(root, &[root.join("missing")]).unwrap_err().to_string().contains("missing"));
     }
 }

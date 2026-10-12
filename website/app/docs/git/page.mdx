@@ -1,6 +1,6 @@
-export const metadata = { title: "Git status" };
+export const metadata = { title: "Git" };
 
-# Git status
+# Git
 
 Inside a git repository, every file gets a marker at the right edge of its row:
 
@@ -15,6 +15,24 @@ Inside a git repository, every file gets a marker at the right edge of its row:
 
 Ignored files are dimmed. A directory shows the most important marker of anything inside it, so you can follow changes down the tree.
 
-The `git` plugin adds the current branch and the number of changes to the top bar, and a **Git** panel with `git status` — toggle it with <Kbd>g s</Kbd>. Run any git command in the current directory with `:git <args>`.
+## Git actions
+
+Press <Kbd>;</Kbd> for the git menu. It works on the marked items, or the hovered one:
+
+| Action | What it does |
+| --- | --- |
+| **diff** | Staged and unstaged changes against the last commit, with untracked files shown as added |
+| **stage** | `git add` (new, changed and deleted files, and everything in a folder) |
+| **unstage** | Takes the items out of the next commit and keeps the changes |
+| **discard** | Throws away unstaged changes to tracked files after asking. Untracked files are kept |
+| **commit** | Asks for a message and commits what is staged |
+| **log** | Recent commits touching the items |
+| **blame** | Who last changed each line (one file) |
+
+The same actions are commands: `:git diff`, `:git stage`, `:git unstage`, `:git discard`, `:git log`, `:git blame` and `:git commit <message>`. Anything else, like `:git push` or `:git pull --rebase`, runs as a git command in the current directory.
+
+## The git plugin
+
+The `git` plugin adds the current branch and the number of changes to the top bar, and a **Git** panel with `git status` — toggle it with <Kbd>g s</Kbd>.
 
 Status is refreshed in the background every few seconds and after every file operation. Turn it off with `git_status = false`.

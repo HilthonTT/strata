@@ -184,7 +184,8 @@ impl App {
                 | PickerPurpose::Dupes { .. }
                 | PickerPurpose::Tag { .. }
                 | PickerPurpose::Tags { .. }
-                | PickerPurpose::Drives { .. } => {}
+                | PickerPurpose::Drives { .. }
+                | PickerPurpose::Git { .. } => {}
             },
             other => self.overlay = other,
         }
@@ -218,6 +219,7 @@ impl App {
             Confirm::EmptyTrash => self.purge_trash(None),
             Confirm::Sync(request) => self.start_sync(*request),
             Confirm::TrashDupe(path) => self.trash_dupe(path),
+            Confirm::GitDiscard { root, paths } => self.git_discard(root, paths),
             Confirm::Quit => {
                 self.jobs.cancel_all();
                 self.quit();

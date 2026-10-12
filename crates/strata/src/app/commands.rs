@@ -41,6 +41,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
     ("compress", "compress [name] — pack marked items into a .zip or .tar.* archive"),
     ("extract", "extract — unpack the hovered archive here"),
+    (
+        "git",
+        "git [diff|stage|unstage|discard|log|blame|commit [message]] — on marked items; no args: menu; else runs git",
+    ),
     ("pause", "pause — pause or resume the latest running job"),
     ("retry", "retry — resume the latest failed or cancelled copy"),
     ("trash", "trash — browse, restore and delete trashed items"),
@@ -138,6 +142,7 @@ impl App {
             "retry" | "resume" => self.dispatch(Action::RetryJob),
             "verify" => self.verify(args),
             "trash" => self.dispatch(Action::OpenTrash),
+            "git" => self.git_command(args),
             "empty-trash" => match strata_core::trash::list() {
                 Ok(items) if items.is_empty() => self.info("the trash is empty"),
                 Ok(items) => {
@@ -408,6 +413,7 @@ impl App {
             InputPurpose::Find if !value.is_empty() => self.find_command(&value),
             InputPurpose::RenamePattern(targets) if !value.is_empty() => self.apply_rename_pattern(targets, &value),
             InputPurpose::Compress(items) if !value.is_empty() => self.compress(items, &value),
+            InputPurpose::GitCommit(root) if !value.is_empty() => self.git_commit(root, value),
             InputPurpose::AddConnectionName(mut conn) if !value.is_empty() => {
                 conn.name = value;
                 self.save_connection(conn);
@@ -470,6 +476,11 @@ impl App {
             PickerPurpose::Tags { tags } => {
                 if let Some(tag) = selected_index.and_then(|i| tags.get(i)).cloned() {
                     self.show_tagged(&tag);
+                }
+            }
+            PickerPurpose::Git { target, ops } => {
+                if let Some(op) = selected_index.and_then(|i| ops.get(i)).copied() {
+                    self.run_git_op(op, target);
                 }
             }
             PickerPurpose::Drives { drives } => {

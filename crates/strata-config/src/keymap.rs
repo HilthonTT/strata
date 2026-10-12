@@ -95,6 +95,7 @@ actions! {
     TagMenu => "tag_menu", "Tag or colour-label marked items";
     ContentSearch => "content_search", "Search file contents (ripgrep)";
     Undo => "undo", "Undo the last file operation";
+    GitMenu => "git_menu", "Git: diff, stage, unstage, discard, commit, log, blame";
     Redo => "redo", "Redo what was undone";
     PreviewDown => "preview_down", "Scroll the preview down";
     PreviewUp => "preview_up", "Scroll the preview up";
@@ -363,6 +364,7 @@ const COMMON: &[(&str, &str)] = &[
     (",", "tag_menu"),
     ("q", "quit"),
     ("Q", "quit_cd"),
+    (";", "git_menu"),
     ("ctrl+g", "content_search"),
     ("alt+p", "pause_job"),
     ("alt+R", "retry_job"),

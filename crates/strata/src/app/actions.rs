@@ -239,6 +239,7 @@ impl App {
                 let current = self.panel().filter.clone();
                 self.overlay = Some(Overlay::Input(InputState::new("Filter", current, InputPurpose::Filter)));
             }
+            GitMenu => self.git_menu(),
             FuzzyFind => self.start_find(),
             ToggleHidden => {
                 let show = !self.panel().show_hidden;

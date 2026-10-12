@@ -12,6 +12,7 @@ mod dirsize;
 mod drives;
 mod dupes;
 pub use commands::COMMANDS;
+pub use vcs::GitReply;
 mod external;
 mod fileops;
 mod find;
@@ -618,6 +619,7 @@ impl App {
                 }
             }
             AppEvent::Git { dir, status } => self.on_git_status(dir, status),
+            AppEvent::GitDone(result) => self.on_git_done(result),
             AppEvent::FsChanged(paths) => {
                 paths.iter().for_each(|p| self.dir_sizes.invalidate(p));
                 self.on_fs_changed(paths);

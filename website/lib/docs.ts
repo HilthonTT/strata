@@ -18,7 +18,7 @@ export const docs: DocSection[] = [
       { title: "File operations", href: "/docs/file-operations/" },
       { title: "Search", href: "/docs/search/" },
       { title: "Preview & metadata", href: "/docs/preview/" },
-      { title: "Git status", href: "/docs/git/" },
+      { title: "Git", href: "/docs/git/" },
     ],
   },
   {
