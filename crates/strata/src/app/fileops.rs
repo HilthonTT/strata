@@ -76,7 +76,7 @@ impl App {
         let Some(clip) = self.clipboard.as_ref() else {
             return self.notify("clipboard is empty — mark items and press y y first", Level::Warn);
         };
-        let (vfs, cwd) = (self.panel().vfs.clone(), self.panel().cwd.clone());
+        let (vfs, cwd) = (self.panel().vfs.clone(), self.panel().target_dir());
         if !same_vfs(&clip.vfs, &vfs) {
             return self.error("links must be on the same filesystem as what they point to");
         }
@@ -465,7 +465,7 @@ impl App {
         };
         // Only if the panel is still where the archive was opened.
         let Some(p) = self.panels.iter_mut().find(|p| p.id == panel) else { return };
-        if !p.vfs.is_local() || Some(p.cwd.as_path()) != file.parent() {
+        if !p.vfs.is_local() || !file.parent().is_some_and(|dir| p.shows_dir(dir)) {
             return;
         }
         p.switch_vfs(vfs, PathBuf::from("/"));

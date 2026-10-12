@@ -42,7 +42,12 @@ impl App {
     }
 
     pub(super) fn compress(&mut self, items: Vec<PathBuf>, name: &str) {
-        let cwd = self.panel().cwd.clone();
+        // Beside the items when they share a folder (in a tree, maybe not
+        // the panel's own), so tar can name them relative to it.
+        let cwd = match items.first().and_then(|p| p.parent()) {
+            Some(dir) if items.iter().all(|p| p.parent() == Some(dir)) => dir.to_path_buf(),
+            _ => self.panel().cwd.clone(),
+        };
         let target = cwd.join(name);
         if target.exists() {
             return self.error(format!("{name} already exists"));
@@ -57,7 +62,11 @@ impl App {
         if ArchiveFormat::detect(name).is_some() && strata_core::nas::which("tar") {
             self.panel_mut().clear_marks();
             let mut argv = vec!["tar".to_string(), "-caf".into(), name.to_string(), "--".into()];
-            argv.extend(items.iter().map(|p| file_name(p)));
+            argv.extend(
+                items
+                    .iter()
+                    .map(|p| p.strip_prefix(&cwd).map(strata_core::util::posix).unwrap_or_else(|_| file_name(p))),
+            );
             return self.queue_external(External::Run {
                 argv,
                 cwd: Some(cwd),
@@ -77,7 +86,8 @@ impl App {
         if !self.panel().vfs.is_local() || entry.is_dir() {
             return self.notify("extract: hover a local archive", Level::Warn);
         }
-        let dest = self.panel().cwd.clone();
+        // Next to the archive, which in a tree can be below the panel's folder.
+        let dest = entry.path.parent().map(PathBuf::from).unwrap_or_else(|| self.panel().cwd.clone());
         if ArchiveFormat::detect(&entry.name).is_some() {
             self.info(format!("reading {}…", entry.name));
             let (tx, file) = (self.tx.clone(), entry.path);

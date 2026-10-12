@@ -181,7 +181,14 @@ impl App {
         let GitTarget { root, paths } = target;
         match op {
             GitOp::Commit => {
-                let input = InputState::new("Commit message", "", InputPurpose::GitCommit(root));
+                let staged = match git::staged_count(&root) {
+                    Ok(0) => return self.notify("nothing staged — stage items first", strata_plugin::Level::Warn),
+                    Ok(n) => n,
+                    Err(e) => return self.error(format!("git: {e:#}")),
+                };
+                let branch = git::branch(&root).map(|b| format!(" on {b}")).unwrap_or_default();
+                let title = format!("Commit {staged} staged file(s){branch}");
+                let input = InputState::new(title, "", InputPurpose::GitCommit(root));
                 self.overlay = Some(Overlay::Input(input));
             }
             GitOp::Discard => {

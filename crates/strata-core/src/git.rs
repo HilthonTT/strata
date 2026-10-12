@@ -108,8 +108,9 @@ fn run(root: &Path, args: &[&str], paths: &[PathBuf]) -> Result<String> {
         .output()
         .context("failed to run git")?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let line = err.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with("hint:"));
+        // Some failures (`commit` with nothing staged) only explain themselves on stdout.
+        let (err, msg) = (String::from_utf8_lossy(&out.stderr), String::from_utf8_lossy(&out.stdout));
+        let line = err.lines().chain(msg.lines()).map(str::trim).find(|l| !l.is_empty() && !l.starts_with("hint:"));
         bail!("{}", line.unwrap_or("git failed").trim_start_matches("fatal: ").trim_start_matches("error: "));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -138,12 +139,39 @@ pub fn unstage(root: &Path, paths: &[PathBuf]) -> Result<()> {
 /// Throws away unstaged changes to tracked files. Untracked files are left
 /// alone (they can be deleted, which the trash can undo).
 pub fn discard(root: &Path, paths: &[PathBuf]) -> Result<()> {
-    let tracked = run(root, &["ls-files", "-z"], paths)?;
-    let tracked: Vec<PathBuf> = tracked.split('\0').filter(|r| !r.is_empty()).map(|r| root.join(r)).collect();
+    let listed = run(root, &["ls-files", "-z"], paths)?;
+    let listed: Vec<PathBuf> = listed.split('\0').filter(|r| !r.is_empty()).map(|r| root.join(r)).collect();
+    // Pass on the items that hold tracked files rather than every file
+    // inside them, which could overflow the command line.
+    let tracked: Vec<PathBuf> = paths
+        .iter()
+        .filter(|p| {
+            let p = canonical_in(root, p);
+            listed.iter().any(|t| t.starts_with(&p))
+        })
+        .cloned()
+        .collect();
     if tracked.is_empty() {
         bail!("nothing tracked to discard");
     }
     run(root, &["checkout"], &tracked).map(drop)
+}
+
+/// `path` spelled the way git spells paths under `root`, which git gives
+/// with symlinks resolved and, on Windows, with forward slashes.
+fn canonical_in(root: &Path, path: &Path) -> PathBuf {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let root_real = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    match path.strip_prefix(&root_real) {
+        Ok(rel) => root.join(rel),
+        Err(_) => path,
+    }
+}
+
+/// How many files are staged for the next commit.
+pub fn staged_count(root: &Path) -> Result<usize> {
+    let names = run(root, &["diff", "--cached", "--name-only", "-z"], &[])?;
+    Ok(names.split('\0').filter(|n| !n.is_empty()).count())
 }
 
 /// Staged and unstaged changes against the last commit, plus untracked
@@ -275,6 +303,8 @@ mod tests {
         git(&["init", "-q", "-b", "main"]);
         git(&["config", "user.email", "t@example.com"]);
         git(&["config", "user.name", "Test"]);
+        // Windows runners default to autocrlf, which would check files out with CRLF.
+        git(&["config", "core.autocrlf", "false"]);
         let root = &repo_root(root).unwrap();
         let file = root.join("a.txt");
         std::fs::write(&file, "one\n").unwrap();
@@ -288,9 +318,14 @@ mod tests {
 
         stage(root, std::slice::from_ref(&file)).unwrap();
         assert!(commit(root, "  ").is_err());
+        assert_eq!(staged_count(root).unwrap(), 1);
         let summary = commit(root, "first").unwrap();
         assert!(summary.ends_with(" first"), "{summary}");
         assert_eq!(branch(root).as_deref(), Some("main"));
+
+        assert_eq!(staged_count(root).unwrap(), 0);
+        let nothing = commit(root, "again").unwrap_err().to_string();
+        assert!(!nothing.is_empty() && nothing != "git failed", "{nothing}");
 
         std::fs::write(&file, "two\n").unwrap();
         let d = diff(root, std::slice::from_ref(&file)).unwrap();
@@ -298,6 +333,13 @@ mod tests {
         stage(root, std::slice::from_ref(&file)).unwrap();
         unstage(root, std::slice::from_ref(&file)).unwrap();
         std::fs::write(root.join("new.txt"), "x").unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/b.txt"), "b\n").unwrap();
+        stage(root, &[root.join("sub")]).unwrap();
+        commit(root, "sub").unwrap();
+        std::fs::write(root.join("sub/b.txt"), "changed\n").unwrap();
+        discard(root, &[root.join("sub")]).unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("sub/b.txt")).unwrap(), "b\n", "folders discard what is inside");
         discard(root, &[file.clone(), root.join("new.txt")]).unwrap();
         assert!(root.join("new.txt").exists(), "untracked files are kept");
         assert!(discard(root, &[root.join("new.txt")]).is_err());
