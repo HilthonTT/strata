@@ -25,7 +25,7 @@ Everything you need, nothing you don't.
 - **Git status** markers next to every file, and **tabs** on top of multiple panels
 - **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
-- **NAS connections**: SMB, NFS and SFTP, with live reachability checks, a step-by-step connection test and passwords in your system keychain
+- **Remote connections**: SMB, NFS and SFTP, plus S3 (AWS, MinIO, R2…), WebDAV, FTP and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox…) browsed in-app, with live reachability checks, a step-by-step connection test and passwords in your system keychain
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
@@ -39,7 +39,7 @@ git clone https://github.com/HilthonTT/strata && cd strata
 make install            # installs to ~/.local/bin
 ```
 
-You need Rust 1.95 or newer. On Linux and macOS you also need OpenSSL headers for SFTP (`libssl-dev` on Debian/Ubuntu). Icons need a [Nerd Font](https://www.nerdfonts.com); set `icons = false` if you don't use one.
+You need Rust 1.95 or newer. On Linux and macOS you also need OpenSSL headers for SFTP (`libssl-dev` on Debian/Ubuntu). S3, WebDAV, FTP and rclone connections need the [`rclone`](https://rclone.org/install/) command. Icons need a [Nerd Font](https://www.nerdfonts.com); set `icons = false` if you don't use one.
 
 ## Usage
 
@@ -101,7 +101,7 @@ The code is a Cargo workspace:
 
 | Crate | Purpose |
 | --- | --- |
-| `strata-core` | filesystem backends (local, SFTP, Docker), file operations, undo, jobs, search, git, NAS, keychain |
+| `strata-core` | filesystem backends (local, SFTP, Docker, archives, rclone), file operations, undo, jobs, search, git, NAS, keychain |
 | `strata-sys` | disks, I/O, memory pressure, disk usage, Docker CLI |
 | `strata-config` | config file, keymap, themes |
 | `strata-plugin` | Lua plugin host |

@@ -1,8 +1,8 @@
-export const metadata = { title: "NAS connections" };
+export const metadata = { title: "NAS & remote connections" };
 
-# NAS connections
+# NAS & remote connections
 
-Press <Kbd>4</Kbd> for your NAS connections. strata supports **SMB**, **NFS** and **SFTP**.
+Press <Kbd>4</Kbd> for your connections. strata mounts **SMB** and **NFS** shares, and browses **SFTP**, **S3**, **WebDAV**, **FTP** and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox, Backblaze B2…) right in its panels.
 
 <Media src="nas.png" alt="NAS connections" />
 
@@ -16,28 +16,35 @@ Press <Kbd>a</Kbd> and enter a URL, then a name:
 smb://me@192.168.0.10/media
 nfs://nas.local/export/backup
 sftp://me@nas.local:2222/volume1
+s3://my-bucket/backups                       # AWS
+s3+http://ACCESSKEY@minio.local:9000/bucket  # MinIO, R2, B2… (s3+https:// for TLS)
+davs://me@cloud.example.com/remote.php/dav/files/me   # WebDAV over https (dav:// for http)
+ftp://me@ftp.example.org/pub                 # ftps:// for FTP over TLS
+rclone://gdrive/Photos                       # a remote from `rclone config`
 ```
 
-The host can be an IPv4 or IPv6 address or a name. Connections are saved to `config.toml`:
+You can also open a URL directly with `:connect <url>`. The host can be an IPv4 or IPv6 address or a name. Connections are saved to `config.toml`:
 
 ```toml
 [[connections]]
 name = "homelab"
-protocol = "smb"          # smb | nfs | sftp
-host = "192.168.0.10"
-share = "media"           # share (SMB), export (NFS) or start directory (SFTP)
+protocol = "smb"          # smb | nfs | sftp | s3 | webdav | ftp | rclone
+host = "192.168.0.10"     # S3: the endpoint; rclone: the remote's name
+share = "media"           # share (SMB), export (NFS), start directory (SFTP, FTP, rclone),
+                          # /bucket/prefix (S3) or the server path of the WebDAV root
 user = "me"
 domain = "WORKGROUP"      # SMB only, optional
 mount_point = "~/mnt/homelab"   # optional
 identity_file = "~/.ssh/id_ed25519"   # SFTP only, optional
 auto_connect = false
+tls = true                # S3, WebDAV and FTP: encrypt (default on, off for FTP)
 ```
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
-| <Kbd>enter</Kbd> | Connect (SFTP) or mount (SMB/NFS), then open it |
+| <Kbd>enter</Kbd> | Connect (SFTP, S3, WebDAV, FTP, rclone) or mount (SMB/NFS), then open it |
 | <Kbd>t</Kbd> | Diagnose step by step |
 | <Kbd>u</Kbd> | Disconnect or unmount |
 | <Kbd>p</Kbd> / <Kbd>f</Kbd> | Save / forget the password in the system keychain |
@@ -49,6 +56,11 @@ auto_connect = false
 - **SFTP** runs inside strata: no mounting, no root. strata tries your SSH agent, then your keys in `~/.ssh` (or `identity_file`), then a password saved in the keychain, and finally asks you. After a successful password login it offers to save it.
 - **SMB** mounts with `gio mount` on Linux desktops (no root needed), `mount -t cifs` otherwise, `mount_smbfs` on macOS and `net use` on Windows.
 - **NFS** mounts with `mount -t nfs`.
+- **S3, WebDAV, FTP and rclone remotes** run inside strata through the [`rclone`](https://rclone.org/install/) command, which must be installed. Listings load in the background; each operation starts rclone once, so expect a short pause per folder.
+  - **S3** uses the access key in the URL (`user`) with its secret key from the keychain or a prompt. Without an access key it uses your `AWS_*` variables or `~/.aws` profiles. Asking the EC2 metadata service is off unless you set `AWS_EC2_METADATA_DISABLED=false`.
+  - **WebDAV** and **FTP** ask for a password when the server refuses the login, and offer to save it. FTP without a user logs in anonymously.
+  - **rclone** remotes keep their own settings and credentials in rclone's config (`rclone config`).
+  - Secrets reach rclone through environment variables, never its command line.
 
 Mounting hands the terminal to the mount command, so `sudo` and the server can ask for passwords as usual.
 
@@ -58,4 +70,4 @@ Passwords are never written to strata's own files. They live in your operating s
 
 ## Diagnosing a connection
 
-<Kbd>t</Kbd> walks the chain a connection takes and reports each step: resolving the server's name, reaching it (falling back from port 445 to 139 for SMB), the mount point, and the share. Steps that cannot run because an earlier one failed are marked as skipped instead of guessed at.
+<Kbd>t</Kbd> walks the chain a connection takes and reports each step: resolving the server's name, reaching it (falling back from port 445 to 139 for SMB), the mount point, and the share. For rclone-based connections it checks that rclone is installed and, for rclone remotes, that the remote is configured. Steps that cannot run because an earlier one failed are marked as skipped instead of guessed at.

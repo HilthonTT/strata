@@ -605,7 +605,7 @@ impl App {
             }
             AppEvent::Found { root, files } => self.open_find_picker(root, files),
             AppEvent::Diagnosed { name, steps } => self.show_diagnosis(&name, steps),
-            AppEvent::Connected { name, result, path } => self.on_connected(name, result, path),
+            AppEvent::Connected { conn, result, path } => self.on_connected(conn, result, path),
             AppEvent::Text { title, body } => {
                 let lines = body.lines().map(str::to_string).collect::<Vec<_>>();
                 let scroll = lines.len().saturating_sub(10);

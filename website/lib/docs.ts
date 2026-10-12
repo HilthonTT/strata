@@ -26,7 +26,7 @@ export const docs: DocSection[] = [
     links: [
       { title: "Dashboard", href: "/docs/dashboard/" },
       { title: "Docker", href: "/docs/docker/" },
-      { title: "NAS connections", href: "/docs/nas/" },
+      { title: "NAS & remote connections", href: "/docs/nas/" },
     ],
   },
   {

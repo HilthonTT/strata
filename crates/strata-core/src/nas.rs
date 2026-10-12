@@ -1,5 +1,7 @@
-//! NAS connections (SMB, NFS, SFTP): reachability probes, step-by-step
-//! diagnostics and the platform commands that mount and unmount shares.
+//! NAS and remote connections (SMB, NFS, SFTP, S3, WebDAV, FTP, rclone
+//! remotes): reachability probes, step-by-step diagnostics, the platform
+//! commands that mount and unmount shares and the rclone remotes that
+//! browse the rest in-app.
 
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -14,6 +16,11 @@ pub enum Protocol {
     Smb,
     Nfs,
     Sftp,
+    S3,
+    Webdav,
+    Ftp,
+    /// A remote set up with `rclone config`; `host` is its name.
+    Rclone,
 }
 
 impl Protocol {
@@ -22,6 +29,9 @@ impl Protocol {
             Self::Smb => 445,
             Self::Nfs => 2049,
             Self::Sftp => 22,
+            Self::S3 | Self::Webdav => 443,
+            Self::Ftp => 21,
+            Self::Rclone => 0,
         }
     }
 
@@ -30,18 +40,37 @@ impl Protocol {
             Self::Smb => "smb",
             Self::Nfs => "nfs",
             Self::Sftp => "sftp",
+            Self::S3 => "s3",
+            Self::Webdav => "webdav",
+            Self::Ftp => "ftp",
+            Self::Rclone => "rclone",
         }
     }
+
+    /// Browsed inside strata rather than mounted on the local disk.
+    pub fn in_app(self) -> bool {
+        !matches!(self, Self::Smb | Self::Nfs)
+    }
+
+    /// Browsed through the `rclone` tool.
+    pub fn uses_rclone(self) -> bool {
+        matches!(self, Self::S3 | Self::Webdav | Self::Ftp | Self::Rclone)
+    }
 }
+
+/// S3 endpoint used when a connection names none.
+pub const AWS_S3_HOST: &str = "s3.amazonaws.com";
 
 /// A saved connection, as written in `config.toml` under `[[connections]]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Connection {
     pub name: String,
     pub protocol: Protocol,
-    /// IPv4, IPv6 or hostname (`192.168.0.10`, `fd00::5`, `nas.local`).
+    /// IPv4, IPv6 or hostname (`192.168.0.10`, `fd00::5`, `nas.local`), the
+    /// S3 endpoint (`s3.amazonaws.com` by default) or the rclone remote name.
     pub host: String,
-    /// Share name (SMB), export path (NFS) or start directory (SFTP).
+    /// Share name (SMB), export path (NFS), start directory (SFTP, FTP,
+    /// rclone), `/bucket/prefix` (S3) or the server path of the WebDAV root.
     #[serde(default)]
     pub share: String,
     #[serde(default)]
@@ -60,17 +89,41 @@ pub struct Connection {
     /// Probe and mount automatically when strata starts.
     #[serde(default)]
     pub auto_connect: bool,
+    /// Encrypt the connection. Defaults to on for S3 and WebDAV and off for
+    /// FTP (`ftps://` turns it on, `dav://` and `s3+http://` turn it off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls: Option<bool>,
 }
 
 impl Connection {
-    /// Parses `smb://user@host/share`, `nfs://host/export` or
-    /// `sftp://user@host:2222/path`.
+    /// Parses `smb://user@host/share`, `nfs://host/export`,
+    /// `sftp://user@host:2222/path`, `s3://bucket/prefix`,
+    /// `s3+http://minio.local:9000/bucket`, `davs://user@host/remote.php/dav`,
+    /// `ftp://user@host/pub` or `rclone://remote/path`.
     pub fn from_url(name: &str, url: &str) -> Option<Self> {
         let (scheme, rest) = url.split_once("://")?;
-        let protocol = match scheme.to_ascii_lowercase().as_str() {
-            "smb" | "cifs" => Protocol::Smb,
-            "nfs" => Protocol::Nfs,
-            "sftp" | "ssh" => Protocol::Sftp,
+        let (protocol, tls) = match scheme.to_ascii_lowercase().as_str() {
+            "smb" | "cifs" => (Protocol::Smb, None),
+            "nfs" => (Protocol::Nfs, None),
+            "sftp" | "ssh" => (Protocol::Sftp, None),
+            "s3" => {
+                // The bucket comes first; the endpoint is AWS.
+                let path = rest.trim_matches('/');
+                if path.is_empty() {
+                    return None;
+                }
+                let bucket = path.split('/').next().unwrap_or(path);
+                let mut conn = Self::new(if name.is_empty() { bucket } else { name }, Protocol::S3, AWS_S3_HOST);
+                conn.share = format!("/{path}");
+                return Some(conn);
+            }
+            "s3+https" => (Protocol::S3, None),
+            "s3+http" => (Protocol::S3, Some(false)),
+            "webdav" | "webdavs" | "davs" => (Protocol::Webdav, None),
+            "dav" => (Protocol::Webdav, Some(false)),
+            "ftp" => (Protocol::Ftp, None),
+            "ftps" => (Protocol::Ftp, Some(true)),
+            "rclone" => (Protocol::Rclone, None),
             _ => return None,
         };
         let (authority, path) =
@@ -87,29 +140,138 @@ impl Connection {
             Protocol::Smb => path.trim_matches('/').to_string(),
             _ => path,
         };
-        Some(Self {
-            name: if name.is_empty() { host.clone() } else { name.to_string() },
+        let mut conn = Self::new(if name.is_empty() { &host } else { name }, protocol, &host);
+        conn.share = share;
+        conn.user = user;
+        conn.port = port;
+        conn.tls = tls;
+        Some(conn)
+    }
+
+    fn new(name: &str, protocol: Protocol, host: &str) -> Self {
+        Self {
+            name: name.to_string(),
             protocol,
-            host,
-            share,
-            user,
-            port,
+            host: host.to_string(),
+            share: String::new(),
+            user: None,
+            port: None,
             mount_point: None,
             identity_file: None,
             domain: None,
             auto_connect: false,
-        })
+            tls: None,
+        }
     }
 
     pub fn port(&self) -> u16 {
-        self.port.unwrap_or(self.protocol.default_port())
+        if let Some(port) = self.port {
+            return port;
+        }
+        match self.protocol {
+            Protocol::S3 | Protocol::Webdav if !self.tls() => 80,
+            Protocol::Ftp if self.tls() => 990,
+            other => other.default_port(),
+        }
+    }
+
+    /// Whether the connection is encrypted (S3, WebDAV and FTP only).
+    pub fn tls(&self) -> bool {
+        self.tls.unwrap_or(self.protocol != Protocol::Ftp)
     }
 
     pub fn url(&self) -> String {
         let user = self.user.as_ref().map(|u| format!("{u}@")).unwrap_or_default();
         let port = self.port.map(|p| format!(":{p}")).unwrap_or_default();
         let share = self.share.trim_start_matches('/');
-        format!("{}://{user}{}{port}/{share}", self.protocol.as_str(), bracket_ipv6(&self.host))
+        let scheme = match self.protocol {
+            Protocol::S3 if self.host == AWS_S3_HOST && self.port.is_none() && self.tls() => {
+                return format!("s3://{share}");
+            }
+            Protocol::S3 if self.tls() => "s3+https",
+            Protocol::S3 => "s3+http",
+            Protocol::Webdav if self.tls() => "davs",
+            Protocol::Webdav => "dav",
+            Protocol::Ftp if self.tls() => "ftps",
+            other => other.as_str(),
+        };
+        format!("{scheme}://{user}{}{port}/{share}", bracket_ipv6(&self.host))
+    }
+
+    /// The rclone remote that reaches this connection, and the environment
+    /// that carries its secrets. `password` comes from the keychain or a
+    /// prompt; it is scrambled with `rclone obscure` where rclone wants that.
+    pub fn rclone_remote(&self, password: Option<&str>) -> anyhow::Result<RcloneRemote> {
+        use crate::vfs::{rclone_obscure, rclone_quote as q};
+        let mut env = Vec::new();
+        let host = bracket_ipv6(&self.host);
+        let http = if self.tls() { "https" } else { "http" };
+        let port = self.port.map(|p| format!(":{p}")).unwrap_or_default();
+        let start = if self.share.is_empty() { "/".to_string() } else { format!("/{}", self.share.trim_matches('/')) };
+        let (remote, home) = match self.protocol {
+            Protocol::S3 => {
+                let mut remote = String::from(":s3");
+                if self.host == AWS_S3_HOST && self.port.is_none() {
+                    remote.push_str(",provider=AWS");
+                } else {
+                    remote.push_str(&format!(",provider=Other,endpoint={}", q(&format!("{http}://{host}{port}"))));
+                }
+                match (&self.user, password) {
+                    (Some(key), Some(secret)) => {
+                        remote.push_str(&format!(",access_key_id={}", q(key)));
+                        env.push(("RCLONE_S3_SECRET_ACCESS_KEY".into(), secret.to_string()));
+                    }
+                    (Some(key), None) => anyhow::bail!("authentication failed: {key} needs a secret key"),
+                    // AWS_* variables or ~/.aws profiles.
+                    (None, _) => {
+                        remote.push_str(",env_auth=true");
+                        // Asking the EC2 metadata service for a role stalls
+                        // for seconds anywhere but EC2; it can be turned back on.
+                        if std::env::var_os("AWS_EC2_METADATA_DISABLED").is_none() {
+                            env.push(("AWS_EC2_METADATA_DISABLED".into(), "true".into()));
+                        }
+                    }
+                }
+                (format!("{remote}:"), start)
+            }
+            Protocol::Webdav => {
+                let url = format!("{http}://{host}{port}{}", start.trim_end_matches('/'));
+                let mut remote = format!(":webdav,url={}", q(&url));
+                if let Some(user) = &self.user {
+                    remote.push_str(&format!(",user={}", q(user)));
+                }
+                if let Some(pw) = password {
+                    env.push(("RCLONE_WEBDAV_PASS".into(), rclone_obscure(pw)?));
+                }
+                (format!("{remote}:"), "/".to_string())
+            }
+            Protocol::Ftp => {
+                let user = self.user.as_deref().unwrap_or("anonymous");
+                let mut remote = format!(":ftp,host={},port={},user={}", q(&self.host), self.port(), q(user));
+                if self.tls() {
+                    remote.push_str(",tls=true");
+                }
+                // rclone cannot log in without a password, even an empty one.
+                let pw = match password {
+                    Some(pw) => pw,
+                    None if user == "anonymous" => "anonymous@",
+                    None => anyhow::bail!("authentication failed: {user} needs a password"),
+                };
+                env.push(("RCLONE_FTP_PASS".into(), rclone_obscure(pw)?));
+                (format!("{remote}:"), start)
+            }
+            Protocol::Rclone => {
+                let name = self.host.trim_end_matches(':');
+                if name.is_empty() || name.contains(['/', ' ']) {
+                    anyhow::bail!("'{}' is not an rclone remote name", self.host);
+                }
+                (format!("{name}:"), start)
+            }
+            Protocol::Smb | Protocol::Nfs | Protocol::Sftp => {
+                anyhow::bail!("{} connections do not use rclone", self.protocol.as_str())
+            }
+        };
+        Ok(RcloneRemote { remote, env, home: PathBuf::from(home) })
     }
 
     pub fn mount_point(&self) -> PathBuf {
@@ -120,7 +282,7 @@ impl Connection {
 
     /// Where the share is currently mounted, if it is.
     pub fn mounted_at(&self) -> Option<PathBuf> {
-        if self.protocol == Protocol::Sftp {
+        if self.protocol.in_app() {
             return None;
         }
         if let Some(gvfs) = self.gvfs_path().filter(|p| p.exists()) {
@@ -168,7 +330,7 @@ impl Connection {
         let share = self.share.trim_matches('/');
         let mut plan = MountPlan::default();
         plan.argv = match self.protocol {
-            Protocol::Sftp => return None,
+            Protocol::Sftp | Protocol::S3 | Protocol::Webdav | Protocol::Ftp | Protocol::Rclone => return None,
             Protocol::Smb if cfg!(target_os = "windows") => {
                 let mut argv =
                     vec!["net".into(), "use".into(), format!(r"\\{}\{}", self.host, share.replace('/', "\\"))];
@@ -242,11 +404,22 @@ impl Connection {
     /// Whether mounting needs a local directory to exist first.
     pub fn needs_mount_dir(&self) -> bool {
         match self.protocol {
-            Protocol::Sftp => false,
+            Protocol::Sftp | Protocol::S3 | Protocol::Webdav | Protocol::Ftp | Protocol::Rclone => false,
             Protocol::Smb => !(cfg!(target_os = "windows") || (cfg!(target_os = "linux") && which("gio"))),
             Protocol::Nfs => !cfg!(target_os = "windows"),
         }
     }
+}
+
+/// How rclone reaches a connection: see [`Connection::rclone_remote`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RcloneRemote {
+    /// Prefix for rclone paths, e.g. `:ftp,host='nas':` or `gdrive:`.
+    pub remote: String,
+    /// Environment variables holding secrets.
+    pub env: Vec<(String, String)>,
+    /// Where browsing starts.
+    pub home: PathBuf,
 }
 
 /// Placeholder in [`MountPlan::argv`] for the path of the credentials file.
@@ -300,9 +473,11 @@ pub fn probe(host: &str, ports: &[u16], timeout: Duration) -> Reachability {
 }
 
 /// Ports worth probing for a connection; SMB falls back to NetBIOS (139).
+/// Empty for rclone remotes, whose server strata does not know.
 pub fn probe_ports(conn: &Connection) -> Vec<u16> {
     match (conn.protocol, conn.port) {
         (Protocol::Smb, None) => vec![445, 139],
+        (Protocol::Rclone, _) => Vec::new(),
         _ => vec![conn.port()],
     }
 }
@@ -327,6 +502,21 @@ pub struct Step {
 /// than guessed at.
 pub fn diagnose(conn: &Connection) -> Vec<Step> {
     let mut steps = Vec::new();
+    if conn.protocol == Protocol::Rclone {
+        // The server behind a configured remote is rclone's business.
+        let rclone = rclone_step(&mut steps);
+        let name = conn.host.trim_end_matches(':');
+        let remotes = rclone.then(|| Command::new("rclone").arg("listremotes").output().ok()).flatten();
+        let (status, detail) = match remotes {
+            None => (StepStatus::Skipped, "rclone is not available".to_string()),
+            Some(out) if String::from_utf8_lossy(&out.stdout).lines().any(|l| l.trim_end_matches(':') == name) => {
+                (StepStatus::Ok, format!("{name}: is configured"))
+            }
+            Some(_) => (StepStatus::Fail, format!("no remote named {name}: (run rclone config)")),
+        };
+        steps.push(Step { name: "Remote", status, detail });
+        return steps;
+    }
     let resolved = (conn.host.as_str(), conn.port()).to_socket_addrs().map(|a| a.collect::<Vec<_>>());
     let resolved_ok = match &resolved {
         Ok(addrs) if !addrs.is_empty() => {
@@ -371,6 +561,9 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
     };
 
     match conn.protocol {
+        Protocol::S3 | Protocol::Webdav | Protocol::Ftp | Protocol::Rclone => {
+            rclone_step(&mut steps);
+        }
         Protocol::Sftp => {
             steps.push(Step {
                 name: "Credentials",
@@ -404,6 +597,20 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
         }
     }
     steps
+}
+
+/// Checks that rclone is installed. Returns whether it is.
+fn rclone_step(steps: &mut Vec<Step>) -> bool {
+    let version = Command::new("rclone").arg("version").output().ok().filter(|o| o.status.success());
+    let (status, detail) = match &version {
+        Some(out) => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            (StepStatus::Ok, text.lines().next().unwrap_or("installed").trim().to_string())
+        }
+        None => (StepStatus::Fail, "not installed (see https://rclone.org/install/)".to_string()),
+    };
+    steps.push(Step { name: "rclone", status, detail });
+    version.is_some()
 }
 
 fn split_host_port(s: &str) -> (String, Option<u16>) {
@@ -507,6 +714,72 @@ mod tests {
         let n = Connection::from_url("x", "nfs://nas.local/export/data").unwrap();
         assert_eq!(n.share, "/export/data");
         assert!(Connection::from_url("x", "http://nope").is_none());
+    }
+
+    #[test]
+    fn parses_rclone_urls() {
+        let s = Connection::from_url("", "s3://backups/daily/2024").unwrap();
+        assert_eq!((s.protocol, s.name.as_str(), s.host.as_str()), (Protocol::S3, "backups", AWS_S3_HOST));
+        assert_eq!(s.share, "/backups/daily/2024");
+        assert_eq!(s.url(), "s3://backups/daily/2024");
+        assert_eq!(s.port(), 443);
+
+        let m = Connection::from_url("minio", "s3+http://key@minio.local:9000/bucket").unwrap();
+        assert_eq!((m.host.as_str(), m.port(), m.tls()), ("minio.local", 9000, false));
+        assert_eq!(m.url(), "s3+http://key@minio.local:9000/bucket");
+
+        let d = Connection::from_url("cloud", "davs://me@cloud.example.com/remote.php/dav/files/me").unwrap();
+        assert_eq!((d.protocol, d.port(), d.tls()), (Protocol::Webdav, 443, true));
+        assert_eq!(d.url(), "davs://me@cloud.example.com/remote.php/dav/files/me");
+        assert_eq!(Connection::from_url("", "dav://nas/dav").unwrap().port(), 80);
+
+        let f = Connection::from_url("", "ftp://ftp.example.org/pub").unwrap();
+        assert_eq!((f.protocol, f.port(), f.tls()), (Protocol::Ftp, 21, false));
+        let fs = Connection::from_url("", "ftps://me@host/").unwrap();
+        assert_eq!((fs.port(), fs.url()), (990, "ftps://me@host/".to_string()));
+
+        let r = Connection::from_url("", "rclone://gdrive/Photos").unwrap();
+        assert_eq!((r.protocol, r.host.as_str(), r.share.as_str()), (Protocol::Rclone, "gdrive", "/Photos"));
+        assert!(probe_ports(&r).is_empty());
+        assert!(r.protocol.in_app() && r.mount_plan(None).is_none() && r.mounted_at().is_none());
+        assert!(Connection::from_url("", "s3://").is_none());
+    }
+
+    #[test]
+    fn builds_rclone_remotes_without_secrets_in_them() {
+        let s = Connection::from_url("", "s3://backups/daily").unwrap();
+        let r = s.rclone_remote(None).unwrap();
+        assert_eq!(r.remote, ":s3,provider=AWS,env_auth=true:");
+        let keyed = Connection::from_url("", "s3+https://AKIA@r2.example.com/b").unwrap();
+        assert!(keyed.rclone_remote(None).unwrap_err().to_string().contains("authentication failed"));
+        assert_eq!(r.home, PathBuf::from("/backups/daily"));
+
+        let m = Connection::from_url("", "s3+http://AKIA@minio.local:9000/bucket").unwrap();
+        let r = m.rclone_remote(Some("secret")).unwrap();
+        assert_eq!(r.remote, ":s3,provider=Other,endpoint='http://minio.local:9000',access_key_id='AKIA':");
+        assert_eq!(r.env, vec![("RCLONE_S3_SECRET_ACCESS_KEY".to_string(), "secret".to_string())]);
+
+        let d = Connection::from_url("", "davs://me@cloud.example.com/remote.php/dav/files/me").unwrap();
+        let r = d.rclone_remote(None).unwrap();
+        assert_eq!(r.remote, ":webdav,url='https://cloud.example.com/remote.php/dav/files/me',user='me':");
+        assert_eq!(r.home, PathBuf::from("/"));
+
+        let f = Connection::from_url("", "ftps://me@[fd00::5]:2121/pub").unwrap();
+        let err = f.rclone_remote(None).unwrap_err().to_string();
+        assert!(err.contains("authentication failed"), "a named user is asked for a password: {err}");
+        if crate::nas::which("rclone") {
+            let r = f.rclone_remote(Some("pw")).unwrap();
+            assert_eq!(r.remote, ":ftp,host='fd00::5',port=2121,user='me',tls=true:");
+            assert_eq!(r.home, PathBuf::from("/pub"));
+            assert_eq!(r.env[0].0, "RCLONE_FTP_PASS");
+            assert_ne!(r.env[0].1, "pw", "rclone gets the password obscured");
+            let anon = Connection::from_url("", "ftp://host/").unwrap().rclone_remote(None).unwrap();
+            assert_eq!(anon.remote, ":ftp,host='host',port=21,user='anonymous':");
+        }
+
+        let g = Connection::from_url("", "rclone://gdrive").unwrap();
+        assert_eq!(g.rclone_remote(None).unwrap().remote, "gdrive:");
+        assert!(Connection::from_url("", "sftp://h/").unwrap().rclone_remote(None).is_err());
     }
 
     #[test]

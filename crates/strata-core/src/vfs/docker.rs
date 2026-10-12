@@ -1,10 +1,11 @@
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 
+use super::child::ChildWriter;
 use super::Vfs;
 use crate::util::{posix, shell_quote};
 use crate::{Entry, EntryKind};
@@ -168,38 +169,7 @@ impl Vfs for DockerVfs {
             .stderr(Stdio::piped())
             .spawn()
             .context("failed to run docker")?;
-        Ok(Box::new(ChildWriter { child: Some(child) }))
-    }
-}
-
-/// Streams into a child's stdin and reports its exit status when dropped.
-struct ChildWriter {
-    child: Option<Child>,
-}
-
-impl Write for ChildWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self.child.as_mut().and_then(|c| c.stdin.as_mut()) {
-            Some(stdin) => stdin.write(buf),
-            None => Err(std::io::Error::other("writer closed")),
-        }
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        if let Some(mut child) = self.child.take() {
-            drop(child.stdin.take());
-            let status = child.wait()?;
-            if !status.success() {
-                return Err(std::io::Error::other("docker exec failed to write file"));
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Drop for ChildWriter {
-    fn drop(&mut self) {
-        let _ = self.flush();
+        Ok(Box::new(ChildWriter::new(child, "docker exec")))
     }
 }
 

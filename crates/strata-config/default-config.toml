@@ -74,7 +74,9 @@ disabled = []                                          # user plugins to skip
 # png = { command = "feh", detach = true }
 # pdf = { command = "zathura", detach = true }
 
-# NAS connections. Protocols: smb, nfs, sftp.
+# Connections. Protocols: smb, nfs, sftp, s3, webdav, ftp, rclone.
+# smb and nfs are mounted; the others are browsed in strata. s3, webdav,
+# ftp and rclone need the rclone tool (https://rclone.org/install/).
 # [[connections]]
 # name = "nas"
 # protocol = "smb"
@@ -90,3 +92,34 @@ disabled = []                                          # user plugins to skip
 # share = "/volume1"          # start directory
 # user = "me"
 # identity_file = "~/.ssh/id_ed25519"
+#
+# [[connections]]
+# name = "backups"
+# protocol = "s3"
+# host = "s3.amazonaws.com"   # or your MinIO / R2 / B2 endpoint
+# share = "/my-bucket/daily"  # bucket and start prefix
+# user = "AKIA..."            # access key; the secret goes in the keychain
+#                             # (:password backups). Leave both out to use
+#                             # AWS_* variables or ~/.aws profiles (EC2
+#                             # instance roles need AWS_EC2_METADATA_DISABLED=false).
+#
+# [[connections]]
+# name = "cloud"
+# protocol = "webdav"
+# host = "cloud.example.com"
+# share = "/remote.php/dav/files/me"
+# user = "me"
+# tls = true                  # false for plain http
+#
+# [[connections]]
+# name = "mirror"
+# protocol = "ftp"
+# host = "ftp.example.org"
+# share = "/pub"
+# tls = false                 # true for FTPS
+#
+# [[connections]]
+# name = "drive"
+# protocol = "rclone"
+# host = "gdrive"             # a remote from `rclone config`
+# share = "/Photos"

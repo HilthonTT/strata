@@ -77,7 +77,10 @@ pub fn probe_connections(tx: Sender<AppEvent>, connections: Vec<Connection>) {
                 .map(|c| {
                     s.spawn(move || NasStatus {
                         name: c.name.clone(),
-                        reach: nas::probe(&c.host, &nas::probe_ports(c), Duration::from_secs(2)),
+                        reach: match nas::probe_ports(c) {
+                            ports if ports.is_empty() => nas::Reachability::Unknown,
+                            ports => nas::probe(&c.host, &ports, Duration::from_secs(2)),
+                        },
                         mounted: c.mounted_at(),
                         checked: SystemTime::now(),
                     })
@@ -118,7 +121,48 @@ pub fn connect_sftp(tx: Sender<AppEvent>, conn: Connection, password: Option<Str
             (Ok(vfs), true) => vfs.home(),
             _ => PathBuf::from(&conn.share),
         };
-        let _ = tx.send(AppEvent::Connected { name: conn.name, result, path });
+        let _ = tx.send(AppEvent::Connected { conn, result, path });
+    });
+}
+
+/// Opens an S3, WebDAV, FTP or rclone connection: builds the rclone remote,
+/// with the given or saved password, and lists the start folder to check it.
+pub fn connect_rclone(tx: Sender<AppEvent>, conn: Connection, password: Option<String>) {
+    use strata_core::vfs::RcloneVfs;
+    use strata_core::Vfs;
+    thread::spawn(move || {
+        let password = password.or_else(|| strata_core::secrets::get(&conn.name));
+        let result = conn.rclone_remote(password.as_deref()).and_then(|r| {
+            let vfs = RcloneVfs::new(conn.protocol.as_str(), conn.name.clone(), r.remote, r.env, r.home);
+            vfs.read_dir(&vfs.home())?;
+            Ok(Arc::new(vfs) as strata_core::VfsRef)
+        });
+        let result = result.map_err(|e| {
+            let e = format!("{e:#}");
+            // rclone reports refused logins in the server's own words.
+            let lower = e.to_ascii_lowercase();
+            let denied = [
+                "401",
+                "403",
+                "530 ",
+                "unauthorized",
+                "login incorrect",
+                "accessdenied",
+                "signaturedoesnotmatch",
+                "invalidaccesskeyid",
+            ];
+            if lower.contains("get credentials") || lower.contains("no valid providers") {
+                "no AWS credentials: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY or an AWS profile, \
+                 or put the access key in the URL (s3+https://KEY@host/bucket)"
+                    .to_string()
+            } else if denied.iter().any(|d| lower.contains(d)) {
+                format!("authentication failed: {e}")
+            } else {
+                e
+            }
+        });
+        let path = result.as_ref().map(|v| v.home()).unwrap_or_default();
+        let _ = tx.send(AppEvent::Connected { conn, result, path });
     });
 }
 

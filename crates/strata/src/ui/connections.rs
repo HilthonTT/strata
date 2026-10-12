@@ -7,7 +7,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
-use strata_core::nas::Reachability;
+use strata_core::nas::{Protocol, Reachability};
 use strata_core::util::human_size;
 
 use super::{block, fit};
@@ -65,7 +65,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         inner,
     );
 
-    let b = block(&theme, app.border, "NAS connections", true);
+    let b = block(&theme, app.border, "Connections", true);
     let inner = b.inner(list);
     frame.render_widget(b, list);
     app.layout.list = Some(list);
@@ -75,7 +75,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             Line::styled(" No connections yet.", Style::default().fg(theme.fg)),
             Line::raw(""),
             Line::styled(
-                " Press a to add one: smb://user@nas/share, nfs://nas/export or sftp://user@nas/path",
+                " Press a to add one: smb://user@nas/share, nfs://nas/export, sftp://user@nas/path,",
+                Style::default().fg(theme.muted),
+            ),
+            Line::styled(
+                " s3://bucket, davs://user@host/path, ftp://host/path or rclone://remote (needs rclone)",
                 Style::default().fg(theme.muted),
             ),
             Line::styled(" or add [[connections]] entries to config.toml (press e).", Style::default().fg(theme.muted)),
@@ -83,7 +87,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         frame.render_widget(Paragraph::new(lines), inner);
     } else {
         let w = inner.width as usize;
-        let (name_w, proto_w, status_w, seen_w) = (18, 6, 30, 14);
+        let (name_w, proto_w, status_w, seen_w) = (18, 8, 30, 14);
         let url_w = w.saturating_sub(3 + name_w + proto_w + status_w + seen_w);
         let header = format!(
             "   {}{}{}{}{}",
@@ -98,7 +102,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             let status = app.nas.statuses.get(&c.name);
             let session = app.nas.sessions.contains_key(&c.name);
             let (dot, color, text) = match (session, status) {
-                (true, _) => ("●", theme.success, "connected (sftp)".to_string()),
+                (true, _) => ("●", theme.success, format!("connected ({})", c.protocol.as_str())),
+                (_, _) if c.protocol == Protocol::Rclone => ("○", theme.muted, "rclone remote".into()),
                 (_, Some(s)) if s.mounted.is_some() => {
                     ("●", theme.success, format!("mounted at {}", s.mounted.as_ref().unwrap().display()))
                 }

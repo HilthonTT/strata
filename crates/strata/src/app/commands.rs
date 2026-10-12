@@ -48,7 +48,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
     ("set", "set hidden|preview|sidebar|footer|icons|dir_sizes [on|off]"),
-    ("connect", "connect <name|url> — open a NAS connection"),
+    ("connect", "connect <name|url> — open a connection: smb, nfs, sftp, s3, davs, ftp or rclone://remote"),
     ("disconnect", "disconnect <name> — unmount a share"),
     ("diagnose", "diagnose <name> — test a connection step by step"),
     ("sh", "sh <command> — run a shell command here"),
@@ -381,9 +381,9 @@ impl App {
             }
             InputPurpose::NewDir if !value.is_empty() => self.create(&value, true),
             InputPurpose::Plugin(callback) => self.call_plugin(callback, Some(Some(input.value))),
-            InputPurpose::SftpPassword(conn) => {
+            InputPurpose::RemotePassword(conn) => {
                 self.pending_password = Some((conn.name.clone(), input.value.clone()));
-                self.connect_sftp(conn, Some(input.value));
+                self.connect_remote(conn, Some(input.value));
             }
             InputPurpose::Grep => self.start_content_search(&value),
             InputPurpose::PreviewFind => self.find_in_preview(&value),
@@ -399,7 +399,10 @@ impl App {
                         InputPurpose::AddConnectionName(conn),
                     )));
                 }
-                None => self.error("use smb://user@host/share, nfs://host/export or sftp://user@host:port/path"),
+                None => self.error(
+                    "use smb://user@host/share, nfs://host/export, sftp://user@host:port/path, s3://bucket, \
+                     davs://user@host/path, ftp://user@host/path or rclone://remote/path",
+                ),
             },
             InputPurpose::Chmod { vfs, paths } if !value.is_empty() => self.start_chmod(vfs, paths, &value),
             InputPurpose::Find if !value.is_empty() => self.find_command(&value),

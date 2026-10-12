@@ -67,7 +67,8 @@ impl App {
     fn connections_key(&mut self, c: char) -> bool {
         match c {
             'a' => {
-                let input = InputState::new("URL (smb://, nfs://, sftp://)", "", InputPurpose::AddConnectionUrl);
+                let prompt = "URL (smb://, nfs://, sftp://, s3://, davs://, ftp://, rclone://)";
+                let input = InputState::new(prompt, "", InputPurpose::AddConnectionUrl);
                 self.overlay = Some(Overlay::Input(input));
             }
             't' | 'u' => {
@@ -164,17 +165,20 @@ impl App {
         }
     }
 
-    /// Opens a NAS connection: SFTP in-app, SMB/NFS by mounting (or jumping
-    /// to the existing mount).
+    /// Opens a connection: SFTP, S3, WebDAV, FTP and rclone remotes in-app,
+    /// SMB/NFS by mounting (or jumping to the existing mount).
     pub fn open_connection(&mut self, conn: Connection) {
-        if conn.protocol == Protocol::Sftp {
+        if conn.protocol.in_app() {
             if let Some(vfs) = self.nas.sessions.get(&conn.name).cloned() {
-                let path = if conn.share.is_empty() { vfs.home() } else { PathBuf::from(&conn.share) };
+                let path = match conn.protocol {
+                    Protocol::Sftp if !conn.share.is_empty() => PathBuf::from(&conn.share),
+                    _ => vfs.home(),
+                };
                 self.view = View::Files;
                 self.panel_mut().switch_vfs(vfs, path);
                 return;
             }
-            return self.connect_sftp(conn, None);
+            return self.connect_remote(conn, None);
         }
         if let Some(path) = conn.mounted_at() {
             return self.cd_local(path);
@@ -217,7 +221,16 @@ impl App {
         });
     }
 
-    pub(super) fn connect_sftp(&mut self, conn: Connection, password: Option<String>) {
+    /// Connects to an in-app connection, with `password` if one was typed.
+    pub(super) fn connect_remote(&mut self, conn: Connection, password: Option<String>) {
+        if conn.protocol == Protocol::Sftp {
+            return self.connect_sftp(conn, password);
+        }
+        self.info(format!("connecting to {}…", conn.name));
+        workers::connect_rclone(self.tx.clone(), conn, password);
+    }
+
+    fn connect_sftp(&mut self, conn: Connection, password: Option<String>) {
         #[cfg(feature = "sftp")]
         {
             self.info(format!("connecting to {}…", conn.host));
@@ -230,7 +243,8 @@ impl App {
         }
     }
 
-    pub(super) fn on_connected(&mut self, name: String, result: Result<VfsRef, String>, path: PathBuf) {
+    pub(super) fn on_connected(&mut self, conn: Connection, result: Result<VfsRef, String>, path: PathBuf) {
+        let name = conn.name.clone();
         match result {
             Ok(vfs) => {
                 self.nas.sessions.insert(name.clone(), vfs.clone());
@@ -246,20 +260,23 @@ impl App {
                     }
                 }
             }
-            Err(e) if e.contains("authentication failed") => {
-                let conn = self
-                    .connection(&name)
-                    .or_else(|| Connection::from_url(&name, &format!("sftp://{name}")))
-                    .filter(|c| c.protocol == Protocol::Sftp);
-                match conn {
-                    Some(conn) => {
-                        let prompt = format!("Password for {}@{}", conn.user.clone().unwrap_or_default(), conn.host);
-                        self.overlay = Some(Overlay::Input(
-                            InputState::new(prompt, "", InputPurpose::SftpPassword(conn)).masked(),
+            // rclone remotes keep their own credentials in rclone's config.
+            Err(e) if e.contains("authentication failed") && conn.protocol != Protocol::Rclone => {
+                if self.pending_password.take().is_some() {
+                    self.error(format!("{name}: {e}"));
+                }
+                let prompt = match (conn.protocol, &conn.user) {
+                    (Protocol::S3, Some(key)) => format!("Secret key for {key} on {}", conn.host),
+                    (Protocol::S3, None) => {
+                        return self.error(format!(
+                            "{name}: {e} · set AWS credentials, or put the access key in the URL \
+                             (s3+https://KEY@host/bucket)"
                         ));
                     }
-                    None => self.error(format!("{name}: {e}")),
-                }
+                    (_, user) => format!("Password for {}@{}", user.clone().unwrap_or_default(), conn.host),
+                };
+                self.overlay =
+                    Some(Overlay::Input(InputState::new(prompt, "", InputPurpose::RemotePassword(conn)).masked()));
             }
             Err(e) => {
                 self.pending_password = None;

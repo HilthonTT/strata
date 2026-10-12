@@ -1,9 +1,12 @@
 //! A small virtual filesystem abstraction so panels can browse local disks,
-//! SFTP servers, Docker containers and archives through one interface.
+//! SFTP servers, Docker containers, archives and anything rclone reaches
+//! (S3, WebDAV, FTP, cloud drives) through one interface.
 
 mod archive;
+mod child;
 mod docker;
 mod local;
+mod rclone;
 #[cfg(feature = "sftp")]
 mod sftp;
 
@@ -19,6 +22,7 @@ use crate::Entry;
 pub use archive::{ArchiveFormat, ArchiveVfs, Compression};
 pub use docker::DockerVfs;
 pub use local::LocalVfs;
+pub use rclone::{obscure as rclone_obscure, quote as rclone_quote, RcloneVfs};
 #[cfg(feature = "sftp")]
 pub use sftp::{SftpAuth, SftpVfs};
 

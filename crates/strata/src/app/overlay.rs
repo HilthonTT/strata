@@ -16,7 +16,8 @@ pub enum InputPurpose {
     Filter,
     Command,
     Plugin(usize),
-    SftpPassword(Connection),
+    /// Password for an SFTP, S3, WebDAV or FTP connection.
+    RemotePassword(Connection),
     AddConnectionUrl,
     AddConnectionName(Connection),
     Grep,

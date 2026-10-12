@@ -6,7 +6,7 @@ use std::time::SystemTime;
 use strata_core::git::GitStatus;
 use strata_core::inspect::HashAlgo;
 use strata_core::jobs::JobFinished;
-use strata_core::nas::{Reachability, Step};
+use strata_core::nas::{Connection, Reachability, Step};
 use strata_core::VfsRef;
 use strata_plugin::Level;
 use strata_sys::docker::Container;
@@ -50,9 +50,8 @@ pub enum AppEvent {
         name: String,
         steps: Vec<Step>,
     },
-    #[cfg_attr(not(feature = "sftp"), allow(dead_code))]
     Connected {
-        name: String,
+        conn: Connection,
         result: Result<VfsRef, String>,
         path: PathBuf,
     },
