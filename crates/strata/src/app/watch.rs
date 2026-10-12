@@ -41,10 +41,19 @@ impl App {
         }
     }
 
-    /// Watches exactly the local folders shown in the current tab.
+    /// Watches exactly the local folders shown in the current tab, including
+    /// folders expanded in a tree.
     pub(super) fn sync_watches(&mut self) {
         let Some(watcher) = self.watch.watcher.as_mut() else { return };
-        let wanted: HashSet<PathBuf> = self.panels.iter().filter(|p| p.vfs.is_local()).map(|p| p.cwd.clone()).collect();
+        let wanted: HashSet<PathBuf> = self
+            .panels
+            .iter()
+            .filter(|p| p.vfs.is_local())
+            .flat_map(|p| {
+                let expanded = if p.is_tree() { p.expanded.iter().cloned().collect() } else { Vec::new() };
+                std::iter::once(p.cwd.clone()).chain(expanded)
+            })
+            .collect();
         if wanted == self.watch.watched {
             return;
         }
@@ -92,7 +101,7 @@ impl App {
         let hovered = self.panel().hovered().map(|e| e.path.clone());
         for dir in ready {
             let Some((_, _, changed)) = self.watch.dirty.remove(&dir) else { continue };
-            for panel in self.panels.iter_mut().filter(|p| p.vfs.is_local() && p.cwd == dir) {
+            for panel in self.panels.iter_mut().filter(|p| p.vfs.is_local() && p.shows_dir(&dir)) {
                 panel.reload();
             }
             if hovered.as_ref().is_some_and(|h| changed.contains(h)) {

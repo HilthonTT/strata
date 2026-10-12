@@ -92,10 +92,12 @@ actions! {
     FuzzyFind => "fuzzy_find", "Fuzzy-find files recursively";
     FindPrompt => "find_prompt", "Find files by name, size, age, type or tag";
     Flatten => "flatten", "List every file below this folder / back";
+    ToggleTree => "toggle_tree", "Tree view: expand folders in place";
+    CollapseAll => "collapse_all", "Collapse every folder in the tree view";
     TagMenu => "tag_menu", "Tag or colour-label marked items";
+    GitMenu => "git_menu", "Git: diff, stage, unstage, discard, commit, log, blame";
     ContentSearch => "content_search", "Search file contents (ripgrep)";
     Undo => "undo", "Undo the last file operation";
-    GitMenu => "git_menu", "Git: diff, stage, unstage, discard, commit, log, blame";
     Redo => "redo", "Redo what was undone";
     PreviewDown => "preview_down", "Scroll the preview down";
     PreviewUp => "preview_up", "Scroll the preview up";
@@ -362,9 +364,9 @@ const COMMON: &[(&str, &str)] = &[
     ("U", "open_trash"),
     ("X", ":extract"),
     (",", "tag_menu"),
+    (";", "git_menu"),
     ("q", "quit"),
     ("Q", "quit_cd"),
-    (";", "git_menu"),
     ("ctrl+g", "content_search"),
     ("alt+p", "pause_job"),
     ("alt+R", "retry_job"),
@@ -447,6 +449,8 @@ const VIM: &[(&str, &str)] = &[
     ("g r", "rename_pattern"),
     ("g s", "find_prompt"),
     ("g a", "flatten"),
+    ("z t", "toggle_tree"),
+    ("z M", "collapse_all"),
 ];
 
 /// Mirrors superfile's default hotkeys where strata has the feature.
@@ -497,6 +501,7 @@ const STANDARD: &[(&str, &str)] = &[
     ("alt+m", "rename_pattern"),
     ("alt+f", "find_prompt"),
     ("alt+a", "flatten"),
+    ("alt+t", "toggle_tree"),
 ];
 
 impl Keymap {

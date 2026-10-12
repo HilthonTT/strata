@@ -43,12 +43,18 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     };
     if let Some(flat) = &panel.flat {
         location = format!("{location} · {}{}", flat.title, if flat.truncated { " (first matches)" } else { "" });
+    } else if panel.tree_truncated && panel.tree {
+        location = format!("{location} · tree (first {} items)", panel.len());
     }
     let folder = if general.icons { "\u{f07b} " } else { "" };
     let title = format!("{folder}{}", truncate_left(&location, area.width.saturating_sub(8) as usize));
 
     let selecting = panel.visual_anchor.is_some() || !panel.marked.is_empty();
-    let (mode_icon, mode) = if selecting { ("\u{f0c8} ", "Select") } else { ("\u{f06e} ", "Browser") };
+    let (mode_icon, mode) = match (selecting, panel.is_tree()) {
+        (true, _) => ("\u{f0c8} ", "Select"),
+        (false, true) => ("\u{f0645} ", "Tree"),
+        (false, false) => ("\u{f06e} ", "Browser"),
+    };
     let mode = format!(" {}{mode} ", if general.icons { mode_icon } else { "" });
     let position = match (panel.loading, panel.len()) {
         (true, _) => " ⟳ ".to_string(),
@@ -110,6 +116,8 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     );
     let extra = [size_w + 1, date_w + 1, perm_w + 1][..shown].iter().sum::<usize>();
     let name_w = width.saturating_sub(2 + checkbox_w + extra + git_w);
+    // A filtered tree lists matches by their relative path instead.
+    let nested = panel.is_tree() && panel.filter.is_empty();
 
     let lines: Vec<Line> = (panel.offset..(panel.offset + list.height as usize).min(panel.len()))
         .map(|row| {
@@ -137,14 +145,20 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
                 let (glyph, color) = if marked { ("\u{f0132} ", theme.marked) } else { ("\u{f0131} ", theme.muted) };
                 spans.push(Span::styled(glyph, Style::default().fg(color)));
             }
+            let mut guide_w = 0;
+            if nested {
+                let guide = tree_guide(panel.depth_at(row), entry.is_dir(), panel.is_expanded(entry));
+                guide_w = guide.width();
+                spans.push(Span::styled(guide, muted));
+            }
             let icon = icons::icon(entry, general.icons);
             spans.push(Span::styled(format!("{icon} "), Style::default().fg(icons::color(entry, theme))));
 
             // Coloured dots for tags, after the name.
             let tags = app.tags.get(&entry.path);
             let dots = tags.len().min(3);
-            let name_room = name_w.saturating_sub(icon.width() + 1 + if dots > 0 { dots + 1 } else { 0 });
-            let label = panel.label(entry);
+            let name_room = name_w.saturating_sub(guide_w + icon.width() + 1 + if dots > 0 { dots + 1 } else { 0 });
+            let label = if nested { std::borrow::Cow::Borrowed(entry.name.as_str()) } else { panel.label(entry) };
             let name = truncate(&label, name_room);
             for (ci, ch) in name.chars().enumerate() {
                 let style = if positions.contains(&(ci as u32)) {
@@ -200,6 +214,17 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     frame.render_widget(Paragraph::new(lines), list);
 }
 
+/// Indentation and expand arrow before a tree entry: two columns per
+/// level, then `▸`/`▾` for folders.
+fn tree_guide(depth: u16, is_dir: bool, expanded: bool) -> String {
+    let arrow = match (is_dir, expanded) {
+        (true, true) => "▾ ",
+        (true, false) => "▸ ",
+        (false, _) => "  ",
+    };
+    format!("{}{arrow}", "│ ".repeat(depth as usize))
+}
+
 /// How many of the extra columns (size, date, permissions; `widths` in
 /// that order) to show, up to `wanted`. Names keep `name_percent` of the
 /// width, or 20 columns when it is 0.
@@ -234,7 +259,14 @@ fn date_width(format: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{date_width, extra_columns};
+    use super::{date_width, extra_columns, tree_guide};
+
+    #[test]
+    fn tree_guides_indent_and_show_state() {
+        assert_eq!(tree_guide(0, true, false), "▸ ");
+        assert_eq!(tree_guide(2, true, true), "│ │ ▾ ");
+        assert_eq!(tree_guide(1, false, false), "│   ");
+    }
 
     const WIDTHS: [usize; 3] = [10, 17, 10];
 

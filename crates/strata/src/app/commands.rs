@@ -23,6 +23,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("select", "select <glob>|tag:<name> — mark matching items"),
     ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] [--tag t] — list matches below here"),
     ("flatten", "flatten — list every file below this folder, or go back"),
+    ("tree", "tree — show folders as an expandable tree, or go back to the list"),
     ("tag", "tag [name] — tag or colour-label marked items (no name: menu)"),
     ("untag", "untag [name] — remove a tag, or every tag, from marked items"),
     ("tags", "tags [prune] — browse tagged items, or forget missing ones"),
@@ -109,6 +110,7 @@ impl App {
             "rename-pattern" | "rename-all" | "rp" => self.rename_pattern_command(args),
             "find" => self.find_command(args),
             "flatten" | "flat" => self.toggle_flatten(),
+            "tree" => self.dispatch(Action::ToggleTree),
             "tag" => self.tag_command(args),
             "untag" => self.untag_command(args),
             "tags" => self.tags_command(args),
@@ -315,12 +317,13 @@ impl App {
 
     fn create(&mut self, name: &str, dir: bool) {
         let p = self.panel();
-        let path = p.vfs.join(&p.cwd, name);
+        let into = p.target_dir();
+        let path = p.vfs.join(&into, name);
         let vfs = p.vfs.clone();
         // The outermost path that does not exist yet is what undo removes.
         let first = name.split(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(name);
-        let created = vfs.join(&p.cwd, first);
-        let created = (!vfs.exists(&created)).then_some(created);
+        let first_path = vfs.join(&into, first);
+        let created = (!vfs.exists(&first_path)).then(|| first_path.clone());
         let result = if dir {
             vfs.create_dir(&path)
         } else {
@@ -330,8 +333,7 @@ impl App {
         match result {
             Ok(()) => {
                 self.panel_mut().reload();
-                let first = name.split(['/', '\\']).next().unwrap_or(name).to_string();
-                self.panel_mut().focus_name(&first);
+                self.panel_mut().focus_path(&first_path);
                 let data = strata_plugin::PluginValue::map([
                     ("path", strata_plugin::PluginValue::str(path.to_string_lossy())),
                     ("dir", strata_plugin::PluginValue::Bool(dir)),

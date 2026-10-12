@@ -15,7 +15,19 @@ strata opens two panels by default (`panels = 2` in the config). Each panel has 
 | <Kbd>ctrl+h</Kbd> / <Kbd>ctrl+l</Kbd> | Focus the sidebar / go back to the panels |
 | <Kbd>c</Kbd> / <Kbd>m</Kbd> | Copy / move the marked items into the next panel |
 
-The focused panel has a coloured border. Its bottom border shows the mode — **Browser**, or **Select** while items are marked — and your position, such as `3/24`.
+The focused panel has a coloured border. Its bottom border shows the mode — **Browser**, **Tree**, or **Select** while items are marked — and your position, such as `3/24`.
+
+## Tree view
+
+Press <Kbd>z t</Kbd> (<Kbd>alt+t</Kbd> with the classic preset), or run `:tree`, to show the panel's folder as a tree. Folders open in place instead of being entered:
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>l</Kbd> / <Kbd>enter</Kbd> | Expand or collapse the folder |
+| <Kbd>h</Kbd> | Collapse the folder, or jump to the folder holding the item; at the top level, go to the parent directory |
+| <Kbd>z M</Kbd> | Collapse everything |
+
+New files, new folders and pastes go inside the hovered folder when it is expanded, and next to the hovered item otherwise. Marks, file operations, git markers and folder sizes work across the whole tree. The filter matches paths relative to the panel's folder and lists matches flat. Expanded folders are watched for changes too, and the tree works on remote connections, where each folder loads in the background.
 
 ## Tabs
 

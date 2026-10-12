@@ -133,6 +133,7 @@ impl App {
             HalfPageUp => self.page(-0.5),
             HalfPageDown => self.page(0.5),
             Parent if self.panel().flat.is_some() => self.leave_flat(),
+            Parent if self.panel().is_tree() && self.panel_mut().collapse_or_up() => {}
             Parent => {
                 if !self.panel_mut().parent() {
                     self.leave_archive();
@@ -231,7 +232,14 @@ impl App {
             RenamePattern => self.rename_pattern(""),
             FindPrompt => self.find_prompt(),
             Flatten => self.toggle_flatten(),
+            ToggleTree => {
+                let on = !self.panel().tree;
+                self.panel_mut().set_tree(on);
+                self.info(if on { "tree view · l expands, h collapses, z M collapses all" } else { "list view" });
+            }
+            CollapseAll => self.panel_mut().collapse_all(),
             TagMenu => self.tag_menu(),
+            GitMenu => self.git_menu(),
             NewFile => self.overlay = Some(Overlay::Input(InputState::new("New file", "", InputPurpose::NewFile))),
             NewDir => self.overlay = Some(Overlay::Input(InputState::new("New directory", "", InputPurpose::NewDir))),
             CopyPath => self.copy_path(),
@@ -239,7 +247,6 @@ impl App {
                 let current = self.panel().filter.clone();
                 self.overlay = Some(Overlay::Input(InputState::new("Filter", current, InputPurpose::Filter)));
             }
-            GitMenu => self.git_menu(),
             FuzzyFind => self.start_find(),
             ToggleHidden => {
                 let show = !self.panel().show_hidden;
@@ -345,6 +352,10 @@ impl App {
             return;
         };
         if entry.is_dir() {
+            if self.panel().is_tree() {
+                self.panel_mut().toggle_expand();
+                return;
+            }
             return self.cd(entry.path);
         }
         if self.chooser {
@@ -510,7 +521,7 @@ impl App {
             src: clip.vfs.clone(),
             sources: clip.paths.clone(),
             dst: self.panel().vfs.clone(),
-            dest_dir: self.panel().cwd.clone(),
+            dest_dir: self.panel().target_dir(),
             conflict: Conflict::KeepBoth,
             targets: Default::default(),
         };

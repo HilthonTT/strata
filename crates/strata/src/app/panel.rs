@@ -1,4 +1,5 @@
-//! One file panel: a directory listing with cursor, marks, filter and history.
+//! One file panel: a directory listing with cursor, marks, filter and
+//! history, shown flat or as a tree of expandable folders.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -10,7 +11,11 @@ use std::sync::Arc;
 use strata_core::find::{self, Query};
 use strata_core::search::Fuzzy;
 use strata_core::sort::{sort_entries, SortKey, SortOptions};
-use strata_core::{Entry, EntryKind, VfsRef};
+use strata_core::{Entry, EntryKind, Vfs, VfsRef};
+
+/// Most entries a tree listing shows, so expanding a huge folder cannot
+/// stall the panel.
+const TREE_LIMIT: usize = 20_000;
 
 /// A directory listing produced off the UI thread (remote locations).
 pub struct Listing {
@@ -18,7 +23,9 @@ pub struct Listing {
     generation: u64,
     path: PathBuf,
     result: Result<Vec<Entry>, String>,
-    /// A flat listing stopped at its limit.
+    /// Depth of each entry in a tree listing; empty otherwise.
+    depths: Vec<u16>,
+    /// A flat or tree listing stopped at its limit.
     truncated: bool,
 }
 
@@ -84,6 +91,15 @@ pub struct Panel {
     pub flat: Option<Flat>,
     /// Stops the walk of the flat listing being built.
     walk_cancel: Arc<AtomicBool>,
+    /// Tree view: folders expand in place instead of being entered.
+    pub tree: bool,
+    /// Folders expanded in the tree view.
+    pub expanded: HashSet<PathBuf>,
+    /// Depth below `cwd` of each entry in the tree view (parallel to
+    /// `entries`; empty outside it).
+    depths: Vec<u16>,
+    /// The tree listing stopped at [`TREE_LIMIT`] entries.
+    pub tree_truncated: bool,
 }
 
 impl Panel {
@@ -113,6 +129,10 @@ impl Panel {
             sizes_seen: (0, 0),
             flat: None,
             walk_cancel: Arc::new(AtomicBool::new(false)),
+            tree: false,
+            expanded: HashSet::new(),
+            depths: Vec::new(),
+            tree_truncated: false,
         };
         panel.reload();
         panel
@@ -130,10 +150,25 @@ impl Panel {
         self.entry_at(self.cursor)
     }
 
-    /// How an entry is listed: its name, or in a flat listing its path
-    /// relative to the directory.
+    /// Depth below the panel's directory of the entry on `row` (tree view).
+    pub fn depth_at(&self, row: usize) -> u16 {
+        self.visible.get(row).and_then(|(i, _)| self.depths.get(*i)).copied().unwrap_or(0)
+    }
+
+    /// The tree view is on and shows folders nested (not a flat listing).
+    pub fn is_tree(&self) -> bool {
+        self.tree && self.flat.is_none()
+    }
+
+    pub fn is_expanded(&self, entry: &Entry) -> bool {
+        self.is_tree() && self.expanded.contains(&entry.path)
+    }
+
+    /// How an entry is listed: its name, or in a flat listing or tree its
+    /// path relative to the directory (unique, so the cursor can find it
+    /// again, and what the filter matches).
     pub fn label<'a>(&self, entry: &'a Entry) -> Cow<'a, str> {
-        if self.flat.is_none() {
+        if self.flat.is_none() && !self.tree {
             return Cow::Borrowed(&entry.name);
         }
         match entry.path.strip_prefix(&self.cwd) {
@@ -166,6 +201,9 @@ impl Panel {
         if let Some(flat) = &self.flat {
             return self.reload_flat(flat.source.clone());
         }
+        if self.tree {
+            return self.reload_tree();
+        }
         match self.lister.clone().filter(|_| !self.vfs.is_local()) {
             Some(tx) => {
                 self.generation += 1;
@@ -173,14 +211,130 @@ impl Panel {
                 let (vfs, path, panel, generation) = (self.vfs.clone(), self.cwd.clone(), self.id, self.generation);
                 std::thread::spawn(move || {
                     let result = vfs.read_dir(&path).map_err(|e| format!("{e:#}"));
-                    let _ = tx.send(Listing { panel, generation, path, result, truncated: false });
+                    let _ = tx.send(Listing { panel, generation, path, result, depths: Vec::new(), truncated: false });
                 });
             }
             None => {
                 let result = self.vfs.read_dir(&self.cwd).map_err(|e| format!("{e:#}"));
-                self.apply_entries(result);
+                self.apply_entries(result, Vec::new());
             }
         }
+    }
+
+    /// Lists the directory with its expanded folders nested inside.
+    fn reload_tree(&mut self) {
+        let (vfs, root, expanded) = (self.vfs.clone(), self.cwd.clone(), self.expanded.clone());
+        match self.lister.clone().filter(|_| !self.vfs.is_local()) {
+            Some(tx) => {
+                self.generation += 1;
+                self.loading = true;
+                let (path, panel, generation) = (self.cwd.clone(), self.id, self.generation);
+                std::thread::spawn(move || {
+                    let (result, depths, truncated) = build_tree(&*vfs, &root, &expanded);
+                    let _ = tx.send(Listing { panel, generation, path, result, depths, truncated });
+                });
+            }
+            None => {
+                let (result, depths, truncated) = build_tree(&*vfs, &root, &expanded);
+                self.tree_truncated = truncated;
+                self.apply_entries(result, depths);
+            }
+        }
+    }
+
+    /// Turns the tree view on or off, keeping the cursor on the same item
+    /// (or, leaving the tree, on the top-level folder holding it).
+    pub fn set_tree(&mut self, on: bool) {
+        if self.tree == on {
+            return;
+        }
+        let keep = self.hovered().map(|e| e.path.clone());
+        if self.flat.is_some() {
+            self.flat = None;
+            self.walk_cancel.store(true, Ordering::Relaxed);
+        }
+        self.tree = on;
+        self.expanded.clear();
+        self.tree_truncated = false;
+        self.filter.clear();
+        self.visual_anchor = None;
+        self.pending_focus = keep
+            .as_deref()
+            .and_then(|p| p.strip_prefix(&self.cwd).ok())
+            .and_then(|rel| rel.components().next())
+            .map(|c| c.as_os_str().to_string_lossy().into_owned());
+        self.reload();
+    }
+
+    /// Expands or collapses the hovered folder. False when it is not one.
+    pub fn toggle_expand(&mut self) -> bool {
+        let Some(entry) = self.hovered().filter(|e| e.is_dir()) else {
+            return false;
+        };
+        let path = entry.path.clone();
+        if !self.expanded.remove(&path) {
+            self.expanded.insert(path);
+        }
+        self.reload();
+        true
+    }
+
+    /// Tree view `h`: collapses the hovered folder, or moves to the folder
+    /// holding the hovered item. False at the top level.
+    pub fn collapse_or_up(&mut self) -> bool {
+        let Some(entry) = self.hovered() else {
+            return false;
+        };
+        let path = entry.path.clone();
+        if self.expanded.remove(&path) {
+            self.reload();
+            return true;
+        }
+        if self.depth_at(self.cursor) == 0 {
+            return false;
+        }
+        match self.vfs.parent(&path) {
+            Some(parent) => {
+                self.focus_path(&parent);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Collapses every folder, keeping the cursor on the top-level one
+    /// holding the hovered item.
+    pub fn collapse_all(&mut self) {
+        let top = self
+            .hovered()
+            .and_then(|e| e.path.strip_prefix(&self.cwd).ok())
+            .and_then(|rel| rel.components().next())
+            .map(|c| c.as_os_str().to_string_lossy().into_owned());
+        self.expanded.clear();
+        self.pending_focus = top;
+        self.reload();
+    }
+
+    /// Where new and pasted items go: in the tree view, inside the hovered
+    /// folder when it is expanded, else next to the hovered item.
+    pub fn target_dir(&self) -> PathBuf {
+        if self.is_tree() {
+            if let Some(entry) = self.hovered() {
+                if self.expanded.contains(&entry.path) {
+                    return entry.path.clone();
+                }
+                if let Some(parent) = self.vfs.parent(&entry.path) {
+                    return parent;
+                }
+            }
+        }
+        self.cwd.clone()
+    }
+
+    /// Whether this panel lists the contents of `dir` (its own directory
+    /// or an expanded folder).
+    pub fn shows_dir(&self, dir: &Path) -> bool {
+        self.cwd == dir || (self.is_tree() && self.expanded.contains(dir))
     }
 
     /// Builds a flat listing, in the background when there is a lister.
@@ -206,7 +360,7 @@ impl Panel {
                 let (path, panel, generation) = (self.cwd.clone(), self.id, self.generation);
                 std::thread::spawn(move || {
                     let (result, truncated) = build();
-                    let _ = tx.send(Listing { panel, generation, path, result, truncated });
+                    let _ = tx.send(Listing { panel, generation, path, result, depths: Vec::new(), truncated });
                 });
             }
             None => {
@@ -214,7 +368,7 @@ impl Panel {
                 if let Some(flat) = &mut self.flat {
                     flat.truncated = truncated;
                 }
-                self.apply_entries(result);
+                self.apply_entries(result, Vec::new());
             }
         }
     }
@@ -225,16 +379,24 @@ impl Panel {
             return false;
         }
         self.loading = false;
-        if let Some(flat) = &mut self.flat {
-            flat.truncated = listing.truncated;
+        match &mut self.flat {
+            Some(flat) => flat.truncated = listing.truncated,
+            None => self.tree_truncated = listing.truncated,
         }
-        self.apply_entries(listing.result);
+        self.apply_entries(listing.result, listing.depths);
         true
     }
 
-    fn apply_entries(&mut self, result: Result<Vec<Entry>, String>) {
+    /// Takes a new listing; `depths` is empty unless it is a tree.
+    fn apply_entries(&mut self, result: Result<Vec<Entry>, String>, depths: Vec<u16>) {
         self.listed += 1;
+        self.depths.clear();
         match result {
+            Ok(entries) if depths.len() == entries.len() && !depths.is_empty() => {
+                (self.entries, self.depths) =
+                    sort_tree(entries.into_iter().zip(depths).collect(), self.sort).into_iter().unzip();
+                self.error = None;
+            }
             Ok(mut entries) => {
                 sort_entries(&mut entries, self.sort);
                 self.entries = entries;
@@ -244,6 +406,11 @@ impl Panel {
                 self.entries.clear();
                 self.error = Some(e);
             }
+        }
+        // Folders that are gone (or now listed elsewhere) stay collapsed.
+        if self.is_tree() && self.error.is_none() {
+            let dirs: HashSet<&PathBuf> = self.entries.iter().filter(|e| e.is_dir()).map(|e| &e.path).collect();
+            self.expanded.retain(|p| dirs.contains(p));
         }
         let names: HashSet<&PathBuf> = self.entries.iter().map(|e| &e.path).collect();
         self.marked.retain(|p| names.contains(p));
@@ -274,17 +441,35 @@ impl Panel {
     }
 
     pub fn resort(&mut self) {
-        let keep = self.hovered().map(|e| e.name.clone());
-        sort_entries(&mut self.entries, self.sort);
+        let keep = self.hovered().map(|e| e.path.clone());
+        if self.depths.len() == self.entries.len() && !self.depths.is_empty() {
+            let items = std::mem::take(&mut self.entries).into_iter().zip(std::mem::take(&mut self.depths)).collect();
+            (self.entries, self.depths) = sort_tree(items, self.sort).into_iter().unzip();
+        } else {
+            sort_entries(&mut self.entries, self.sort);
+        }
         self.refilter();
-        if let Some(name) = keep {
-            self.focus_name(&name);
+        if let Some(path) = keep {
+            self.focus_path(&path);
         }
     }
 
     pub fn refilter(&mut self) {
-        let candidates: Vec<usize> =
-            (0..self.entries.len()).filter(|&i| self.show_hidden || !self.entries[i].is_hidden()).collect();
+        // Hidden entries are left out, and in a tree everything inside them.
+        let mut candidates = Vec::with_capacity(self.entries.len());
+        let mut hidden_depth: Option<u16> = None;
+        for (i, entry) in self.entries.iter().enumerate() {
+            let depth = self.depths.get(i).copied().unwrap_or(0);
+            if hidden_depth.is_some_and(|d| depth > d) {
+                continue;
+            }
+            hidden_depth = None;
+            if !self.show_hidden && entry.is_hidden() {
+                hidden_depth = Some(depth);
+                continue;
+            }
+            candidates.push(i);
+        }
         self.visible = if self.filter.is_empty() {
             candidates.into_iter().map(|i| (i, Vec::new())).collect()
         } else {
@@ -334,6 +519,9 @@ impl Panel {
 
     fn after_cd(&mut self, previous: Option<&Path>) {
         self.flat = None;
+        self.expanded.clear();
+        self.depths.clear();
+        self.tree_truncated = false;
         self.walk_cancel.store(true, Ordering::Relaxed);
         self.filter.clear();
         self.marked.clear();
@@ -533,6 +721,63 @@ impl Panel {
 
 pub use strata_core::util::glob_match;
 
+/// Lists `root` and, depth first, every expanded folder below it. Folders
+/// that cannot be read are shown collapsed. Returns the entries in tree
+/// order (unsorted within each folder), their depths and whether the
+/// listing stopped at [`TREE_LIMIT`].
+fn build_tree(vfs: &dyn Vfs, root: &Path, expanded: &HashSet<PathBuf>) -> (Result<Vec<Entry>, String>, Vec<u16>, bool) {
+    let top = match vfs.read_dir(root) {
+        Ok(top) => top,
+        Err(e) => return (Err(format!("{e:#}")), Vec::new(), false),
+    };
+    let (mut entries, mut depths) = (Vec::new(), Vec::new());
+    let mut stack: Vec<(Entry, u16)> = top.into_iter().rev().map(|e| (e, 0)).collect();
+    while let Some((entry, depth)) = stack.pop() {
+        if entries.len() >= TREE_LIMIT {
+            return (Ok(entries), depths, true);
+        }
+        // Only folders the user opened are read, one level per expansion,
+        // so links that loop back cannot recurse on their own.
+        let open = entry.is_dir() && expanded.contains(&entry.path);
+        let path = entry.path.clone();
+        entries.push(entry);
+        depths.push(depth);
+        if open {
+            if let Ok(children) = vfs.read_dir(&path) {
+                stack.extend(children.into_iter().rev().map(|c| (c, depth + 1)));
+            }
+        }
+    }
+    (Ok(entries), depths, false)
+}
+
+/// Sorts a tree listing within each folder, keeping children under their
+/// parent.
+fn sort_tree(items: Vec<(Entry, u16)>, sort: SortOptions) -> Vec<(Entry, u16)> {
+    let Some(base) = items.first().map(|(_, d)| *d) else {
+        return items;
+    };
+    // Each group is one sibling followed by everything nested in it.
+    let mut groups: Vec<Vec<(Entry, u16)>> = Vec::new();
+    for item in items {
+        match groups.last_mut() {
+            Some(group) if item.1 > base => group.push(item),
+            _ => groups.push(vec![item]),
+        }
+    }
+    let mut heads: Vec<Entry> = groups.iter().map(|g| g[0].0.clone()).collect();
+    sort_entries(&mut heads, sort);
+    let order: HashMap<PathBuf, usize> = heads.into_iter().enumerate().map(|(i, e)| (e.path, i)).collect();
+    groups.sort_by_key(|g| order.get(&g[0].0.path).copied().unwrap_or(usize::MAX));
+    let mut out = Vec::new();
+    for mut group in groups {
+        let children = group.split_off(1);
+        out.extend(group);
+        out.extend(sort_tree(children, sort));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -620,6 +865,103 @@ mod tests {
         assert_eq!(p.len(), 1, "paths that do not exist are left out");
     }
 
+    fn rows(p: &Panel) -> Vec<(u16, String)> {
+        (0..p.len()).map(|r| (p.depth_at(r), p.entry_at(r).unwrap().name.clone())).collect()
+    }
+
+    #[test]
+    fn tree_view_expands_folders_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("b/inner")).unwrap();
+        std::fs::create_dir(root.join(".git")).unwrap();
+        std::fs::write(root.join("b/z.txt"), "").unwrap();
+        std::fs::write(root.join("b/a.txt"), "").unwrap();
+        std::fs::write(root.join("b/.secret"), "").unwrap();
+        std::fs::write(root.join("b/inner/deep.txt"), "").unwrap();
+        std::fs::write(root.join("a.txt"), "").unwrap();
+        let mut p = panel_in(root);
+        p.set_tree(true);
+        assert_eq!(rows(&p), [(0, "b".into()), (0, "a.txt".into())]);
+
+        assert!(p.toggle_expand(), "b is hovered");
+        assert_eq!(
+            rows(&p),
+            [(0, "b".into()), (1, "inner".into()), (1, "a.txt".into()), (1, "z.txt".into()), (0, "a.txt".into())],
+            "children are sorted, folders first, under their parent; hidden ones are left out"
+        );
+        p.move_by(1);
+        assert!(p.toggle_expand(), "inner");
+        assert_eq!(p.len(), 6);
+        assert_eq!(p.hovered().unwrap().name, "inner", "the cursor stays put");
+        assert_eq!(p.target_dir(), root.join("b/inner"), "new items go inside an expanded folder");
+        p.move_by(1);
+        assert_eq!((p.depth_at(p.cursor), p.hovered().unwrap().name.as_str()), (2, "deep.txt"));
+        assert_eq!(p.target_dir(), root.join("b/inner"), "or next to the hovered item");
+
+        p.sort.reverse = true;
+        p.resort();
+        assert_eq!(p.hovered().unwrap().name, "deep.txt", "resorting keeps the cursor");
+        assert_eq!(rows(&p)[0], (0, "b".into()));
+        assert_eq!(rows(&p)[3], (1, "z.txt".into()), "files reversed below their folder");
+        p.sort.reverse = false;
+        p.resort();
+
+        // Hidden entries and their contents appear only with hidden files shown.
+        p.show_hidden = true;
+        p.expanded.insert(root.join(".git"));
+        p.reload();
+        assert!(rows(&p).contains(&(1, ".secret".into())));
+        p.show_hidden = false;
+        p.refilter();
+        assert!(!rows(&p).iter().any(|(_, n)| n.starts_with('.')));
+
+        // h: leave the file for its folder, then collapse it.
+        p.focus_path(&root.join("b/inner/deep.txt"));
+        assert!(p.collapse_or_up());
+        assert_eq!(p.hovered().unwrap().name, "inner");
+        assert!(p.collapse_or_up());
+        assert_eq!(p.len(), 5);
+        p.focus_path(&root.join("a.txt"));
+        assert!(!p.collapse_or_up(), "top-level items leave it to the caller");
+
+        // Filtering matches relative paths, and leaving the tree keeps the top-level folder.
+        p.expanded.insert(root.join("b/inner"));
+        p.reload();
+        p.set_filter("deep");
+        assert_eq!(p.label(p.hovered().unwrap()), "b/inner/deep.txt");
+        p.set_filter("");
+        p.focus_path(&root.join("b/inner/deep.txt"));
+        p.collapse_all();
+        assert_eq!(rows(&p), [(0, "b".into()), (0, "a.txt".into())]);
+        assert_eq!(p.hovered().unwrap().name, "b");
+        p.toggle_expand();
+        p.move_by(2);
+        p.set_tree(false);
+        assert_eq!(p.hovered().unwrap().name, "b", "back in the list, on the folder that held the item");
+        assert!(p.expanded.is_empty());
+    }
+
+    #[test]
+    fn tree_view_survives_cd_and_vanishing_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("sub/x")).unwrap();
+        let mut p = panel_in(dir.path());
+        p.set_tree(true);
+        p.toggle_expand();
+        assert_eq!(p.len(), 2);
+        std::fs::remove_dir_all(dir.path().join("sub")).unwrap();
+        p.reload();
+        assert_eq!(p.len(), 0);
+        assert!(p.expanded.is_empty(), "gone folders are forgotten");
+        std::fs::create_dir_all(dir.path().join("sub/x")).unwrap();
+        p.reload();
+        p.toggle_expand();
+        assert!(p.cd(dir.path().join("sub")));
+        assert!(p.tree && p.expanded.is_empty(), "a new root starts collapsed");
+        assert_eq!(rows(&p), [(0, "x".into())]);
+    }
+
     /// Pretends to be remote so listings go through the background path.
     #[derive(Debug)]
     struct Remote(LocalVfs);
@@ -686,5 +1028,22 @@ mod tests {
         assert!(p.parent());
         assert!(p.apply_listing(rx.recv().unwrap()));
         assert_eq!(p.hovered().unwrap().name, "sub");
+    }
+
+    #[test]
+    fn remote_trees_are_built_in_the_background() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("sub/inner.txt"), "").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let vfs: VfsRef = Arc::new(Remote(LocalVfs));
+        let mut p = Panel::new(vfs, dir.path().to_path_buf(), SortOptions::default(), false, Some(tx));
+        assert!(p.apply_listing(rx.recv().unwrap()));
+        p.set_tree(true);
+        assert!(p.apply_listing(rx.recv().unwrap()));
+        p.toggle_expand();
+        assert!(p.loading);
+        assert!(p.apply_listing(rx.recv().unwrap()));
+        assert_eq!(rows(&p), [(0, "sub".into()), (1, "inner.txt".into())]);
     }
 }
