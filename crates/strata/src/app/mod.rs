@@ -35,6 +35,7 @@ mod preview_nav;
 mod preview_sqlite;
 mod remote_edit;
 mod rename_pattern;
+mod selections;
 mod session;
 pub mod sidebar;
 pub mod sync;

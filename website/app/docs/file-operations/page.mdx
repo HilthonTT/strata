@@ -60,6 +60,20 @@ s/ +/_/g                      my file.txt   → my_file.txt
 
 Add `|upper`, `|lower` or `|title` to any token: `{name|title}`. Substitutions take the flags `g` (every match) and `i` (ignore case). strata refuses a pattern that gives two items the same name or would overwrite another file.
 
+## Saved selections
+
+Marks can be kept under a name and brought back later, in another folder or another session:
+
+| Command | Action |
+| --- | --- |
+| `:select save <name>` | Save the marked items (or the hovered one) under a name, replacing what it held |
+| `:select add <name>` | Add the marked items to a selection, creating it if needed |
+| `:select load <name>` | Mark the saved items again |
+| `:select list` | Show the saved selections and how many of their items are missing |
+| `:select delete <name>` | Forget a selection |
+
+Selections hold local paths, so one can gather items from several folders. Loading marks them in place when the panel already lists them all; otherwise they open as a flat listing, like `:find` results, with every item marked, ready for a copy, `:each` or `:!`. Items that no longer exist are reported and left out. Selections are kept in `~/.local/share/strata/selections.json`.
+
 ## Tags
 
 <Kbd>,</Kbd> opens the tag menu for the marked items: pick a colour (`red`, `orange`, `yellow`, `green`, `blue`, `purple`, `gray`) or a tag to switch it on or off, or type a new tag and press <Kbd>enter</Kbd>. Tagged items show coloured dots after their names, and every tag gets an entry in the sidebar that lists what carries it.

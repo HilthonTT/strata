@@ -21,7 +21,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
     ("rename-pattern", "rename-pattern <pattern> — rename marked items: photo-{n:3}{.ext}, s/find/repl/gi"),
-    ("select", "select <glob>|re:<regex>|tag:<name> — mark matching items"),
+    (
+        "select",
+        "select <glob>|re:<regex>|tag:<name> — mark matching items; select save|add|load|delete <name>, select list — saved selections",
+    ),
     ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] [--tag t] — list matches below here"),
     ("flatten", "flatten — list every file below this folder, or go back"),
     ("tree", "tree — show folders as an expandable tree, or go back to the list"),
@@ -105,6 +108,7 @@ impl App {
                     self.rename(path, args);
                 }
             }
+            "select" if self.selection_command(args) => {}
             "select" => {
                 let n = match args.strip_prefix("tag:") {
                     Some(tag) => self.select_tagged(tag),
@@ -577,6 +581,7 @@ impl App {
                     names.dedup();
                     names.into_iter().filter(|n| n.starts_with(arg)).map(|n| format!("{cmd} {n}")).collect()
                 }
+                Some(("select", arg)) => self.complete_selection(arg),
                 Some((cmd @ ("cd" | "local"), arg)) => {
                     self.complete_path(arg).into_iter().map(|p| format!("{cmd} {p}")).collect()
                 }
