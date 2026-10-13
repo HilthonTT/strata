@@ -200,6 +200,7 @@ impl App {
                 | PickerPurpose::Tag { .. }
                 | PickerPurpose::Tags { .. }
                 | PickerPurpose::Drives { .. }
+                | PickerPurpose::Jump { .. }
                 | PickerPurpose::Git { .. } => {}
             },
             other => self.overlay = other,

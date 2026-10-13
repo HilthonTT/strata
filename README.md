@@ -26,6 +26,7 @@ Everything you need, nothing you don't.
 - **Removable drives**: `:drives` mounts and opens USB sticks and SD cards, `:eject` powers them off safely
 - **Git**: status markers next to every file, and a git menu (`;`) to diff, stage, unstage, discard, commit, and show the log or blame of the marked files
 - **Tree view** (`z t`): expand folders in place instead of entering them, and **tabs** on top of multiple panels
+- **Jump to frequent folders** (`g j`, `:z proj`): folders you visit are ranked by frequency and recency, zoxide-style, with no extra tool needed
 - **Hide git-ignored files** (`z i`): leave build output, logs and anything else your `.gitignore` lists out of the listing
 - **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, CSV/TSV tables, JSON/YAML/TOML outlines, SQLite tables and columns, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
@@ -73,6 +74,7 @@ strata [DIR...]           # one panel per directory
 | `g s` | find by size, age, type, tag | `g a` | flatten / back |
 | `z t` | tree view / back | `;` | git menu |
 | `z i` | hide / show git-ignored files | `.` | hide / show dotfiles |
+| `g j` | jump to a frequent folder | `:z <words>` | jump to the best match |
 | `?` | all keys | `q` | quit |
 
 Prefer superfile's keys (`ctrl+c`, `ctrl+x`, `ctrl+v`, `ctrl+d`…)? Set `keymap = "default"` under `[general]`.

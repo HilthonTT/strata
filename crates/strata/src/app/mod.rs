@@ -21,6 +21,7 @@ mod find;
 pub mod grep;
 mod highlight;
 mod input;
+mod jump;
 pub mod overlay;
 pub mod panel;
 mod plugins;
@@ -190,6 +191,8 @@ pub struct App {
     pub tabs: Vec<tabs::Tab>,
     pub tab: usize,
     git: vcs::GitCache,
+    /// Visited folders for `jump` and `:z`.
+    jumps: jump::Jumps,
     watch: watch::FsWatch,
     undo: undo::UndoHistory,
     remote_edits: remote_edit::RemoteEdits,
@@ -337,6 +340,7 @@ impl App {
             tabs: vec![tabs::Tab::default()],
             tab: 0,
             git: vcs::GitCache::default(),
+            jumps: jump::Jumps::default(),
             watch: watch::FsWatch::default(),
             undo: undo::UndoHistory::default(),
             remote_edits: remote_edit::RemoteEdits::default(),
@@ -697,6 +701,7 @@ impl App {
         if !self.pending_keys.is_empty() && self.pending_since.elapsed() > Duration::from_millis(900) {
             self.flush_pending_keys();
         }
+        self.record_visits();
         self.track_location();
         self.track_view();
         self.track_hover();

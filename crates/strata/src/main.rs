@@ -128,7 +128,9 @@ fn main() -> Result<()> {
         if config.general.image_preview { tui::image_picker() } else { ratatui_image::picker::Picker::halfblocks() };
     let result = app::App::new(config, options, picker).and_then(|mut app| {
         app.run(&mut terminal)?;
-        Ok((app.last_dir(), std::mem::take(&mut app.chosen), app.save_session()))
+        // Both are attempted; the first failure is reported.
+        let saved = app.save_jumps().and(app.save_session());
+        Ok((app.last_dir(), std::mem::take(&mut app.chosen), saved))
     });
     tui::restore()?;
 

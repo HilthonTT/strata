@@ -253,6 +253,7 @@ impl App {
                 self.overlay = Some(Overlay::Input(InputState::new(prompt, current, InputPurpose::Filter)));
             }
             FuzzyFind => self.start_find(),
+            Jump => self.open_jump_picker(),
             ToggleHidden => {
                 let show = !self.panel().show_hidden;
                 self.config.general.show_hidden = show;

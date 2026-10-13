@@ -177,6 +177,10 @@ pub enum PickerPurpose {
     Drives {
         drives: Vec<strata_sys::drives::Drive>,
     },
+    /// Frequently visited folders, best first; `dirs[i]` is row `i`.
+    Jump {
+        dirs: Vec<PathBuf>,
+    },
     /// The git menu; `ops[i]` is row `i`.
     Git {
         target: super::vcs::GitTarget,

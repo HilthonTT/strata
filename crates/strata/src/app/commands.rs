@@ -17,6 +17,7 @@ use super::App;
 pub const COMMANDS: &[(&str, &str)] = &[
     ("cd", "cd <path> — change directory"),
     ("local", "local [path] — leave a remote filesystem"),
+    ("z", "z [words] — jump to the best visited folder matching the words; no words: pick one"),
     ("mkdir", "mkdir <name> — create a directory"),
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
@@ -97,6 +98,7 @@ impl App {
                 let path = self.resolve(target);
                 self.cd(path);
             }
+            "z" | "jump" => self.z_command(args),
             "local" => {
                 let path = if args.is_empty() { dirs::home_dir().unwrap_or_default() } else { expand_tilde(args) };
                 self.cd_local(path);
@@ -256,7 +258,7 @@ impl App {
     }
 
     /// Resolves a path typed by the user against the focused panel.
-    fn resolve(&self, input: &str) -> PathBuf {
+    pub(super) fn resolve(&self, input: &str) -> PathBuf {
         let p = self.panel();
         if p.vfs.is_local() {
             let path = expand_tilde(input);
@@ -534,6 +536,11 @@ impl App {
             PickerPurpose::Git { target, ops } => {
                 if let Some(op) = selected_index.and_then(|i| ops.get(i)).copied() {
                     self.run_git_op(op, target);
+                }
+            }
+            PickerPurpose::Jump { dirs } => {
+                if let Some(dir) = selected_index.and_then(|i| dirs.get(i)).cloned() {
+                    self.jump_to(dir);
                 }
             }
             PickerPurpose::Drives { drives } => {

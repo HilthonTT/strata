@@ -123,6 +123,8 @@ pub struct Panel {
     depths: Vec<u16>,
     /// The tree listing stopped at [`TREE_LIMIT`] entries.
     pub tree_truncated: bool,
+    /// Local folders changed to since last asked, for the jump list.
+    visits: Vec<PathBuf>,
 }
 
 impl Panel {
@@ -161,6 +163,7 @@ impl Panel {
             expanded: HashSet::new(),
             depths: Vec::new(),
             tree_truncated: false,
+            visits: Vec::new(),
         };
         panel.reload();
         panel
@@ -615,12 +618,20 @@ impl Panel {
         self.entries.clear();
         self.visible.clear();
         self.error = None;
+        if self.vfs.is_local() {
+            self.visits.push(self.cwd.clone());
+        }
         // Coming back up from a child: put the cursor on that child.
         self.pending_focus = previous
             .filter(|prev| prev.parent() == Some(self.cwd.as_path()))
             .and_then(|prev| prev.file_name())
             .map(|name| name.to_string_lossy().into_owned());
         self.reload();
+    }
+
+    /// Local folders this panel changed to since the last call.
+    pub fn take_visits(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.visits)
     }
 
     pub fn parent(&mut self) -> bool {
@@ -972,6 +983,22 @@ mod tests {
         assert_eq!(p.mark_matching("c.txt"), Ok(1));
         assert_eq!(p.marked.len(), 5);
         assert!(p.mark_matching("re:(").is_err());
+    }
+
+    #[test]
+    fn changing_folder_is_recorded_for_the_jump_list() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let mut p = panel_in(dir.path());
+        assert!(p.take_visits().is_empty(), "opening a panel is not a visit");
+        p.cd(dir.path().join("sub"));
+        p.cd(dir.path().join("sub"));
+        p.parent();
+        p.go_back();
+        assert!(!p.cd(dir.path().join("missing")));
+        let sub = dir.path().join("sub");
+        assert_eq!(p.take_visits(), [sub.clone(), dir.path().to_path_buf(), sub]);
+        assert!(p.take_visits().is_empty());
     }
 
     #[test]

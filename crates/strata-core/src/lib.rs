@@ -11,6 +11,7 @@ pub mod elevate;
 pub mod entry;
 pub mod filter;
 pub mod find;
+pub mod frecency;
 pub mod git;
 pub mod inspect;
 pub mod jobs;
