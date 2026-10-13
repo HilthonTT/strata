@@ -25,8 +25,22 @@ pub enum InputPurpose {
     PreviewFind,
     /// Save a password for this connection in the keychain.
     SavePassword(String),
-    /// Name of an archive to pack these items into.
-    Compress(Vec<PathBuf>),
+    /// Name of an archive to pack these items into, encrypted or not.
+    Compress {
+        items: Vec<PathBuf>,
+        encrypt: bool,
+    },
+    /// Password for a new encrypted zip; `first` is set when repeating it.
+    CompressPassword {
+        items: Vec<PathBuf>,
+        name: String,
+        first: Option<String>,
+    },
+    /// Password to open an encrypted archive.
+    ArchivePassword {
+        file: PathBuf,
+        purpose: super::ArchiveUse,
+    },
     /// New permissions for these items.
     Chmod {
         vfs: VfsRef,
@@ -265,6 +279,11 @@ pub enum Confirm {
         name: String,
         password: String,
     },
+    /// Store the password that just opened this archive in the keychain.
+    SaveArchivePassword {
+        file: PathBuf,
+        password: String,
+    },
     /// Delete items from the trash for good.
     PurgeTrash(Vec<TrashedItem>),
     EmptyTrash,
@@ -293,7 +312,10 @@ impl Confirm {
             | Confirm::Sync(_)
             | Confirm::GitDiscard { .. }
             | Confirm::Elevate(_) => true,
-            Confirm::SavePassword { .. } | Confirm::TrashDupe(_) | Confirm::Quit => false,
+            Confirm::SavePassword { .. }
+            | Confirm::SaveArchivePassword { .. }
+            | Confirm::TrashDupe(_)
+            | Confirm::Quit => false,
         }
     }
 }

@@ -46,7 +46,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("dupes", "dupes [keep oldest|newest|shortest] — find duplicate files here, or trash all but one copy"),
     ("checksum", "checksum [md5|sha1|sha256|sha512] — show checksums, or copy one"),
     ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
-    ("compress", "compress [name] — pack marked items into a .zip or .tar.* archive"),
+    ("compress", "compress [--password] [name] — pack marked items into a .zip or .tar.* archive (AES-256 zip)"),
     ("extract", "extract — unpack the hovered archive here"),
     (
         "git",
@@ -70,7 +70,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("tab", "tab <n> — go to tab n (or open a new one)"),
     ("undo", "undo — undo the last file operation"),
     ("password", "password <name> — save a NAS password in the keychain"),
-    ("forget", "forget <name> — remove a saved NAS password"),
+    ("forget", "forget [name] — remove a saved NAS password (no name: the hovered archive's)"),
     ("config", "config — edit config.toml"),
     ("plugins", "plugins — list loaded plugins"),
     ("messages", "messages — notification history"),
@@ -214,6 +214,7 @@ impl App {
                 Some(conn) => self.prompt_save_password(conn.name),
                 None => self.error(format!("no connection named '{args}'")),
             },
+            "forget" if args.is_empty() => self.forget_archive_password(),
             "forget" => match self.connection(args) {
                 Some(conn) => self.forget_password(&conn.name),
                 None => self.error(format!("no connection named '{args}'")),
@@ -455,7 +456,15 @@ impl App {
             InputPurpose::Chmod { vfs, paths } if !value.is_empty() => self.start_chmod(vfs, paths, &value),
             InputPurpose::Find if !value.is_empty() => self.find_command(&value),
             InputPurpose::RenamePattern(targets) if !value.is_empty() => self.apply_rename_pattern(targets, &value),
-            InputPurpose::Compress(items) if !value.is_empty() => self.compress(items, &value),
+            InputPurpose::Compress { items, encrypt } if !value.is_empty() => {
+                self.compress_or_ask(items, &value, encrypt)
+            }
+            InputPurpose::CompressPassword { items, name, first } if !input.value.is_empty() => {
+                self.on_compress_password(items, name, first, input.value)
+            }
+            InputPurpose::ArchivePassword { file, purpose } if !input.value.is_empty() => {
+                self.on_archive_password(file, purpose, input.value)
+            }
             InputPurpose::GitCommit(root) if !value.is_empty() => self.git_commit(root, value),
             InputPurpose::AddConnectionName(mut conn) if !value.is_empty() => {
                 conn.name = value;

@@ -19,7 +19,7 @@ use anyhow::{bail, Result};
 
 use crate::Entry;
 
-pub use archive::{ArchiveFormat, ArchiveVfs, Compression};
+pub use archive::{ArchiveFormat, ArchiveVfs, Compression, Locked};
 pub use docker::DockerVfs;
 pub use local::LocalVfs;
 pub use rclone::{obscure as rclone_obscure, quote as rclone_quote, RcloneVfs};

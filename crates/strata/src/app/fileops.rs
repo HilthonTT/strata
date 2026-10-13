@@ -13,7 +13,7 @@ use strata_core::ops::{Conflict, Transfer, TransferMode};
 use strata_core::perm::{self, ChangeLog, ModeSpec, Owner};
 use strata_core::trash::{self, TrashedItem};
 use strata_core::util::unique_name;
-use strata_core::vfs::{same_vfs, ArchiveFormat, ArchiveVfs};
+use strata_core::vfs::{same_vfs, ArchiveFormat};
 use strata_core::VfsRef;
 use strata_plugin::Level;
 
@@ -461,13 +461,10 @@ impl App {
         if !self.panel().vfs.is_local() {
             return self.notify("copy the archive to a local folder to browse it", Level::Warn);
         }
-        let (tx, panel) = (self.tx.clone(), self.panel().id);
+        let panel = self.panel().id;
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         self.info(format!("reading {name}…"));
-        std::thread::spawn(move || {
-            let result = ArchiveVfs::open(&file).map(|v| Arc::new(v) as VfsRef).map_err(|e| format!("{e:#}"));
-            let _ = tx.send(AppEvent::ArchiveOpened { panel, file, result });
-        });
+        self.open_archive_for(file, super::ArchiveUse::Browse(panel), None);
     }
 
     pub(super) fn on_archive_opened(&mut self, panel: u64, file: PathBuf, result: Result<VfsRef, String>) {
@@ -475,6 +472,7 @@ impl App {
             Ok(vfs) => vfs,
             Err(e) => return self.error(e),
         };
+        self.offer_to_remember_password(&file);
         // Only if the panel is still where the archive was opened.
         let Some(p) = self.panels.iter_mut().find(|p| p.id == panel) else { return };
         if !p.vfs.is_local() || !file.parent().is_some_and(|dir| p.shows_dir(dir)) {

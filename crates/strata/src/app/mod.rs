@@ -8,6 +8,7 @@ mod actions;
 mod archives;
 mod clipboard;
 pub use actions::short_path;
+pub use archives::ArchiveUse;
 mod commands;
 mod dirsize;
 mod drives;
@@ -198,6 +199,9 @@ pub struct App {
     remote_edits: remote_edit::RemoteEdits,
     /// Password typed for an SFTP login, offered for the keychain on success.
     pending_password: Option<(String, String)>,
+    /// Password typed for an encrypted archive, offered for the keychain
+    /// once it opens the archive.
+    pending_archive_password: Option<(PathBuf, String)>,
     pub view: View,
     pub focus: Focus,
     pub sidebar: Sidebar,
@@ -345,6 +349,7 @@ impl App {
             undo: undo::UndoHistory::default(),
             remote_edits: remote_edit::RemoteEdits::default(),
             pending_password: None,
+            pending_archive_password: None,
             view: View::Files,
             focus: Focus::Panels,
             sidebar: Sidebar::default(),
@@ -689,6 +694,7 @@ impl App {
             }
             AppEvent::ArchiveOpened { panel, file, result } => self.on_archive_opened(panel, file, result),
             AppEvent::ArchiveToExtract { file, dest, result } => self.on_archive_to_extract(file, dest, result),
+            AppEvent::ArchiveLocked { file, purpose, reason } => self.on_archive_locked(file, purpose, reason),
         }
     }
 

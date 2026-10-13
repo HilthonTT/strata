@@ -225,6 +225,7 @@ impl App {
                 super::workers::container_action(self.tx.clone(), id, name, strata_sys::docker::ContainerAction::Remove)
             }
             Confirm::SavePassword { name, password } => self.save_password(name, password),
+            Confirm::SaveArchivePassword { file, password } => self.archive_keychain(file, Some(password)),
             Confirm::PurgeTrash(items) => self.purge_trash(Some(items)),
             Confirm::EmptyTrash => self.purge_trash(None),
             Confirm::Sync(request) => self.start_sync(*request),

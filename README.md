@@ -14,7 +14,7 @@ Everything you need, nothing you don't.
 - **Trash browser**: restore, delete or empty, newest first
 - **Sync and dedupe**: make one folder match another (`:sync`, with a dry run and undo) and find duplicate files (`:dupes`)
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512), check downloads against a hash or `SHA256SUMS`, and verify copies against the original (`:paste --verify`, `:sync --verify` or `verify_copies = true`)
-- **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`
+- **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`; password-protected zips (AES-256 or legacy ZipCrypto) open with a masked prompt and the password can be kept in the system keychain, and `:compress --password` writes AES-256 zips
 - **Folder sizes** in the file list (`d c`), measured in the background
 - **Jobs you control**: see each transfer's speed and time left, cap it (`:limit 10M` or `bandwidth_limit`), pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
 - **Shell commands on your selection**: `:!tar czf out.tgz {s}` fills in the marked items, and `:each gzip -k` runs once per item

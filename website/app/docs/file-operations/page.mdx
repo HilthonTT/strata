@@ -184,6 +184,12 @@ The archive is indexed once when you open it, and files are read in archive orde
 
 `:compress [name]` packs the marked items, or the hovered one, into an archive; without a name it asks, suggesting `.zip`. strata writes `.zip`, `.tar`, `.tar.gz` and `.tar.bz2` itself, and uses the system `tar` for `.tar.xz` and `.tar.zst`.
 
+### Password-protected zips
+
+`:compress --password [name]` (or `-p`) encrypts a zip's contents with AES-256, asking for the password twice. File names stay readable, as the zip format stores them in the clear. 7-Zip, WinZip and `bsdtar` open AES zips; the old Info-ZIP `unzip` and macOS Archive Utility do not.
+
+Opening or extracting an encrypted zip (AES or legacy ZipCrypto) asks for its password, with the input masked. The password is checked before anything is shown or extracted: a wrong one says so and asks again, never producing garbage files. Once a password works, strata offers to remember it for that archive in the system keychain (the same one as [NAS passwords](/docs/nas/)); remembered passwords are used without asking, and `:forget` with the archive hovered removes it. Encrypted `.7z` archives are left to 7-Zip.
+
 ## Undo and redo
 
 Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:

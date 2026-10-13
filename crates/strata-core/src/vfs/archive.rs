@@ -1,4 +1,5 @@
-//! Read-only browsing of zip and tar archives (plain, gz, bz2, xz, zst).
+//! Read-only browsing of zip and tar archives (plain, gz, bz2, xz, zst),
+//! including password-protected zips (AES and legacy ZipCrypto).
 //!
 //! Opening an archive reads its index once. Each archive then gets one
 //! background thread that serves file contents in archive order, so copying
@@ -57,6 +58,16 @@ impl ArchiveFormat {
     }
 }
 
+/// Why an encrypted archive could not be opened. Find it with
+/// `error.downcast_ref::<Locked>()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum Locked {
+    #[error("the archive is password-protected")]
+    NeedsPassword,
+    #[error("wrong password")]
+    WrongPassword,
+}
+
 /// Where an item's data lives inside the archive.
 #[derive(Debug, Clone, Copy)]
 enum Source {
@@ -83,6 +94,8 @@ pub struct ArchiveVfs {
     children: HashMap<PathBuf, Vec<PathBuf>>,
     /// Symbolic links to directories inside the archive, and their targets.
     dir_links: HashMap<PathBuf, PathBuf>,
+    /// For encrypted zips; checked when the archive was opened.
+    password: Option<String>,
     server: Mutex<Option<Sender<Request>>>,
 }
 
@@ -94,8 +107,15 @@ impl std::fmt::Debug for ArchiveVfs {
 
 impl ArchiveVfs {
     /// Reads the archive's index. This decompresses tar archives once, so
-    /// call it off the UI thread.
+    /// call it off the UI thread. Fails with [`Locked`] for encrypted zips.
     pub fn open(file: &Path) -> Result<Self> {
+        Self::open_with_password(file, None)
+    }
+
+    /// Like [`open`](Self::open), with the password of an encrypted zip.
+    /// A wrong password fails here with [`Locked::WrongPassword`], before
+    /// anything is read out.
+    pub fn open_with_password(file: &Path, password: Option<&str>) -> Result<Self> {
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let format = ArchiveFormat::detect(&name).with_context(|| format!("{name} is not a supported archive"))?;
         let mut vfs = Self {
@@ -104,6 +124,7 @@ impl ArchiveVfs {
             entries: HashMap::new(),
             children: HashMap::new(),
             dir_links: HashMap::new(),
+            password: password.map(str::to_string),
             server: Mutex::new(None),
         };
         let root = Entry {
@@ -129,6 +150,7 @@ impl ArchiveVfs {
 
     fn index_zip(&mut self) -> Result<()> {
         let mut zip = zip::ZipArchive::new(BufReader::new(open(&self.file)?)).context("cannot read the zip index")?;
+        self.check_password(&mut zip)?;
         let mut links = Links::new();
         for i in 0..zip.len() {
             let item = zip.by_index_raw(i)?;
@@ -150,7 +172,10 @@ impl ArchiveVfs {
             links.remove(&path);
             if matches!(kind, EntryKind::Symlink { .. }) {
                 let mut target = String::new();
-                zip.by_index(i)?.take(4096).read_to_string(&mut target).context("cannot read a zip symlink")?;
+                zip_item(&mut zip, i, self.password.as_deref())?
+                    .take(4096)
+                    .read_to_string(&mut target)
+                    .context("cannot read a zip symlink")?;
                 links.insert(path.clone(), resolve_symlink(&path, &target));
             }
             let source = if kind == EntryKind::Dir { Source::None } else { Source::Item(i) };
@@ -158,6 +183,36 @@ impl ArchiveVfs {
         }
         self.resolve_links(links);
         Ok(())
+    }
+
+    /// For a zip with encrypted items, makes sure the password opens them
+    /// by reading the smallest one through: a wrong password can slip past
+    /// the quick check at the start of an item (1 in 256 for ZipCrypto),
+    /// never past the checksum or authentication code at its end.
+    fn check_password<R: Read + io::Seek>(&self, zip: &mut zip::ZipArchive<R>) -> Result<()> {
+        let mut smallest: Option<(usize, u64)> = None;
+        for i in 0..zip.len() {
+            let item = zip.by_index_raw(i)?;
+            if item.encrypted() && !item.is_dir() && smallest.is_none_or(|(_, size)| item.size() < size) {
+                smallest = Some((i, item.size()));
+            }
+        }
+        let Some((index, _)) = smallest else { return Ok(()) };
+        let Some(password) = self.password.as_deref() else { bail!(Locked::NeedsPassword) };
+        let read = zip_item(zip, index, Some(password)).and_then(|mut item| Ok(io::copy(&mut item, &mut io::sink())?));
+        match read {
+            Ok(_) => Ok(()),
+            Err(e) if e.downcast_ref::<Locked>().is_some() => Err(e),
+            // The checksum or authentication code did not match, or the
+            // decrypted bytes did not even decompress.
+            Err(e)
+                if e.downcast_ref::<io::Error>()
+                    .is_some_and(|e| matches!(e.kind(), io::ErrorKind::InvalidData | io::ErrorKind::InvalidInput)) =>
+            {
+                bail!(Locked::WrongPassword)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn index_tar(&mut self, compression: Compression) -> Result<()> {
@@ -266,7 +321,7 @@ impl ArchiveVfs {
     fn request(&self, index: usize) -> Result<PipeReader> {
         let mut server = self.server.lock().unwrap_or_else(|e| e.into_inner());
         for _ in 0..2 {
-            let tx = server.get_or_insert_with(|| spawn_server(self.file.clone(), self.format));
+            let tx = server.get_or_insert_with(|| spawn_server(self.file.clone(), self.format, self.password.clone()));
             let (reply, rx) = mpsc::sync_channel(8);
             if tx.send((index, reply)).is_ok() {
                 return Ok(PipeReader::new(rx));
@@ -378,11 +433,11 @@ fn decoder(file: &Path, compression: Compression) -> Result<Box<dyn Read + Send>
 
 /// Serves item data in archive order. Requests for items further on keep
 /// reading the same stream; earlier ones restart it.
-fn spawn_server(file: PathBuf, format: ArchiveFormat) -> Sender<Request> {
+fn spawn_server(file: PathBuf, format: ArchiveFormat, password: Option<String>) -> Sender<Request> {
     let (tx, rx) = mpsc::channel::<Request>();
     thread::spawn(move || {
         let result = match format {
-            ArchiveFormat::Zip => serve_zip(&file, &rx),
+            ArchiveFormat::Zip => serve_zip(&file, password.as_deref(), &rx),
             ArchiveFormat::Tar(compression) => serve_tar(&file, compression, &rx),
         };
         // The error goes to the request that was being served, if any.
@@ -391,10 +446,29 @@ fn spawn_server(file: PathBuf, format: ArchiveFormat) -> Sender<Request> {
     tx
 }
 
-fn serve_zip(file: &Path, rx: &Receiver<Request>) -> Result<()> {
+/// Item `index` of a zip, decrypted with `password` if it is encrypted.
+fn zip_item<'a, R: Read + io::Seek>(
+    zip: &'a mut zip::ZipArchive<R>,
+    index: usize,
+    password: Option<&str>,
+) -> Result<zip::read::ZipFile<'a>> {
+    let item = match password {
+        Some(password) => zip.by_index_decrypt(index, password.as_bytes()),
+        None => zip.by_index(index),
+    };
+    item.map_err(|e| match e {
+        zip::result::ZipError::InvalidPassword => Locked::WrongPassword.into(),
+        zip::result::ZipError::UnsupportedArchive(zip::result::ZipError::PASSWORD_REQUIRED) => {
+            Locked::NeedsPassword.into()
+        }
+        e => anyhow::Error::new(e),
+    })
+}
+
+fn serve_zip(file: &Path, password: Option<&str>, rx: &Receiver<Request>) -> Result<()> {
     let mut zip = zip::ZipArchive::new(BufReader::new(open(file)?))?;
     while let Ok((index, reply)) = rx.recv() {
-        match zip.by_index(index) {
+        match zip_item(&mut zip, index, password) {
             Ok(mut item) => {
                 let size = item.size();
                 send_all(&mut item, size, &reply)
@@ -731,6 +805,40 @@ mod tests {
         .run(&Progress::default())
         .unwrap();
         assert_eq!(std::fs::read_to_string(out.join("docs/readme.md")).unwrap(), "# hi");
+    }
+
+    /// `zip -P hunter2` of `docs/note.txt` ("secret text") and `top.txt`
+    /// ("hi"): legacy ZipCrypto, which the zip crate can read but not write.
+    const ZIPCRYPTO: &[u8] = b"\
+        \x50\x4b\x03\x04\x0a\x00\x09\x00\x00\x00\xc2\x99\x4d\x5d\xec\x1a\x21\x22\x17\x00\x00\x00\x0b\x00\
+        \x00\x00\x0d\x00\x00\x00\x64\x6f\x63\x73\x2f\x6e\x6f\x74\x65\x2e\x74\x78\x74\x07\x4c\x67\xdd\xd7\
+        \x7d\xc8\x99\xf9\x91\x2c\x8a\xfd\x48\xd4\x47\xaa\x41\x88\xd5\xd0\x90\x56\x50\x4b\x07\x08\xec\x1a\
+        \x21\x22\x17\x00\x00\x00\x0b\x00\x00\x00\x50\x4b\x03\x04\x0a\x00\x09\x00\x00\x00\xc2\x99\x4d\x5d\
+        \xac\x2a\x93\xd8\x0e\x00\x00\x00\x02\x00\x00\x00\x07\x00\x00\x00\x74\x6f\x70\x2e\x74\x78\x74\x87\
+        \x9a\x7d\x1c\xbb\x37\x98\x41\x80\xc8\xe2\xba\x62\xab\x50\x4b\x07\x08\xac\x2a\x93\xd8\x0e\x00\x00\
+        \x00\x02\x00\x00\x00\x50\x4b\x01\x02\x1e\x03\x0a\x00\x09\x00\x00\x00\xc2\x99\x4d\x5d\xec\x1a\x21\
+        \x22\x17\x00\x00\x00\x0b\x00\x00\x00\x0d\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\xa4\x81\x00\
+        \x00\x00\x00\x64\x6f\x63\x73\x2f\x6e\x6f\x74\x65\x2e\x74\x78\x74\x50\x4b\x01\x02\x1e\x03\x0a\x00\
+        \x09\x00\x00\x00\xc2\x99\x4d\x5d\xac\x2a\x93\xd8\x0e\x00\x00\x00\x02\x00\x00\x00\x07\x00\x00\x00\
+        \x00\x00\x00\x00\x01\x00\x00\x00\xa4\x81\x52\x00\x00\x00\x74\x6f\x70\x2e\x74\x78\x74\x50\x4b\x05\
+        \x06\x00\x00\x00\x00\x02\x00\x02\x00\x70\x00\x00\x00\x95\x00\x00\x00\x00\x00\
+    ";
+
+    #[test]
+    fn reads_legacy_zipcrypto_with_the_password() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("legacy.zip");
+        std::fs::write(&file, ZIPCRYPTO).unwrap();
+        let err = ArchiveVfs::open(&file).unwrap_err();
+        assert_eq!(err.downcast_ref(), Some(&Locked::NeedsPassword));
+        assert_eq!(err.to_string(), "the archive is password-protected");
+        for wrong in ["hunter3", "", "Hunter2"] {
+            let err = ArchiveVfs::open_with_password(&file, Some(wrong)).unwrap_err();
+            assert_eq!(err.downcast_ref(), Some(&Locked::WrongPassword), "{wrong}");
+        }
+        let vfs = ArchiveVfs::open_with_password(&file, Some("hunter2")).unwrap();
+        assert_eq!(read(&vfs, "/docs/note.txt"), "secret text");
+        assert_eq!(read(&vfs, "/top.txt"), "hi");
     }
 
     fn append(builder: &mut tar::Builder<Vec<u8>>, name: &str, data: &str) {
