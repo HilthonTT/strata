@@ -16,7 +16,7 @@ Everything you need, nothing you don't.
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`
 - **Folder sizes** in the file list (`d c`), measured in the background
-- **Jobs you control**: pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
+- **Jobs you control**: see each transfer's speed and time left, pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
 - **Shell commands on your selection**: `:!tar czf out.tgz {s}` fills in the marked items, and `:each gzip -k` runs once per item
 - **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
 - **File picker** for editors and scripts: `strata --chooser-file <file>`

@@ -26,6 +26,8 @@ pub struct Progress {
     cancelled: AtomicBool,
     paused: AtomicBool,
     current: Mutex<String>,
+    /// Sampled by the UI as it draws; see [`Progress::throughput`].
+    meter: Mutex<RateMeter>,
 }
 
 impl Progress {
@@ -85,6 +87,85 @@ impl Progress {
             return (self.done_items.load(Ordering::Relaxed) as f64 / items as f64).min(1.0);
         }
         0.0
+    }
+
+    /// Smoothed bytes per second and, once the rate has settled, the time
+    /// left. Each call samples the byte counter, so callers that draw
+    /// regularly (the UI) keep the estimate current. `None` until bytes
+    /// start moving.
+    pub fn throughput(&self) -> Option<Throughput> {
+        let done = self.done_bytes.load(Ordering::Relaxed);
+        let total = self.total_bytes.load(Ordering::Relaxed);
+        let mut meter = self.meter.lock().unwrap_or_else(|e| e.into_inner());
+        meter.sample(Instant::now(), done, self.is_paused());
+        let rate = meter.rate()?;
+        let eta = (total > done).then(|| meter.eta(total - done)).flatten();
+        Some(Throughput { bytes_per_sec: rate, eta })
+    }
+}
+
+/// A job's current speed, from [`Progress::throughput`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Throughput {
+    pub bytes_per_sec: f64,
+    /// Time left at the current speed; `None` while the speed is still
+    /// settling or nothing is moving.
+    pub eta: Option<Duration>,
+}
+
+/// Exponentially weighted moving average of a byte counter's rate, so a
+/// burst or a stall moves the estimate gradually instead of making it jump.
+/// Time spent paused (or before any byte moved, such as while scanning) is
+/// left out.
+#[derive(Debug, Default, Clone)]
+pub struct RateMeter {
+    /// The previous sample: when, and the counter then.
+    last: Option<(Instant, u64)>,
+    /// Bytes per second.
+    rate: f64,
+    /// Running time covered by the average, in seconds.
+    observed: f64,
+}
+
+impl RateMeter {
+    /// Samples closer together than this are skipped: too noisy.
+    const MIN_INTERVAL: f64 = 0.25;
+    /// Time constant of the average: older speed fades with `e^(-t/TAU)`.
+    const TAU: f64 = 3.0;
+    /// How much running time the average needs before it predicts a finish.
+    const SETTLED: f64 = 2.0;
+
+    /// Records the counter's value `done` at `now`. A paused job breaks the
+    /// series, so the pause does not read as a slow stretch.
+    pub fn sample(&mut self, now: Instant, done: u64, paused: bool) {
+        let Some((then, before)) = self.last.filter(|_| !paused && done > 0) else {
+            self.last = (!paused).then_some((now, done));
+            return;
+        };
+        let dt = now.saturating_duration_since(then).as_secs_f64();
+        if dt < Self::MIN_INTERVAL {
+            return;
+        }
+        let current = done.saturating_sub(before) as f64 / dt;
+        let weight = if self.observed == 0.0 { 1.0 } else { 1.0 - (-dt / Self::TAU).exp() };
+        self.rate += weight * (current - self.rate);
+        self.observed += dt;
+        self.last = Some((now, done));
+    }
+
+    /// Bytes per second, once there is a sample.
+    pub fn rate(&self) -> Option<f64> {
+        (self.observed > 0.0).then_some(self.rate)
+    }
+
+    /// Time to move `remaining` bytes at the current rate, when the rate
+    /// has settled and the answer is plausible (under a week).
+    pub fn eta(&self, remaining: u64) -> Option<Duration> {
+        if self.observed < Self::SETTLED || self.rate < 1.0 {
+            return None;
+        }
+        let secs = remaining as f64 / self.rate;
+        (secs < 7.0 * 86_400.0).then(|| Duration::from_secs_f64(secs.ceil()))
     }
 }
 
@@ -250,5 +331,47 @@ mod tests {
         assert!(!worker.is_finished(), "a paused job waits");
         p.cancel();
         assert!(worker.join().unwrap(), "cancelling a paused job stops it");
+    }
+
+    #[test]
+    fn rate_is_smoothed_and_predicts_the_finish() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut m = RateMeter::default();
+        // Nothing moved yet (scanning): no rate.
+        m.sample(at(0), 0, false);
+        m.sample(at(5_000), 0, false);
+        assert_eq!(m.rate(), None);
+        // 10 MB/s from then on: the scan time does not drag it down.
+        for i in 1..=10u64 {
+            m.sample(at(5_000 + i * 500), i * 5_000_000, false);
+        }
+        assert!((m.rate().unwrap() - 10e6).abs() < 1.0);
+        assert_eq!(m.eta(50_000_000), Some(Duration::from_secs(5)));
+        // One stalled half second only dents the average.
+        m.sample(at(10_500), 50_000_000, false);
+        let dented = m.rate().unwrap();
+        assert!(dented > 8e6 && dented < 10e6, "{dented}");
+    }
+
+    #[test]
+    fn rate_ignores_paused_time_and_needs_time_to_settle() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut m = RateMeter::default();
+        m.sample(at(0), 1, false);
+        m.sample(at(1_000), 1_000_001, false);
+        assert_eq!(m.rate(), Some(1e6));
+        assert_eq!(m.eta(1_000), None, "one second is too little to predict a finish");
+        // Paused for a minute: the bytes counter stands still.
+        m.sample(at(1_500), 1_500_001, true);
+        m.sample(at(61_500), 1_500_001, true);
+        m.sample(at(62_000), 1_500_001, false);
+        m.sample(at(63_000), 2_500_001, false);
+        assert!((m.rate().unwrap() - 1e6).abs() < 1.0, "the pause does not count as slow time");
+        assert_eq!(m.eta(3_000_000), Some(Duration::from_secs(3)));
+        // Samples too close together are skipped.
+        m.sample(at(63_010), 9_000_000, false);
+        assert!((m.rate().unwrap() - 1e6).abs() < 1.0);
     }
 }
