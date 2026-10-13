@@ -9,13 +9,16 @@ edition = "2021"
 rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/HilthonTT/strata"
+homepage = "https://github.com/HilthonTT/strata"
 authors = ["HilthonTT"]
 
 [workspace.dependencies]
-strata-core = { path = "crates/strata-core" }
-strata-config = { path = "crates/strata-config" }
-strata-plugin = { path = "crates/strata-plugin" }
-strata-sys = { path = "crates/strata-sys" }
+# Path crates carry a version so they can be published; keep it in step
+# with workspace.package.version.
+strata-core = { path = "crates/strata-core", version = "0.1.0" }
+strata-config = { path = "crates/strata-config", version = "0.1.0" }
+strata-plugin = { path = "crates/strata-plugin", version = "0.1.0" }
+strata-sys = { path = "crates/strata-sys", version = "0.1.0" }
 
 anyhow = "1"
 thiserror = "2"

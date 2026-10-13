@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["file-manager", "file-explorer", "tui", "terminal", "cli"]
+categories = ["command-line-utilities", "filesystem"]
 
 [[bin]]
 name = "strata"

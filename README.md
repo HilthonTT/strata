@@ -44,6 +44,10 @@ git clone https://github.com/HilthonTT/strata && cd strata
 make install            # installs to ~/.local/bin
 ```
 
+Or install with Cargo: `cargo install --locked --git https://github.com/HilthonTT/strata strata`. Prebuilt binaries for Linux, macOS and Windows are on the [releases page](https://github.com/HilthonTT/strata/releases).
+
+Coming with the first tagged release (not available yet): a Homebrew formula, an AUR package, a Nix flake (`nix run github:HilthonTT/strata` once released) and crates.io. The recipes are in [`packaging/`](packaging) and [`flake.nix`](flake.nix).
+
 You need Rust 1.95 or newer. On Linux and macOS you also need OpenSSL headers for SFTP (`libssl-dev` on Debian/Ubuntu). S3, WebDAV, FTP and rclone connections need the [`rclone`](https://rclone.org/install/) command. Icons need a [Nerd Font](https://www.nerdfonts.com); set `icons = false` if you don't use one.
 
 ## Usage
