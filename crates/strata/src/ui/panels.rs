@@ -3,11 +3,11 @@
 
 use chrono::{DateTime, Local};
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
-use strata_config::Action;
+use strata_config::{Action, Theme};
 use strata_core::git::GitState;
 use strata_core::util::{human_size, permissions_string};
 use strata_core::EntryKind;
@@ -28,7 +28,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
 fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     // Rows available below the border and the search line.
     let list_height = area.height.saturating_sub(3) as usize;
+    app.apply_plugin_sort(index);
     app.panels[index].scroll_into_view(list_height);
+    app.prepare_plugin_cells(index, list_height);
     let app = &*app;
 
     let focused = index == app.active && panels_focused(app);
@@ -110,15 +112,18 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     let git_w = if general.git_status { 2 } else { 0 };
     let checkbox_w = if selecting && general.icons { 2 } else { 0 };
     // Folder sizes are pointless without the size column.
-    let wanted = general.extra_columns.max(general.dir_sizes as u8);
-    let shown = extra_columns(
-        wanted,
-        width,
-        2 + checkbox_w + git_w,
-        general.name_percent,
-        &[size_w + 1, date_w + 1, perm_w + 1],
-    );
-    let extra = [size_w + 1, date_w + 1, perm_w + 1][..shown].iter().sum::<usize>();
+    let wanted = general.extra_columns.max(general.dir_sizes as u8).min(3) as usize;
+    // Plugin columns come after the built-in ones and give way first.
+    let plugin_columns = &app.plugin_list.columns;
+    let widths: Vec<usize> = [size_w + 1, date_w + 1, perm_w + 1][..wanted]
+        .iter()
+        .copied()
+        .chain(plugin_columns.iter().map(|c| c.width as usize + 1))
+        .collect();
+    let fits = extra_columns(widths.len() as u8, width, 2 + checkbox_w + git_w, general.name_percent, &widths);
+    let shown = fits.min(wanted);
+    let plugin_shown = fits - shown;
+    let extra = widths[..fits].iter().sum::<usize>();
     let name_w = width.saturating_sub(2 + checkbox_w + extra + git_w);
     // A filtered tree lists matches by their relative path instead.
     let nested = panel.is_tree() && panel.filter.is_empty();
@@ -200,6 +205,13 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
                 let perms = entry.mode.map(permissions_string).unwrap_or_else(|| "—".into());
                 spans.push(Span::styled(format!(" {}", fit(&perms, perm_w)), muted));
             }
+            for (ci, column) in plugin_columns.iter().enumerate().take(plugin_shown) {
+                let cell = app.plugin_list.cell(ci, &entry.path);
+                let text = cell.map(|c| c.text.as_str()).unwrap_or_default();
+                let style = cell.and_then(|c| c.style.as_deref()).or(column.style.as_deref());
+                let color = style.and_then(|s| style_color(s, theme)).unwrap_or(theme.muted);
+                spans.push(Span::styled(format!(" {}", fit(text, column.width as usize)), Style::default().fg(color)));
+            }
             if git_w > 0 {
                 let (marker, color) = match git {
                     Some(GitState::Modified) => ("M", theme.warning),
@@ -216,6 +228,22 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), list);
+}
+
+/// A colour a plugin named: a theme role (`muted`, `accent`, `error`...),
+/// a tag colour, or anything ratatui parses (`#rrggbb`, `lightblue`...).
+fn style_color(name: &str, theme: &Theme) -> Option<Color> {
+    Some(match name {
+        "fg" => theme.fg,
+        "muted" => theme.muted,
+        "accent" => theme.palette.accent,
+        "error" => theme.error,
+        "warning" => theme.warning,
+        "success" => theme.success,
+        "info" => theme.info,
+        "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray" => tag_color(name, theme),
+        other => other.parse().ok()?,
+    })
 }
 
 /// Indentation and expand arrow before a tree entry: two columns per

@@ -23,8 +23,9 @@ end, "Say hello")
 | `bookmarks` | <Kbd>B</Kbd> to bookmark a directory, <Kbd>'</Kbd> to jump, `:bookmark-remove` |
 | `archive` | Lists `.7z` and `.rar` archives in the preview (extracting and compressing are built in) |
 | `zoxide` | <Kbd>z</Kbd> to jump by query, <Kbd>Z</Kbd> to pick, and visited directories are recorded |
+| `protect` | Refuses to delete, move, rename or overwrite items tagged `keep` (option `tag`), and shows a lock column (option `column = false` hides it) |
 
-Enable them with `plugins.enabled` in the config. All four are on by default.
+Enable them with `plugins.enabled` in the config. All but `protect` are on by default.
 
 ## Options
 
@@ -70,6 +71,8 @@ Callbacks receive a `ctx` table:
 | `strata.statusline(fn(ctx) -> string?)` | Add a segment to the top bar |
 | `strata.panel{ name, title?, render = fn(ctx, w, h) -> lines }` | Draw a panel next to the file panels |
 | `strata.previewer{ ext = {...}, fn = fn(path, w, h) -> lines? }` | Preview these extensions; return `nil` to pass |
+| `strata.column{ name, width?, style?, fn = fn(entry) -> text?, style? }` | Add a [column](#columns-and-sort-orders) to the file list |
+| `strata.sort{ name, title?, fn = fn(entry) -> key }` | Add a [sort order](#columns-and-sort-orders) to the sort menu and `:sort` |
 
 ### Actions
 
@@ -115,6 +118,50 @@ strata.on("rename", function(ctx, e)
 end)
 ```
 
+### Refusing operations
+
+`before_*` events fire before an operation starts. A handler cancels it by returning `false` (optionally followed by a reason) or `{ cancel = true, reason = "..." }`, and the reason is shown.
+
+| Event | `data` fields |
+| --- | --- |
+| `before_delete` | `paths`, `permanent` |
+| `before_rename` | `paths`, `to` (new paths in the same order); also for pattern and bulk renames |
+| `before_copy`, `before_move` | `paths`, `dest` |
+| `before_overwrite` | `paths` (items that would be replaced), `sources`, `dest` |
+
+Each also carries `tags`: a table from path to tags for the items in `paths` and every tagged item inside them.
+
+```lua
+strata.on("before_delete", function(ctx, e)
+  for path, tags in pairs(e.tags) do
+    for _, t in ipairs(tags) do
+      if t == "keep" then return false, path .. " is tagged keep" end
+    end
+  end
+end)
+```
+
+A handler that fails or runs longer than half a second is reported and cancels nothing. Undo and redo do not ask.
+
+### Columns and sort orders
+
+Column and sort functions get an `entry`: `path`, `name`, `is_dir`, `size`, `modified` (epoch seconds or `nil`), `ext` and `tags`.
+
+A column function returns the text and optionally a colour (`muted`, `accent`, `error`, `warning`, `success`, `info`, a tag colour, a colour name or `#rrggbb`). Cells are worked out only for rows on screen and kept until the listing changes. A sort function returns a key: numbers before text, `nil` last, ties by name; folders-first and reverse still apply (not in the tree view).
+
+```lua
+strata.column({ name = "lines", width = 6, fn = function(entry)
+  if entry.is_dir or entry.size > 1e6 then return nil end
+  local n = 0
+  for _ in io.lines(entry.path) do n = n + 1 end
+  return tostring(n), "muted"
+end })
+
+strata.sort({ name = "tagged", title = "Tagged first", fn = function(entry)
+  return #entry.tags > 0 and 0 or 1
+end })
+```
+
 ### Helpers
 
 | Function | Description |
@@ -128,7 +175,7 @@ end)
 Lua's `io`, `os` and `string` libraries are available too.
 
 <Callout>
-  Callbacks run on the UI thread, so keep them quick. `statusline` and `panel` callbacks run every couple of seconds — cache anything expensive. Errors appear as notifications and never crash strata.
+  Callbacks run on the UI thread, so keep them quick. `statusline` and `panel` callbacks run every couple of seconds — cache anything expensive. `before_*` handlers, columns and sort orders are stopped when they take too long. Errors appear as notifications and never crash strata.
 </Callout>
 
 The [official plugins](https://github.com/HilthonTT/strata/tree/main/plugins) are good examples to start from.

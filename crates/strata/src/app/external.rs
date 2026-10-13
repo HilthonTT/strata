@@ -429,11 +429,20 @@ impl App {
                 anyhow::bail!("editor exited with {status}");
             }
             let edited = std::fs::read_to_string(file.path())?;
-            let plan = bulk::plan(&names, &edited)?;
+            bulk::plan(&names, &edited)
+        })();
+        let mut vetoed = false;
+        let result = result.and_then(|plan| {
+            let moves: Vec<_> = plan.iter().map(|r| (vfs.join(&dir, &r.from), vfs.join(&dir, &r.to))).collect();
+            if !plan.is_empty() && self.plugins_veto_renames(&moves) {
+                vetoed = true;
+                return Ok(Vec::new());
+            }
             bulk::apply(&vfs, &dir, &plan)?;
             Ok(plan)
-        })();
+        });
         match result {
+            Ok(_) if vetoed => {}
             Ok(plan) if plan.is_empty() => self.info("nothing renamed"),
             Ok(plan) => {
                 self.info(format!("renamed {} item(s)", plan.len()));

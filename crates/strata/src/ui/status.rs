@@ -84,7 +84,8 @@ pub fn bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
         let room = width.saturating_sub(spans[0].content.width() + 2);
         spans.push(Span::styled(format!(" {}", truncate(&n.message, room)), Style::default().fg(color)));
     } else {
-        let sort = format!("{}{}", p.sort.key.label(), if p.sort.reverse { " ↓" } else { "" });
+        let key = app.plugin_list.sort_of(p.id).unwrap_or(p.sort.key.label());
+        let sort = format!("{key}{}", if p.sort.reverse { " ↓" } else { "" });
         let summary = format!(
             " {} · panel {}/{} · sort {sort}{}{}",
             p.vfs.label(),

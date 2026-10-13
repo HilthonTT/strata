@@ -825,6 +825,37 @@ impl Panel {
         self.visual_anchor = None;
         had
     }
+
+    /// Every entry in the listing, hidden and filtered-out ones included.
+    pub fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    /// Orders a flat listing by `cmp` instead of the sort key (for plugin
+    /// sort orders), still putting folders first and reversing as the
+    /// sort options say. A tree keeps its order.
+    pub fn sort_with(&mut self, mut cmp: impl FnMut(&Entry, &Entry) -> std::cmp::Ordering) {
+        if !self.depths.is_empty() {
+            return;
+        }
+        let keep = self.hovered().map(|e| e.path.clone());
+        let sort = self.sort;
+        self.entries.sort_by(|a, b| {
+            if sort.dirs_first && a.is_dir() != b.is_dir() {
+                return b.is_dir().cmp(&a.is_dir());
+            }
+            let ord = cmp(a, b);
+            if sort.reverse {
+                ord.reverse()
+            } else {
+                ord
+            }
+        });
+        self.refilter();
+        if let Some(path) = keep {
+            self.focus_path(&path);
+        }
+    }
 }
 
 /// Whether a local folder can be opened, without listing it. `None` when

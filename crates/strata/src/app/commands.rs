@@ -59,7 +59,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("trash", "trash — browse, restore and delete trashed items"),
     ("empty-trash", "empty-trash — delete everything in the trash for good"),
     ("theme", "theme <name> — switch theme"),
-    ("sort", "sort name|size|modified|ext [rev]"),
+    ("sort", "sort name|size|modified|ext|<plugin sort> [rev]"),
     ("set", "set hidden|gitignored|preview|sidebar|footer|icons|dir_sizes [on|off]"),
     ("connect", "connect <name|url> — open a connection: smb, nfs, sftp, s3, davs, ftp or rclone://remote"),
     ("disconnect", "disconnect <name> — unmount a share"),
@@ -280,8 +280,14 @@ impl App {
             Some("size") => SortKey::Size,
             Some("modified") | Some("time") | Some("mtime") => SortKey::Modified,
             Some("ext") | Some("extension") => SortKey::Extension,
-            _ => return self.error("usage: sort name|size|modified|ext [rev]"),
+            Some(name) if self.plugin_list.sorts.iter().any(|s| s.name == name) => {
+                let name = name.to_string();
+                self.panel_mut().sort.reverse = matches!(parts.next(), Some("rev") | Some("reverse") | Some("desc"));
+                return self.set_plugin_sort(Some(name));
+            }
+            _ => return self.error("usage: sort name|size|modified|ext|<plugin sort> [rev]"),
         };
+        self.set_plugin_sort(None);
         let reverse = matches!(parts.next(), Some("rev") | Some("reverse") | Some("desc"));
         let p = self.panel_mut();
         p.sort.key = key;
@@ -390,6 +396,10 @@ impl App {
         let Some(dir) = vfs.parent(&from) else { return };
         let to = vfs.join(&dir, new_name);
         if to == from {
+            return;
+        }
+        let target = strata_plugin::PluginValue::strings([to.to_string_lossy().into_owned()]);
+        if self.plugin_vetoes("before_rename", std::slice::from_ref(&from), [("to", target)]) {
             return;
         }
         let new_name = new_name.to_string();

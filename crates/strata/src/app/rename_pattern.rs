@@ -67,6 +67,13 @@ impl App {
             return self.info("nothing to rename: every name stays the same");
         }
         let vfs = targets.vfs;
+        let moves: Vec<_> = plan
+            .iter()
+            .flat_map(|(dir, renames)| renames.iter().map(|r| (vfs.join(dir, &r.from), vfs.join(dir, &r.to))))
+            .collect();
+        if self.plugins_veto_renames(&moves) {
+            return;
+        }
         let mut ops = Vec::new();
         let mut failed = None;
         // Deepest folders first: renaming a folder before what is inside

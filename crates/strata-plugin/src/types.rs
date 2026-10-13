@@ -158,3 +158,94 @@ pub struct PanelDef {
     pub callback: usize,
     pub plugin: String,
 }
+
+/// A file-list column added by a plugin.
+#[derive(Debug, Clone)]
+pub struct ColumnDef {
+    pub name: String,
+    /// Width in terminal columns.
+    pub width: u16,
+    /// Colour for every cell unless the function returns one.
+    pub style: Option<String>,
+    pub callback: usize,
+    pub plugin: String,
+}
+
+/// A sort order added by a plugin.
+#[derive(Debug, Clone)]
+pub struct SortDef {
+    pub name: String,
+    /// Label in the sort menu.
+    pub title: String,
+    pub callback: usize,
+    pub plugin: String,
+}
+
+/// A file-list entry as seen by column and sort functions.
+#[derive(Debug, Clone, Default)]
+pub struct EntryInfo {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    /// Seconds since the Unix epoch.
+    pub modified: Option<i64>,
+    /// Lower-cased extension without the dot.
+    pub ext: String,
+    pub tags: Vec<String>,
+}
+
+impl IntoLua for EntryInfo {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        let t = lua.create_table()?;
+        t.set("path", self.path)?;
+        t.set("name", self.name)?;
+        t.set("is_dir", self.is_dir)?;
+        t.set("size", self.size)?;
+        t.set("modified", self.modified)?;
+        t.set("ext", self.ext)?;
+        t.set("tags", self.tags)?;
+        Ok(Value::Table(t))
+    }
+}
+
+/// One cell of a plugin column.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Cell {
+    pub text: String,
+    /// Colour name or `#rrggbb`, overriding the column's.
+    pub style: Option<String>,
+}
+
+/// What a plugin sort function returned for one entry.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SortValue {
+    Num(f64),
+    Str(String),
+    /// `nil` or anything else: sorts last.
+    None,
+}
+
+impl SortValue {
+    pub(crate) fn from_lua(value: Value) -> Self {
+        match value {
+            Value::Integer(i) => Self::Num(i as f64),
+            Value::Number(n) if !n.is_nan() => Self::Num(n),
+            Value::Boolean(b) => Self::Num(b as u8 as f64),
+            Value::String(s) => Self::Str(s.to_string_lossy().to_lowercase()),
+            _ => Self::None,
+        }
+    }
+
+    /// Numbers first (in order), then strings (ignoring case), then the rest.
+    pub fn compare(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match (self, other) {
+            (Self::Num(a), Self::Num(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
+            (Self::Str(a), Self::Str(b)) => a.cmp(b),
+            (Self::Num(_), _) | (Self::Str(_), Self::None) => Ordering::Less,
+            (_, Self::Num(_)) | (Self::None, Self::Str(_)) => Ordering::Greater,
+            (Self::None, Self::None) => Ordering::Equal,
+        }
+    }
+}

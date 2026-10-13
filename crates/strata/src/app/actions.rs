@@ -276,6 +276,7 @@ impl App {
                 }
             }
             CycleSort => {
+                self.set_plugin_sort(None);
                 let p = self.panel_mut();
                 p.sort.key = p.sort.key.next();
                 p.resort();
@@ -595,6 +596,9 @@ impl App {
     }
 
     pub(super) fn start_transfer(&mut self, mut transfer: Transfer) {
+        if self.plugins_veto_transfer(&transfer) {
+            return;
+        }
         transfer.options.verify |= self.config.general.verify_copies;
         transfer.options.bandwidth_limit = self.bandwidth_limit();
         let verb = if transfer.mode == TransferMode::Copy { "Copy" } else { "Move" };
@@ -704,6 +708,9 @@ impl App {
     }
 
     pub(super) fn start_delete(&mut self, vfs: VfsRef, paths: Vec<PathBuf>, permanent: bool) {
+        if self.plugin_vetoes("before_delete", &paths, [("permanent", PluginValue::Bool(permanent))]) {
+            return;
+        }
         let label = format!("{} {} item(s)", if permanent { "Delete" } else { "Trash" }, paths.len());
         self.panel_mut().clear_marks();
         let undo =
@@ -793,25 +800,49 @@ impl App {
         (SortKey::Extension, "Type (extension)"),
     ];
 
+    /// The sort menu: built-in keys, then plugin sort orders, then the
+    /// reverse and folders-first switches.
     fn open_sort_menu(&mut self) {
         let sort = self.panel().sort;
+        let plugin_sort = self.plugin_list.sort_of(self.panel().id);
         let check = |on: bool| if on { "●" } else { "○" };
-        let mut items: Vec<String> =
-            Self::SORT_KEYS.iter().map(|(key, label)| format!("{} {label}", check(sort.key == *key))).collect();
+        let mut items: Vec<String> = Self::SORT_KEYS
+            .iter()
+            .map(|(key, label)| format!("{} {label}", check(plugin_sort.is_none() && sort.key == *key)))
+            .collect();
+        items.extend(
+            self.plugin_list
+                .sorts
+                .iter()
+                .map(|s| format!("{} {}", check(plugin_sort == Some(s.name.as_str())), s.title)),
+        );
         items.push(format!("{} Reverse order", check(sort.reverse)));
         items.push(format!("{} Directories first", check(sort.dirs_first)));
+        let current = match plugin_sort {
+            Some(name) => self.plugin_list.sorts.iter().position(|s| s.name == name).map(|i| Self::SORT_KEYS.len() + i),
+            None => Self::SORT_KEYS.iter().position(|(k, _)| *k == sort.key),
+        };
         let mut picker = PickerState::new("Sort by", items, PickerPurpose::Sort);
-        if let Some(i) = Self::SORT_KEYS.iter().position(|(k, _)| *k == sort.key) {
+        if let Some(i) = current {
             picker.cursor = i;
         }
         self.overlay = Some(Overlay::Picker(picker));
     }
 
     pub(super) fn apply_sort_choice(&mut self, index: usize) {
+        let keys = Self::SORT_KEYS.len();
+        let plugin_sorts = self.plugin_list.sorts.len();
+        if (keys..keys + plugin_sorts).contains(&index) {
+            let name = self.plugin_list.sorts[index - keys].name.clone();
+            return self.set_plugin_sort(Some(name));
+        }
+        if index < keys {
+            self.set_plugin_sort(None);
+        }
         let p = self.panel_mut();
         match index {
-            i if i < Self::SORT_KEYS.len() => p.sort.key = Self::SORT_KEYS[i].0,
-            4 => p.sort.reverse = !p.sort.reverse,
+            i if i < keys => p.sort.key = Self::SORT_KEYS[i].0,
+            i if i == keys + plugin_sorts => p.sort.reverse = !p.sort.reverse,
             _ => p.sort.dirs_first = !p.sort.dirs_first,
         }
         p.resort();

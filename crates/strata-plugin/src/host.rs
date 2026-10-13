@@ -1,12 +1,15 @@
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context as _, Result};
-use mlua::{Function, IntoLuaMulti, Lua, Table, Value};
+use mlua::{Function, HookTriggers, IntoLuaMulti, Lua, MultiValue, Table, Value, VmState};
 
 use crate::api::{self, HostPaths, Registry, Shared};
-use crate::types::{Context, PanelDef, PluginKey, PluginValue, Request};
+use crate::types::{
+    Cell, ColumnDef, Context, EntryInfo, PanelDef, PluginKey, PluginValue, Request, SortDef, SortValue,
+};
 
 /// Official plugins shipped inside the binary: `(name, source)`.
 pub const OFFICIAL_PLUGINS: &[(&str, &str)] = &[
@@ -14,7 +17,15 @@ pub const OFFICIAL_PLUGINS: &[(&str, &str)] = &[
     ("bookmarks", include_str!("../../../plugins/bookmarks.lua")),
     ("archive", include_str!("../../../plugins/archive.lua")),
     ("zoxide", include_str!("../../../plugins/zoxide.lua")),
+    ("protect", include_str!("../../../plugins/protect.lua")),
 ];
+
+/// How long each `before_*` handler may run before it is stopped.
+const VETO_LIMIT: Duration = Duration::from_millis(500);
+/// How long a plugin column may take for the rows on screen.
+const COLUMN_LIMIT: Duration = Duration::from_millis(200);
+/// How long a plugin sort may take for a whole listing.
+const SORT_LIMIT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct PluginInfo {
@@ -203,9 +214,106 @@ impl PluginHost {
         self.reg.borrow().previewers.iter().any(|(exts, _)| exts.iter().any(|e| e == &ext || e == "*"))
     }
 
+    /// Fires a `before_*` event and asks whether to go ahead. A handler
+    /// refuses by returning `false` (optionally followed by a reason) or
+    /// `{ cancel = true, reason = "..." }`; the first refusal wins and its
+    /// reason is returned. Handlers that fail or run past [`VETO_LIMIT`]
+    /// are reported in the errors and do not refuse.
+    pub fn veto(&self, event: &str, ctx: &Context, data: PluginValue) -> (Option<String>, Vec<String>) {
+        let ids = self.reg.borrow().handlers.get(event).cloned().unwrap_or_default();
+        let mut errors = Vec::new();
+        for id in ids {
+            let result =
+                self.with_deadline(VETO_LIMIT, || self.call_ret::<MultiValue>(id, (ctx.clone(), data.clone())));
+            match result {
+                Ok(values) => {
+                    if let Some(reason) = refusal(values) {
+                        let owner = self.reg.borrow().owners.get(id).cloned().unwrap_or_default();
+                        let reason = reason.unwrap_or_else(|| match owner.as_str() {
+                            "" => "cancelled by a plugin".into(),
+                            name => format!("cancelled by plugin '{name}'"),
+                        });
+                        return (Some(reason), errors);
+                    }
+                }
+                Err(e) => errors.push(format!("{e:#}")),
+            }
+        }
+        (None, errors)
+    }
+
+    pub fn columns(&self) -> Vec<ColumnDef> {
+        self.reg.borrow().columns.clone()
+    }
+
+    /// One plugin column's cells for `entries`, from `fn(entry) -> text?, style?`.
+    pub fn column_cells(&self, callback: usize, entries: Vec<EntryInfo>) -> Result<Vec<Cell>> {
+        self.with_deadline(COLUMN_LIMIT, || {
+            entries
+                .into_iter()
+                .map(|entry| {
+                    let (text, style): (Option<String>, Option<String>) = self.call_ret(callback, entry)?;
+                    Ok(Cell { text: text.unwrap_or_default(), style })
+                })
+                .collect()
+        })
+    }
+
+    pub fn sorts(&self) -> Vec<SortDef> {
+        self.reg.borrow().sorts.clone()
+    }
+
+    /// Sort keys for `entries` from a plugin sort's `fn(entry) -> key`.
+    pub fn sort_keys(&self, callback: usize, entries: Vec<EntryInfo>) -> Result<Vec<SortValue>> {
+        self.with_deadline(SORT_LIMIT, || {
+            entries.into_iter().map(|entry| self.call_ret::<Value>(callback, entry).map(SortValue::from_lua)).collect()
+        })
+    }
+
+    /// Runs `f`, stopping the Lua code it runs once `limit` has passed.
+    /// Time spent outside Lua (in `strata.shell`, say) is not interrupted
+    /// but counts: the Lua code after it fails, and so does the result.
+    fn with_deadline<R>(&self, limit: Duration, f: impl FnOnce() -> Result<R>) -> Result<R> {
+        let start = Instant::now();
+        let timed_out = move || start.elapsed() > limit;
+        let message = format!("timed out after {} ms", limit.as_millis());
+        let hook_message = message.clone();
+        let hooked = self
+            .lua
+            .set_hook(HookTriggers::new().on_calls().every_nth_instruction(1000), move |_, _| match timed_out() {
+                true => Err(mlua::Error::runtime(&hook_message)),
+                false => Ok(VmState::Continue),
+            })
+            .is_ok();
+        let result = f();
+        if hooked {
+            self.lua.remove_hook();
+        }
+        match result {
+            Ok(_) if timed_out() => Err(anyhow!(message)),
+            other => other,
+        }
+    }
+
     /// Takes the requests queued by plugins since the last drain.
     pub fn drain(&self) -> Vec<Request> {
         std::mem::take(&mut self.reg.borrow_mut().requests)
+    }
+}
+
+/// `Some(reason)` when a `before_*` handler's return values refuse.
+fn refusal(values: MultiValue) -> Option<Option<String>> {
+    let mut values = values.into_iter();
+    match values.next()? {
+        Value::Boolean(false) => Some(match values.next() {
+            Some(Value::String(s)) => Some(s.to_string_lossy()),
+            _ => None,
+        }),
+        Value::Table(t) => {
+            let cancel: bool = t.get("cancel").unwrap_or(false);
+            cancel.then(|| t.get::<Option<String>>("reason").ok().flatten())
+        }
+        _ => None,
     }
 }
 
@@ -332,6 +440,146 @@ mod tests {
             h.load(name, src, true, None).unwrap_or_else(|e| panic!("{name}: {e:#}"));
         }
         assert_eq!(h.loaded().len(), OFFICIAL_PLUGINS.len());
+    }
+
+    fn paths(paths: &[&str]) -> PluginValue {
+        PluginValue::map([("paths", PluginValue::strings(paths.iter().copied())), ("tags", PluginValue::Map(vec![]))])
+    }
+
+    #[test]
+    fn before_hooks_can_refuse() {
+        let mut h = host();
+        h.load(
+            "guard",
+            r#"
+            strata.on("before_delete", function(ctx, e)
+              if e.paths[1] == "/plain" then return false end
+              if e.paths[1] == "/reason" then return false, "not this one" end
+              if e.paths[1] == "/table" then return { cancel = true, reason = "nope" } end
+              if e.paths[1] == "/broken" then error("boom") end
+              return true
+            end)
+            "#,
+            false,
+            None,
+        )
+        .unwrap();
+        let ctx = Context::default();
+        let veto = |p: &str| h.veto("before_delete", &ctx, paths(&[p]));
+        assert_eq!(veto("/ok"), (None, vec![]));
+        assert_eq!(veto("/plain").0.as_deref(), Some("cancelled by plugin 'guard'"));
+        assert_eq!(veto("/reason").0.as_deref(), Some("not this one"));
+        assert_eq!(veto("/table").0.as_deref(), Some("nope"));
+        let (reason, errors) = veto("/broken");
+        assert_eq!(reason, None, "a failing handler does not refuse");
+        assert!(errors[0].contains("boom"));
+        assert_eq!(h.veto("before_rename", &ctx, paths(&["/plain"])), (None, vec![]), "other events are unaffected");
+    }
+
+    #[test]
+    fn slow_hooks_are_stopped() {
+        let mut h = host();
+        h.load("slow", r#"strata.on("before_move", function() while true do end end)"#, false, None).unwrap();
+        let started = std::time::Instant::now();
+        let (reason, errors) = h.veto("before_move", &Context::default(), paths(&["/a"]));
+        assert_eq!(reason, None);
+        assert!(errors[0].contains("timed out"), "{errors:?}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // The hook is gone afterwards: other calls run normally.
+        h.load("fine", r#"strata.command("x", function() strata.refresh() end)"#, false, None).unwrap();
+        h.run_command("x", "", Context::default()).unwrap();
+        assert_eq!(h.drain(), vec![Request::Refresh]);
+    }
+
+    #[test]
+    fn protect_refuses_tagged_items() {
+        let mut h = host();
+        let (_, src) = OFFICIAL_PLUGINS.iter().find(|(n, _)| *n == "protect").unwrap();
+        h.load("protect", src, true, None).unwrap();
+        let data = |tags: Vec<(String, PluginValue)>| {
+            PluginValue::map([("paths", PluginValue::strings(["/d"])), ("tags", PluginValue::Map(tags))])
+        };
+        let ctx = Context::default();
+        let red = vec![("/d/a".to_string(), PluginValue::strings(["red"]))];
+        assert_eq!(h.veto("before_delete", &ctx, data(red)).0, None);
+        let keep = vec![("/d/a".to_string(), PluginValue::strings(["red", "keep"]))];
+        let reason = h.veto("before_delete", &ctx, data(keep)).0.unwrap();
+        assert!(reason.contains("'a' is tagged keep"), "{reason}");
+
+        let column = &h.columns()[0];
+        let entry =
+            |tags: &[&str]| EntryInfo { tags: tags.iter().map(|t| t.to_string()).collect(), ..Default::default() };
+        let cells = h.column_cells(column.callback, vec![entry(&["keep"]), entry(&[])]).unwrap();
+        assert_eq!(cells[0].text, "🔒");
+        assert_eq!(cells[1], Cell::default());
+    }
+
+    #[test]
+    fn columns_compute_cells() {
+        let mut h = host();
+        h.load(
+            "cols",
+            r#"
+            strata.column({ name = "size", width = 6, fn = function(e) return "old" end })
+            strata.column({ name = "kind", width = 4, style = "muted", fn = function(e)
+              if e.is_dir then return "dir", "accent" end
+              return e.ext
+            end })
+            strata.column({ name = "size", width = 50, fn = function(e) return e.size end })
+            "#,
+            false,
+            None,
+        )
+        .unwrap();
+        let columns = h.columns();
+        let names: Vec<_> = columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["kind", "size"], "a column registered again replaces the first");
+        assert_eq!(columns[0].style.as_deref(), Some("muted"));
+        assert_eq!(columns[1].width, 40, "widths are capped");
+        let file = EntryInfo { name: "a.rs".into(), ext: "rs".into(), size: 12, ..Default::default() };
+        let dir = EntryInfo { name: "d".into(), is_dir: true, ..Default::default() };
+        let cells = h.column_cells(columns[0].callback, vec![file.clone(), dir.clone()]).unwrap();
+        assert_eq!(
+            cells,
+            vec![Cell { text: "rs".into(), style: None }, Cell { text: "dir".into(), style: Some("accent".into()) }]
+        );
+        let cells = h.column_cells(columns[1].callback, vec![file, dir]).unwrap();
+        assert_eq!(cells, vec![Cell { text: "12".into(), style: None }, Cell { text: "0".into(), style: None }]);
+
+        h.load("bad", r#"strata.column({ name = "bad", fn = function() error("nope") end })"#, false, None).unwrap();
+        let bad = h.columns().into_iter().find(|c| c.name == "bad").unwrap();
+        assert_eq!(bad.width, 8);
+        assert!(h.column_cells(bad.callback, vec![EntryInfo::default()]).is_err());
+    }
+
+    #[test]
+    fn sorts_produce_comparable_keys() {
+        let mut h = host();
+        h.load(
+            "sorts",
+            r#"
+            strata.sort({ name = "len", title = "Name length", fn = function(e) return #e.name end })
+            strata.sort({ name = "tag", fn = function(e) return e.tags[1] end })
+            "#,
+            false,
+            None,
+        )
+        .unwrap();
+        let sorts = h.sorts();
+        assert_eq!((sorts[0].name.as_str(), sorts[0].title.as_str()), ("len", "Name length"));
+        assert_eq!(sorts[1].title, "tag", "the title defaults to the name");
+        let entry = |name: &str, tag: Option<&str>| EntryInfo {
+            name: name.into(),
+            tags: tag.into_iter().map(String::from).collect(),
+            ..Default::default()
+        };
+        let entries = vec![entry("abc", Some("Blue")), entry("a", None), entry("ab", Some("apple"))];
+        let keys = h.sort_keys(sorts[0].callback, entries.clone()).unwrap();
+        assert_eq!(keys, vec![SortValue::Num(3.0), SortValue::Num(1.0), SortValue::Num(2.0)]);
+        let mut keys = h.sort_keys(sorts[1].callback, entries).unwrap();
+        keys.sort_by(SortValue::compare);
+        assert_eq!(keys, vec![SortValue::Str("apple".into()), SortValue::Str("blue".into()), SortValue::None]);
+        assert!(SortValue::Num(10.0).compare(&SortValue::Str("a".into())).is_lt(), "numbers before text");
     }
 
     #[test]

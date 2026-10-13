@@ -55,6 +55,8 @@ Callbacks receive a `ctx` table that describes the current UI state:
 | `strata.statusline(fn(ctx) -> string?)` | Add a segment to the top bar |
 | `strata.panel{ name, title?, render = fn(ctx, w, h) -> lines }` | Add a UI panel next to the file panels |
 | `strata.previewer{ ext = {...}, fn = fn(path, w, h) -> lines? }` | Preview files with these extensions; return `nil` to pass |
+| `strata.column{ name, width?, style?, fn = fn(entry) -> text?, style? }` | Add a column to the file list (see [Columns and sort orders](#columns-and-sort-orders)) |
+| `strata.sort{ name, title?, fn = fn(entry) -> key }` | Add a sort order to the sort menu (`s`) and `:sort <name>` |
 
 **Actions**
 
@@ -100,6 +102,52 @@ strata.on("rename", function(ctx, e)
 end)
 ```
 
+### Refusing operations
+
+`before_*` events fire before an operation starts, and a handler can cancel it by returning `false` (optionally followed by a reason) or `{ cancel = true, reason = "..." }`. The reason is shown to the user; anything else lets the operation go ahead.
+
+| Event | `data` fields |
+| --- | --- |
+| `before_delete` | `paths`, `permanent` |
+| `before_rename` | `paths`, `to` (the new paths, in the same order); once per rename, pattern rename or bulk rename |
+| `before_copy`, `before_move` | `paths`, `dest` (the destination folder) |
+| `before_overwrite` | `paths` (the items that would be replaced), `sources`, `dest`; when a paste overwrites |
+
+Every `before_*` event also carries `tags`: a table from path to tags for each item in `paths`, and for every tagged item inside them. The [`protect`](../plugins/protect.lua) plugin uses it to refuse deleting, moving, renaming or overwriting anything tagged `keep`:
+
+```lua
+strata.on("before_delete", function(ctx, e)
+  for path, tags in pairs(e.tags) do
+    for _, t in ipairs(tags) do
+      if t == "keep" then return false, path .. " is tagged keep" end
+    end
+  end
+end)
+```
+
+A handler that fails, or runs for more than half a second, is reported and does not cancel anything. Undo and redo do not ask.
+
+### Columns and sort orders
+
+Column and sort functions get an `entry` table: `path`, `name`, `is_dir`, `size`, `modified` (seconds since the epoch, or `nil`), `ext` (lower case, without the dot) and `tags`.
+
+A column function returns the cell's text and optionally a colour: a theme role (`muted`, `accent`, `error`, `warning`, `success`, `info`, `fg`), a tag colour (`red`, `blue`…), a colour name or `#rrggbb`. Columns go after the built-in ones and are hidden first when a panel is narrow. Cells are worked out only for rows that come into view and are kept until the listing changes, so large folders stay fast; a column that fails or takes more than 200 ms for a screenful is left blank.
+
+A sort function returns a key: numbers sort before text (compared ignoring case), and `nil` sorts last; ties are ordered by name. Folders-first and reverse order still apply. Keys are worked out for the whole listing each time it changes, within two seconds. Plugin sort orders do not apply to the tree view.
+
+```lua
+strata.column({ name = "lines", width = 6, fn = function(entry)
+  if entry.is_dir or entry.size > 1e6 then return nil end
+  local n = 0
+  for _ in io.lines(entry.path) do n = n + 1 end
+  return tostring(n), "muted"
+end })
+
+strata.sort({ name = "tagged", title = "Tagged first", fn = function(entry)
+  return #entry.tags > 0 and 0 or 1
+end })
+```
+
 **Helpers**
 
 | Function | Description |
@@ -110,6 +158,6 @@ end)
 | `strata.config_dir()` / `strata.data_dir()` | Where to read config and keep state |
 | `strata.version`, `strata.platform` | strata version and OS name |
 
-Lua's standard `io`, `os` and `string` libraries are available too. Callbacks run on the UI thread, so keep them fast. `statusline` and `panel` callbacks run every couple of seconds, so cache any expensive results.
+Lua's standard `io`, `os` and `string` libraries are available too. Callbacks run on the UI thread, so keep them fast; `before_*` handlers, columns and sort orders are stopped when they take too long. `statusline` and `panel` callbacks run every couple of seconds, so cache any expensive results.
 
 Errors in a plugin show up as notifications and never crash strata. See [`plugins/`](../plugins) for the official plugins, which are good examples to copy from.

@@ -240,6 +240,8 @@ pub struct App {
     pub plugin_status: Vec<String>,
     pub open_plugin_panels: Vec<String>,
     pub plugin_panel_lines: HashMap<String, Vec<String>>,
+    /// Columns and sort orders plugins added to the file list.
+    pub plugin_list: plugins::ListExtras,
     plugin_refreshed: Instant,
     last_location: Option<(String, PathBuf)>,
 
@@ -393,6 +395,7 @@ impl App {
             plugin_status: Vec::new(),
             open_plugin_panels: Vec::new(),
             plugin_panel_lines: HashMap::new(),
+            plugin_list: plugins::ListExtras::default(),
             plugin_refreshed: Instant::now(),
             last_location: None,
             layout: LayoutCache::default(),

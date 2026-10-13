@@ -34,7 +34,7 @@ Everything you need, nothing you don't.
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
-- **Lua plugins**: add keys, commands, panels, status-line segments and previewers, and react to events such as `rename`, `open`, `tag`, `delete` and `job_done`
+- **Lua plugins**: add keys, commands, panels, status-line segments, previewers, file-list columns and sort orders, react to events such as `rename`, `open`, `tag`, `delete` and `job_done`, and refuse deletes, moves and renames with `before_*` events
 - **Vim-style keys**, all remappable
 
 ## Install
@@ -93,7 +93,7 @@ Run `strata --dump-config > ~/.config/strata/config.toml` to start from a docume
 
 ## Plugins
 
-Plugins are Lua files in `~/.config/strata/plugins/`. strata ships four official ones: `git`, `bookmarks`, `archive` (previews of `.7z` and `.rar` archives) and `zoxide`. See [docs/plugins.md](docs/plugins.md) for the API.
+Plugins are Lua files in `~/.config/strata/plugins/`. strata ships official ones: `git`, `bookmarks`, `archive` (previews of `.7z` and `.rar` archives), `zoxide` and `protect` (refuses to delete items tagged `keep`; off by default). See [docs/plugins.md](docs/plugins.md) for the API.
 
 ## Documentation
 

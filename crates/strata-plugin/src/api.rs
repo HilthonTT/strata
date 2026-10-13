@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use mlua::{Function, Lua, Table, Value, Variadic};
 
-use crate::types::{Level, PanelDef, PluginKey, Request};
+use crate::types::{ColumnDef, Level, PanelDef, PluginKey, Request, SortDef};
 
 #[derive(Default)]
 pub(crate) struct Registry {
@@ -18,7 +18,11 @@ pub(crate) struct Registry {
     pub statuslines: Vec<usize>,
     pub panels: Vec<PanelDef>,
     pub previewers: Vec<(Vec<String>, usize)>,
+    pub columns: Vec<ColumnDef>,
+    pub sorts: Vec<SortDef>,
     pub requests: Vec<Request>,
+    /// Plugin that registered each callback (empty when not loading).
+    pub owners: Vec<String>,
     /// Plugin currently being loaded, for attribution.
     pub loading: String,
 }
@@ -26,6 +30,7 @@ pub(crate) struct Registry {
 impl Registry {
     fn store(&mut self, f: Function) -> usize {
         self.callbacks.push(f);
+        self.owners.push(self.loading.clone());
         self.callbacks.len() - 1
     }
 }
@@ -119,6 +124,39 @@ pub(crate) fn install(lua: &Lua, reg: &Shared, paths: &HostPaths) -> mlua::Resul
             let mut r = r.borrow_mut();
             let id = r.store(f);
             r.previewers.push((exts.into_iter().map(|e| e.to_ascii_lowercase()).collect(), id));
+            Ok(())
+        })?,
+    )?;
+
+    let r = reg.clone();
+    strata.set(
+        "column",
+        lua.create_function(move |_, spec: Table| {
+            let name: String = spec.get("name")?;
+            let width: Option<u16> = spec.get("width")?;
+            let style: Option<String> = spec.get("style")?;
+            let f: Function = spec.get("fn")?;
+            let mut r = r.borrow_mut();
+            let callback = r.store(f);
+            let plugin = r.loading.clone();
+            r.columns.retain(|c| c.name != name);
+            r.columns.push(ColumnDef { name, width: width.unwrap_or(8).clamp(1, 40), style, callback, plugin });
+            Ok(())
+        })?,
+    )?;
+
+    let r = reg.clone();
+    strata.set(
+        "sort",
+        lua.create_function(move |_, spec: Table| {
+            let name: String = spec.get("name")?;
+            let title: Option<String> = spec.get("title")?;
+            let f: Function = spec.get("fn")?;
+            let mut r = r.borrow_mut();
+            let callback = r.store(f);
+            let plugin = r.loading.clone();
+            r.sorts.retain(|s| s.name != name);
+            r.sorts.push(SortDef { title: title.unwrap_or_else(|| name.clone()), name, callback, plugin });
             Ok(())
         })?,
     )?;
