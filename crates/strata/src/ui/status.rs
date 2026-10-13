@@ -86,11 +86,12 @@ pub fn bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         let sort = format!("{}{}", p.sort.key.label(), if p.sort.reverse { " ↓" } else { "" });
         let summary = format!(
-            " {} · panel {}/{} · sort {sort}{}",
+            " {} · panel {}/{} · sort {sort}{}{}",
             p.vfs.label(),
             app.active + 1,
             app.panels.len(),
-            if p.show_hidden { " · hidden shown" } else { "" }
+            if p.show_hidden { " · hidden shown" } else { "" },
+            if p.hide_gitignored && p.vfs.is_local() { " · gitignored hidden" } else { "" }
         );
         spans.push(Span::styled(summary, Style::default().fg(theme.muted)));
         let help = " ? help  : command  q quit ";

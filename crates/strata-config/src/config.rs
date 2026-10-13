@@ -101,6 +101,9 @@ pub struct General {
     /// Use the terminal's own background instead of the theme's.
     pub transparent: bool,
     pub show_hidden: bool,
+    /// Leave out files and folders git ignores (`.gitignore`,
+    /// `.git/info/exclude`, the global excludes file).
+    pub hide_gitignored: bool,
     /// Number of file panels opened at start.
     pub panels: usize,
     pub preview: bool,
@@ -199,6 +202,7 @@ impl Default for General {
             keymap: KeymapPreset::Vim,
             transparent: false,
             show_hidden: false,
+            hide_gitignored: false,
             panels: 2,
             preview: true,
             image_preview: true,

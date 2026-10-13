@@ -106,6 +106,7 @@ actions! {
     PreviewNext => "preview_next", "Next match in the preview";
     PreviewPrev => "preview_prev", "Previous match in the preview";
     ToggleHidden => "toggle_hidden", "Show / hide dotfiles";
+    ToggleGitignored => "toggle_gitignored", "Show / hide files ignored by git";
     TogglePreview => "toggle_preview", "Show / hide the preview";
     ToggleSidebar => "toggle_sidebar", "Show / hide the sidebar";
     ToggleFooter => "toggle_footer", "Show / hide the footer";
@@ -453,6 +454,7 @@ const VIM: &[(&str, &str)] = &[
     ("g a", "flatten"),
     ("z t", "toggle_tree"),
     ("z M", "collapse_all"),
+    ("z i", "toggle_gitignored"),
 ];
 
 /// Mirrors superfile's default hotkeys where strata has the feature.
@@ -504,6 +506,7 @@ const STANDARD: &[(&str, &str)] = &[
     ("alt+f", "find_prompt"),
     ("alt+a", "flatten"),
     ("alt+t", "toggle_tree"),
+    ("alt+i", "toggle_gitignored"),
 ];
 
 impl Keymap {

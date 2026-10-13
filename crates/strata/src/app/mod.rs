@@ -310,7 +310,10 @@ impl App {
         let start_dirs = start_directories(&opts.paths, start_dir, config.general.panels.clamp(1, 6));
         let panels = start_dirs
             .into_iter()
-            .map(|dir| Panel::new(local.clone(), dir, sort, config.general.show_hidden, Some(listing_tx.clone())))
+            .map(|dir| {
+                Panel::new(local.clone(), dir, sort, config.general.show_hidden, Some(listing_tx.clone()))
+                    .with_gitignored_hidden(config.general.hide_gitignored)
+            })
             .collect();
 
         let pinned = load_pins(&config);
@@ -534,6 +537,7 @@ impl App {
     /// A panel that lists remote locations in the background.
     pub(super) fn make_panel(&self, vfs: VfsRef, cwd: PathBuf, sort: SortOptions, show_hidden: bool) -> Panel {
         Panel::new(vfs, cwd, sort, show_hidden, Some(self.listing_tx.clone()))
+            .with_gitignored_hidden(self.config.general.hide_gitignored)
     }
 
     fn drain_events(&mut self) {

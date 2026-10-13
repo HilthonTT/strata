@@ -53,7 +53,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("empty-trash", "empty-trash — delete everything in the trash for good"),
     ("theme", "theme <name> — switch theme"),
     ("sort", "sort name|size|modified|ext [rev]"),
-    ("set", "set hidden|preview|sidebar|footer|icons|dir_sizes [on|off]"),
+    ("set", "set hidden|gitignored|preview|sidebar|footer|icons|dir_sizes [on|off]"),
     ("connect", "connect <name|url> — open a connection: smb, nfs, sftp, s3, davs, ftp or rclone://remote"),
     ("disconnect", "disconnect <name> — unmount a share"),
     ("diagnose", "diagnose <name> — test a connection step by step"),
@@ -273,11 +273,13 @@ impl App {
     fn set_command(&mut self, args: &str) {
         let mut parts = args.split_whitespace();
         let (Some(name), value) = (parts.next(), parts.next()) else {
-            return self.error("usage: set hidden|preview|sidebar|footer|icons|dir_sizes [on|off]");
+            return self.error("usage: set hidden|gitignored|preview|sidebar|footer|icons|dir_sizes [on|off]");
         };
         let g = &self.config.general;
         let current = match name {
             "hidden" => g.show_hidden,
+            // On means shown, like `hidden`.
+            "gitignored" => !g.hide_gitignored,
             "preview" => g.preview,
             "sidebar" => g.sidebar,
             "footer" => g.footer,
@@ -295,6 +297,7 @@ impl App {
         }
         match name {
             "hidden" => self.dispatch(Action::ToggleHidden),
+            "gitignored" => self.dispatch(Action::ToggleGitignored),
             "preview" => self.dispatch(Action::TogglePreview),
             "sidebar" => self.dispatch(Action::ToggleSidebar),
             "footer" => self.dispatch(Action::ToggleFooter),

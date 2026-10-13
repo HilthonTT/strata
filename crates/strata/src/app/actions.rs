@@ -260,6 +260,18 @@ impl App {
                 }
                 self.info(if show { "showing hidden files" } else { "hiding hidden files" });
             }
+            ToggleGitignored => {
+                let hide = !self.config.general.hide_gitignored;
+                self.config.general.hide_gitignored = hide;
+                for p in &mut self.panels {
+                    p.set_hide_gitignored(hide);
+                }
+                if hide && !strata_core::nas::which("git") {
+                    self.notify("git is not installed: nothing can be hidden", Level::Warn);
+                } else {
+                    self.info(if hide { "hiding files ignored by git" } else { "showing files ignored by git" });
+                }
+            }
             CycleSort => {
                 let p = self.panel_mut();
                 p.sort.key = p.sort.key.next();

@@ -34,6 +34,8 @@ pub struct Listing {
     depths: Vec<u16>,
     /// A flat or tree listing stopped at its limit.
     truncated: bool,
+    /// Entries ignored by git, when they are being hidden.
+    ignored: HashSet<PathBuf>,
 }
 
 /// What a flat listing shows instead of the directory's own entries.
@@ -77,6 +79,11 @@ pub struct Panel {
     pub filter: String,
     pub sort: SortOptions,
     pub show_hidden: bool,
+    /// Leave out what git ignores (local folders in a repository).
+    pub hide_gitignored: bool,
+    /// Entries of the listing that git ignores; filled only while
+    /// `hide_gitignored` is on.
+    ignored: HashSet<PathBuf>,
     pub visual_anchor: Option<usize>,
     pub error: Option<String>,
     back: Vec<PathBuf>,
@@ -126,6 +133,8 @@ impl Panel {
             filter: String::new(),
             sort,
             show_hidden,
+            hide_gitignored: false,
+            ignored: HashSet::new(),
             visual_anchor: None,
             error: None,
             back: Vec::new(),
@@ -147,6 +156,27 @@ impl Panel {
         };
         panel.reload();
         panel
+    }
+
+    /// Hides what git ignores from the start (lists the folder again).
+    pub fn with_gitignored_hidden(mut self, hide: bool) -> Self {
+        self.set_hide_gitignored(hide);
+        self
+    }
+
+    /// Hides or shows what git ignores. Ignored items are only looked up
+    /// while hidden, so turning it on lists the folder again.
+    pub fn set_hide_gitignored(&mut self, hide: bool) {
+        if self.hide_gitignored == hide {
+            return;
+        }
+        self.hide_gitignored = hide;
+        if hide {
+            self.reload();
+        } else {
+            self.ignored.clear();
+            self.refilter();
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -231,9 +261,15 @@ impl Panel {
         self.generation += 1;
         self.inflight = None;
         let (panel, generation, path) = (self.id, self.generation, self.cwd.clone());
+        let gitignored = self.hide_gitignored && self.vfs.is_local();
         let run = move || {
             let (result, depths, truncated) = build();
-            Listing { panel, generation, path, result, depths, truncated }
+            // Asked of git here, on the worker, so a big repository never stalls the UI.
+            let ignored = match &result {
+                Ok(entries) if gitignored => strata_core::git::ignored(entries.iter().map(|e| e.path.as_path())),
+                _ => HashSet::new(),
+            };
+            Listing { panel, generation, path, result, depths, truncated, ignored }
         };
         if let Some(tx) = self.lister.clone().filter(|_| background) {
             self.loading = true;
@@ -404,6 +440,7 @@ impl Panel {
             Some(flat) => flat.truncated = listing.truncated,
             None => self.tree_truncated = listing.truncated,
         }
+        self.ignored = listing.ignored;
         self.apply_entries(listing.result, listing.depths);
         true
     }
@@ -476,7 +513,8 @@ impl Panel {
     }
 
     pub fn refilter(&mut self) {
-        // Hidden entries are left out, and in a tree everything inside them.
+        // Hidden and git-ignored entries are left out, and in a tree
+        // everything inside them.
         let mut candidates = Vec::with_capacity(self.entries.len());
         let mut hidden_depth: Option<u16> = None;
         for (i, entry) in self.entries.iter().enumerate() {
@@ -485,7 +523,8 @@ impl Panel {
                 continue;
             }
             hidden_depth = None;
-            if !self.show_hidden && entry.is_hidden() {
+            let ignored = self.hide_gitignored && self.ignored.contains(&entry.path);
+            if ignored || (!self.show_hidden && entry.is_hidden()) {
                 hidden_depth = Some(depth);
                 continue;
             }
@@ -1032,6 +1071,41 @@ mod tests {
         assert!(p.cd(dir.path().join("sub")));
         assert!(p.tree && p.expanded.is_empty(), "a new root starts collapsed");
         assert_eq!(rows(&p), [(0, "x".into())]);
+    }
+
+    #[test]
+    fn gitignored_items_hide_in_lists_trees_and_flat_listings() {
+        if !strata_core::nas::which("git") {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::process::Command::new("git").arg("-C").arg(root).args(["init", "-q"]).output().unwrap();
+        std::fs::write(root.join(".gitignore"), "target/\n*.log\n").unwrap();
+        std::fs::create_dir_all(root.join("target/debug")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        for f in ["target/debug/out", "src/main.rs", "src/build.log", "notes.log", "readme.md"] {
+            std::fs::write(root.join(f), "").unwrap();
+        }
+        let names = |p: &Panel| (0..p.len()).map(|r| p.label(p.entry_at(r).unwrap()).into_owned()).collect::<Vec<_>>();
+        let mut p = panel_in(root).with_gitignored_hidden(true);
+        assert_eq!(names(&p), ["src", "readme.md"]);
+        p.set_hide_gitignored(false);
+        assert_eq!(names(&p), ["src", "target", "notes.log", "readme.md"]);
+
+        p.set_hide_gitignored(true);
+        p.set_tree(true);
+        p.toggle_expand();
+        assert_eq!(names(&p), ["src", "src/main.rs", "readme.md"], "ignored children of expanded folders too");
+
+        p.set_tree(false);
+        p.set_flat(Some(Flat {
+            title: "flatten".into(),
+            source: FlatSource::Walk(Query::files()),
+            truncated: false,
+            announced: false,
+        }));
+        assert!(!names(&p).iter().any(|n| n.ends_with(".log") || n.starts_with("target")), "{:?}", names(&p));
     }
 
     /// Pretends to be remote so listings go through the background path.
