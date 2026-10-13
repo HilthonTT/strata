@@ -34,7 +34,25 @@ The function is called `strata` and wraps the real binary, so you keep typing `s
 | --- | --- |
 | <Kbd>!</Kbd> | Open your `$SHELL` in the current directory (in a Docker container or over SSH for remote locations) |
 | `:sh <command>` or `:!<command>` | Run a command here and see its output |
+| `:each <command>` | Run a command once for each marked item |
 | `:git <args>` | Run git here (from the `git` plugin) |
+
+Commands can name the marked items (or the hovered one when nothing is marked) with placeholders. strata quotes them for the shell:
+
+| Placeholder | Stands for |
+| --- | --- |
+| `{f}` | The first marked item's path |
+| `{s}` | Every marked item's path |
+| `{n}` | The first marked item's name |
+| `{d}` | The current directory |
+
+```text
+:!tar czf backup.tgz {s}        one archive of everything marked
+:each ffmpeg -i {f} {f}.mp3     one command per marked item
+:each gzip -k                   no placeholder: the item goes at the end
+```
+
+Other braces, such as `{}` in `find -exec` or `{print $1}` in awk, are left as they are. Placeholders work on local folders only.
 
 ## Other flags
 

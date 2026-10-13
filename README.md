@@ -17,6 +17,7 @@ Everything you need, nothing you don't.
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`
 - **Folder sizes** in the file list (`d c`), measured in the background
 - **Jobs you control**: pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
+- **Shell commands on your selection**: `:!tar czf out.tgz {s}` fills in the marked items, and `:each gzip -k` runs once per item
 - **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
 - **Search**: filter, fuzzy find, content search with ripgrep, and `:find` by name, size, age, type or tag with the results listed in the panel; `:flatten` lists every file below a folder
@@ -65,7 +66,7 @@ strata [DIR...]           # one panel per directory
 | `d c` | folder sizes | `X` | extract the archive |
 | `alt+p` | pause / resume the latest job | `alt+R` | resume a failed copy |
 | `y d` | copy the current directory's path | `Q` | quit and `cd` your shell there |
-| `alt+s` | retry a refused operation as root | | |
+| `alt+s` | retry a refused operation as root | `:each` | run a command per marked item |
 | `g r` | rename with a pattern | `,` | tag menu |
 | `g s` | find by size, age, type, tag | `g a` | flatten / back |
 | `z t` | tree view / back | `;` | git menu |

@@ -26,6 +26,10 @@ Install [ripgrep](https://github.com/BurntSushi/ripgrep). Without it strata fall
 
 Press <Kbd>t</Kbd> on the connection in the NAS view. The diagnosis shows which step fails: name resolution, reaching the server, the mount point or the share. Mount commands run in your terminal, so their own error messages are shown too, and `:messages` keeps a history of strata's notifications.
 
+### Copying a path does nothing
+
+On a local desktop, strata gives copied text to `wl-copy`, `xclip`, `xsel`, `pbcopy` or `clip.exe`, whichever is installed. Over SSH it asks your terminal through OSC 52, which most terminals support. Some terminals need it turned on in their settings first. Inside tmux, strata passes the text to `tmux load-buffer -w`, so it reaches your terminal too. To choose the program yourself, set `clipboard = "wl-copy"` in the config. `clipboard = "osc52"` always uses the terminal.
+
 ### My config is ignored
 
 strata stops with an error when the config has a typo — run it from a terminal to see the message. Check the location with `strata --dump-config` and compare, or set `STRATA_CONFIG_DIR`.

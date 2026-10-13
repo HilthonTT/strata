@@ -57,7 +57,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("connect", "connect <name|url> — open a connection: smb, nfs, sftp, s3, davs, ftp or rclone://remote"),
     ("disconnect", "disconnect <name> — unmount a share"),
     ("diagnose", "diagnose <name> — test a connection step by step"),
-    ("sh", "sh <command> — run a shell command here"),
+    ("sh", "sh <command> — run a shell command here: {f} item, {s} marked items, {n} name, {d} directory"),
+    ("each", "each <command> — run a command once per marked item ({f}, {n}; else the item is appended)"),
     ("grep", "grep <pattern> — search file contents"),
     ("tab", "tab <n> — go to tab n (or open a new one)"),
     ("undo", "undo — undo the last file operation"),
@@ -177,6 +178,8 @@ impl App {
                 None => self.error(format!("no connection named '{args}'")),
             },
             "sh" | "shell" if !args.is_empty() => self.run_shell_line(args),
+            "each" if !args.is_empty() => self.run_each(args),
+            "each" => self.error("usage: each <command>, e.g. each gzip -k {f}"),
             "grep" | "rg" | "search" => {
                 if args.is_empty() {
                     self.dispatch(Action::ContentSearch);

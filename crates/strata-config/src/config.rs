@@ -166,6 +166,10 @@ pub struct General {
     /// Program that runs an operation refused for lack of permission again
     /// as root (`:sudo`), e.g. `doas` or `run0`. Empty = `sudo`.
     pub elevate: String,
+    /// Program that receives copied text on stdin, e.g. `wl-copy`. Empty =
+    /// detect one locally and fall back to the terminal (OSC 52);
+    /// `osc52` = always the terminal.
+    pub clipboard: String,
     /// Look for a newer strata release on GitHub (at most once a day).
     pub check_updates: bool,
     /// Show the MD5 checksum of the hovered file (reads the whole file).
@@ -229,6 +233,7 @@ impl Default for General {
             si_units: false,
             shell_close_on_success: false,
             elevate: String::new(),
+            clipboard: String::new(),
             check_updates: false,
             md5_checksum: false,
             sha256_checksum: false,

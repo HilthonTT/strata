@@ -213,7 +213,7 @@ impl App {
             RetryAsRoot => self.retry_as_root(),
             CopyCwd => {
                 let cwd = self.panel().cwd.to_string_lossy().into_owned();
-                copy_to_clipboard(&cwd);
+                self.set_clipboard(&cwd);
                 self.info(format!("copied {cwd}"));
             }
             EditDir => self.edit_dir(),
@@ -674,7 +674,7 @@ impl App {
         if paths.is_empty() {
             return;
         }
-        copy_to_clipboard(&paths.join("\n"));
+        self.set_clipboard(&paths.join("\n"));
         self.info(format!("copied {} path(s) to the clipboard", paths.len()));
     }
 
@@ -764,43 +764,4 @@ pub fn short_path(path: &std::path::Path) -> String {
         }
     }
     path.to_string_lossy().into_owned()
-}
-
-/// Sets the system clipboard through OSC 52, which works locally and over
-/// SSH in most modern terminals.
-pub(super) fn copy_to_clipboard(text: &str) {
-    use std::io::Write;
-    let osc = format!("\x1b]52;c;{}\x07", base64(text.as_bytes()));
-    let mut out = std::io::stdout();
-    let _ = out.write_all(osc.as_bytes()).and_then(|_| out.flush());
-}
-
-fn base64(input: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
-    for chunk in input.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn base64_matches_rfc4648() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
-    }
 }

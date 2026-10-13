@@ -58,6 +58,53 @@ pub enum External {
     },
 }
 
+/// What shell command placeholders stand for: `{f}` the first item, `{s}`
+/// all of them, `{n}` the first item's name, `{d}` the directory.
+struct Placeholders {
+    items: Vec<PathBuf>,
+    dir: PathBuf,
+}
+
+const PLACEHOLDERS: &[&str] = &["{f}", "{s}", "{n}", "{d}"];
+
+/// Replaces the placeholders in `line` with shell-quoted paths.
+fn expand_placeholders(line: &str, ph: &Placeholders) -> String {
+    let quote = |s: &std::ffi::OsStr| {
+        let s = s.to_string_lossy();
+        if cfg!(windows) {
+            format!("\"{s}\"")
+        } else {
+            strata_core::util::shell_quote(&s)
+        }
+    };
+    let first = ph.items.first();
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(start) = rest.find('{') {
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let value = match rest.get(..3) {
+            Some("{f}") => first.map(|f| quote(f.as_os_str())),
+            Some("{n}") => first.and_then(|f| f.file_name()).map(quote),
+            Some("{d}") => Some(quote(ph.dir.as_os_str())),
+            Some("{s}") => Some(ph.items.iter().map(|f| quote(f.as_os_str())).collect::<Vec<_>>().join(" ")),
+            _ => None,
+        };
+        match value {
+            Some(value) => {
+                out.push_str(&value);
+                rest = &rest[3..];
+            }
+            None => {
+                out.push('{');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// File types better handled by the desktop than by a text editor.
 const SYSTEM_OPEN: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg", "tiff", "heic", "mp4", "mkv", "webm", "mov", "avi",
@@ -186,8 +233,46 @@ impl App {
         self.external = Some(External::BulkRename { vfs: p.vfs.clone(), dir, names });
     }
 
-    /// Runs a shell command line in the focused directory.
+    /// Runs a shell command line in the focused directory, filling in the
+    /// placeholders (`{f}`, `{s}`, `{n}`, `{d}`).
     pub(super) fn run_shell_line(&mut self, line: &str) {
+        let Some(context) = self.placeholder_context(line) else { return };
+        self.run_script(&expand_placeholders(line, &context));
+    }
+
+    /// `:each <command>`: runs the command once per marked item (or the
+    /// hovered one), with `{f}` and `{n}` naming that item. Without a
+    /// placeholder the item is added at the end.
+    pub(super) fn run_each(&mut self, line: &str) {
+        let line =
+            if PLACEHOLDERS.iter().any(|p| line.contains(p)) { line.to_string() } else { format!("{line} {{f}}") };
+        let Some(context) = self.placeholder_context(&line) else { return };
+        if context.items.is_empty() {
+            return;
+        }
+        let commands: Vec<String> = context
+            .items
+            .iter()
+            .map(|item| {
+                expand_placeholders(&line, &Placeholders { items: vec![item.clone()], dir: context.dir.clone() })
+            })
+            .collect();
+        self.run_script(&commands.join(if cfg!(windows) { " & " } else { "\n" }));
+    }
+
+    /// The items and directory placeholders refer to, or None (after a
+    /// warning) when they would name remote paths a local shell can't reach.
+    fn placeholder_context(&mut self, line: &str) -> Option<Placeholders> {
+        let p = self.panel();
+        if !p.vfs.is_local() && PLACEHOLDERS.iter().any(|ph| line.contains(ph)) {
+            self.notify("placeholders like {f} only work on local files", Level::Warn);
+            return None;
+        }
+        let items = p.targets_in_order().into_iter().map(|e| e.path).collect();
+        Some(Placeholders { items, dir: p.cwd.clone() })
+    }
+
+    fn run_script(&mut self, line: &str) {
         let argv = if cfg!(windows) {
             vec!["cmd".into(), "/C".into(), line.to_string()]
         } else {
@@ -359,5 +444,30 @@ impl App {
             Err(e) => self.error(format!("bulk rename: {e:#}")),
         }
         self.reload_all();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    fn ph(items: &[&str]) -> Placeholders {
+        Placeholders { items: items.iter().map(PathBuf::from).collect(), dir: "/home/me/my dir".into() }
+    }
+
+    #[test]
+    fn placeholders_are_filled_in_and_quoted() {
+        let p = ph(&["/srv/a b.txt", "/srv/it's"]);
+        assert_eq!(expand_placeholders("wc -l {f}", &p), "wc -l '/srv/a b.txt'");
+        assert_eq!(expand_placeholders("tar czf x.tgz {s}", &p), r"tar czf x.tgz '/srv/a b.txt' '/srv/it'\''s'");
+        assert_eq!(expand_placeholders("echo {n} in {d}", &p), "echo 'a b.txt' in '/home/me/my dir'");
+    }
+
+    #[test]
+    fn other_braces_are_left_alone() {
+        let p = ph(&["/a"]);
+        assert_eq!(expand_placeholders("awk '{print $1}' {f}", &p), "awk '{print $1}' '/a'");
+        assert_eq!(expand_placeholders("find . -exec rm {} \\; {", &p), "find . -exec rm {} \\; {");
+        assert_eq!(expand_placeholders("date +%d", &p), "date +%d");
     }
 }

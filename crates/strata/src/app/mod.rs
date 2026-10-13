@@ -6,6 +6,7 @@
 
 mod actions;
 mod archives;
+mod clipboard;
 pub use actions::short_path;
 mod commands;
 mod dirsize;
@@ -651,7 +652,7 @@ impl App {
             AppEvent::SyncPlanned(request) => self.on_sync_planned(*request),
             AppEvent::Dupes { root, report } => self.on_dupes_found(root, report),
             AppEvent::Clipboard { text, message } => {
-                actions::copy_to_clipboard(&text);
+                self.set_clipboard(&text);
                 self.info(message);
             }
             AppEvent::ArchiveOpened { panel, file, result } => self.on_archive_opened(panel, file, result),
