@@ -142,6 +142,7 @@ impl App {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         self.start_transfer(transfer);
     }

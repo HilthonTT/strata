@@ -19,6 +19,8 @@ Transfers run in the background, so you can keep working. Their progress appears
 
 When a local copy, move, delete, `chmod` or `chown` fails with *permission denied*, the error says so, and <Kbd>alt+s</Kbd> (or `:sudo`) runs the rest of it again as root. strata asks first, then hands the matching `cp`, `mv`, `rm`, `chmod` or `chown` to `sudo` in the terminal, where it can ask for your password. Items that already finished are left alone. A delete done as root is permanent, since root's trash is not yours, and undo does not cover anything done as root. To use `doas`, `run0` or another program, set `elevate` in the config.
 
+To check that copies arrived intact, paste with `:paste --verify` (or set `verify_copies = true` to check every copy and move). Each file is hashed (SHA-256) as it is read, then the copy is read back and hashed; if they differ, the bad copy is removed and the job fails before a move deletes the original. Reading copies back shows in the progress, so a verified copy takes about twice as long. Only copies onto the local disk are checked: copies to remote locations would have to be downloaded again, so they go through unchecked.
+
 ## Create, rename, delete
 
 | Keys | Action |
@@ -111,6 +113,7 @@ diff_tool = "nvim -d"   # or "meld", "code --diff --wait", "delta"…
 | --- | --- |
 | `--mirror` | Also delete what only the destination has |
 | `--newer` | Replace a differing file only when the source copy is newer |
+| `--verify` | Check each copied file against the original, as with `:paste --verify` |
 | `--dry-run` | Only list what would happen: `+` copy, `~` replace, `-` delete |
 
 Files are compared by content, like <Kbd>C</Kbd>, so a sync works across local, SFTP and Docker locations. Replaced and deleted items go to the trash on local folders, and the whole sync can be undone; on remote folders they are removed for good, and only the copies can be undone. One failing item does not stop the others.

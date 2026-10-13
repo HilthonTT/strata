@@ -384,6 +384,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         let clashes = ["/a", "/b", "/c"].map(|p| Clash { source: entry(p), existing: entry(p) }).to_vec();
         let mut state = ConflictState::new(transfer, clashes);

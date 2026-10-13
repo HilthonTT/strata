@@ -7,7 +7,7 @@ use std::sync::Arc;
 use strata_config::Action;
 use strata_core::elevate::Privileged;
 use strata_core::jobs::JobState;
-use strata_core::ops::{self, Conflict, Transfer, TransferLog, TransferMode};
+use strata_core::ops::{self, Conflict, CopyOptions, Transfer, TransferLog, TransferMode};
 use strata_core::sort::SortKey;
 use strata_core::util::posix;
 use strata_core::VfsRef;
@@ -529,6 +529,11 @@ impl App {
     }
 
     fn paste(&mut self) {
+        self.paste_with(CopyOptions::default());
+    }
+
+    /// Pastes the clipboard here, copying with `options`.
+    pub(super) fn paste_with(&mut self, options: CopyOptions) {
         let Some(clip) = self.clipboard.as_ref() else {
             return self.notify("clipboard is empty — mark items and press y y or x", Level::Warn);
         };
@@ -541,6 +546,7 @@ impl App {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options,
         };
         if clip.mode == TransferMode::Move {
             self.clipboard = None;
@@ -570,6 +576,7 @@ impl App {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         self.panel_mut().clear_marks();
         self.begin_transfer(transfer);
@@ -585,7 +592,8 @@ impl App {
         self.overlay = Some(Overlay::Conflict(super::overlay::ConflictState::new(transfer, clashes)));
     }
 
-    pub(super) fn start_transfer(&mut self, transfer: Transfer) {
+    pub(super) fn start_transfer(&mut self, mut transfer: Transfer) {
+        transfer.options.verify |= self.config.general.verify_copies;
         let verb = if transfer.mode == TransferMode::Copy { "Copy" } else { "Move" };
         let what = match transfer.sources.as_slice() {
             [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),

@@ -726,6 +726,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         }
         .run(&Progress::default())
         .unwrap();

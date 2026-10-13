@@ -43,21 +43,25 @@ impl SyncRequest {
         if self.opts.newer_only {
             cmd.push_str(" --newer");
         }
+        if self.opts.verify {
+            cmd.push_str(" --verify");
+        }
         cmd
     }
 }
 
 impl App {
-    /// `:sync [--mirror] [--newer] [--dry-run]`
+    /// `:sync [--mirror] [--newer] [--verify] [--dry-run]`
     pub(super) fn sync_command(&mut self, args: &str) {
-        let mut opts = SyncOptions::default();
+        let mut opts = SyncOptions { verify: self.config.general.verify_copies, ..Default::default() };
         let mut dry_run = false;
         for arg in args.split_whitespace() {
             match arg {
                 "--mirror" | "-m" => opts.mirror = true,
                 "--newer" | "-n" => opts.newer_only = true,
+                "--verify" | "-v" => opts.verify = true,
                 "--dry-run" | "-d" => dry_run = true,
-                _ => return self.error("usage: sync [--mirror] [--newer] [--dry-run]"),
+                _ => return self.error("usage: sync [--mirror] [--newer] [--verify] [--dry-run]"),
             }
         }
         if self.panels.len() < 2 {
@@ -110,10 +114,10 @@ impl App {
         let undo_label = format!("sync {} → {}", name(&request.src_dir), name(&request.dst_dir));
         let log = Arc::new(Mutex::new(SyncLog::default()));
         let pending = PendingUndo::Sync { vfs: request.dst.clone(), since: SystemTime::now(), log: log.clone() };
-        let SyncRequest { src, src_dir, dst, dst_dir, plan, .. } = request;
-        let job = self
-            .jobs
-            .spawn(label, move |progress| sync::apply(&plan, (&*src, &src_dir), (&*dst, &dst_dir), progress, &log));
+        let SyncRequest { src, src_dir, dst, dst_dir, plan, opts, .. } = request;
+        let job = self.jobs.spawn(label, move |progress| {
+            sync::apply(&plan, (&*src, &src_dir), (&*dst, &dst_dir), opts, progress, &log)
+        });
         self.track_job(job, undo_label, pending);
     }
 }

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use strata_config::Action;
 use strata_core::nas::Connection;
+use strata_core::ops::CopyOptions;
 use strata_core::sort::SortKey;
 use strata_core::util::expand_tilde;
 use strata_plugin::Level;
@@ -36,7 +37,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("chmod", "chmod [-R] <mode> — set permissions (755, u+x, go-w)"),
     ("chown", "chown [-R] <user[:group]> — change the owner"),
     ("compare", "compare — diff two marked items, or the hovered one with the next panel"),
-    ("sync", "sync [--mirror] [--newer] [--dry-run] — copy missing and changed files into the next panel"),
+    ("sync", "sync [--mirror] [--newer] [--verify] [--dry-run] — copy missing and changed files into the next panel"),
+    ("paste", "paste [--verify] — paste the clipboard here; --verify checks each copy against the original"),
     ("dupes", "dupes [keep oldest|newest|shortest] — find duplicate files here, or trash all but one copy"),
     ("checksum", "checksum [md5|sha1|sha256|sha512] — show checksums, or copy one"),
     ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
@@ -141,6 +143,11 @@ impl App {
             "chown" => self.error("usage: chown [-R] user[:group]"),
             "compare" | "diff" => self.dispatch(Action::Compare),
             "sync" => self.sync_command(args),
+            "paste" => match args {
+                "" => self.dispatch(Action::Paste),
+                "--verify" | "-v" => self.paste_with(CopyOptions { verify: true }),
+                _ => self.error("usage: paste [--verify]"),
+            },
             "dupes" | "duplicates" => self.dupes_command(args),
             "checksum" | "hash" => self.checksum(Some(args)),
             "compress" => self.compress_command(args),

@@ -7,7 +7,9 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
+use sha2::{Digest, Sha256};
 
+use crate::inspect::{self, HashAlgo};
 use crate::jobs::Progress;
 use crate::util::unique_name;
 use crate::vfs::{same_vfs, VfsRef};
@@ -75,6 +77,34 @@ pub fn resolve(policy: Conflict, source: &Entry, existing: &Entry) -> Conflict {
     }
 }
 
+/// Extra care taken while copying.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CopyOptions {
+    /// Check each copied file: the bytes read from the source are hashed
+    /// (SHA-256) on their way through, the copy is read back and hashed,
+    /// and a mismatch fails the job before a move deletes anything. Only
+    /// copies onto the local disk are checked; other destinations would
+    /// have to be downloaded again, so they are copied without a check.
+    pub verify: bool,
+}
+
+impl CopyOptions {
+    /// Whether copies onto `dst` are read back.
+    fn verifies(&self, dst: &dyn Vfs) -> bool {
+        self.verify && dst.is_local()
+    }
+
+    /// Bytes of progress per byte copied onto `dst`: reading a copy back
+    /// counts as much as writing it.
+    pub fn progress_weight(&self, dst: &dyn Vfs) -> u64 {
+        if self.verifies(dst) {
+            2
+        } else {
+            1
+        }
+    }
+}
+
 /// Copies or moves `sources` from `src` into `dest_dir` on `dst`.
 #[derive(Clone)]
 pub struct Transfer {
@@ -90,6 +120,7 @@ pub struct Transfer {
     /// files that arrived complete: that's how an interrupted transfer is
     /// resumed. Running the same `Transfer` twice therefore resumes it.
     pub targets: Arc<TransferLog>,
+    pub options: CopyOptions,
 }
 
 const BUF_SIZE: usize = 256 * 1024;
@@ -107,7 +138,8 @@ impl Transfer {
         };
         progress.set_current("scanning…");
         let (bytes, items) = self.measure(progress)?;
-        progress.total_bytes.store(bytes, Ordering::Relaxed);
+        let weight = self.options.progress_weight(&*self.dst);
+        progress.total_bytes.store(bytes * weight, Ordering::Relaxed);
         progress.total_items.store(items, Ordering::Relaxed);
 
         let same = same_vfs(&self.src, &self.dst);
@@ -130,12 +162,13 @@ impl Transfer {
                 }
             };
             if same && self.mode == TransferMode::Move && self.src.rename(source, &target).is_ok() {
-                progress.add_bytes(tree_size(&*self.src, &entry, progress).unwrap_or(0));
+                progress.add_bytes(tree_size(&*self.src, &entry, progress).unwrap_or(0) * weight);
                 record(source, &target);
                 progress.item_done();
                 continue;
             }
-            copy_tree_inner(&*self.src, &entry, &*self.dst, &target, progress, resumed.is_some())?;
+            let copy = Copier { src: &*self.src, dst: &*self.dst, progress, options: &self.options };
+            copy.tree(&entry, &target, resumed.is_some())?;
             if self.mode == TransferMode::Move {
                 progress.set_current(format!("removing {}", entry.name));
                 self.src.remove_all(source)?;
@@ -264,50 +297,118 @@ impl Transfer {
 
 /// Copies a file or directory tree from one backend to another.
 pub fn copy_tree(src: &dyn Vfs, entry: &Entry, dst: &dyn Vfs, target: &Path, progress: &Progress) -> Result<()> {
-    copy_tree_inner(src, entry, dst, target, progress, false)
+    copy_tree_with(src, entry, dst, target, progress, &CopyOptions::default())
 }
 
-/// [`copy_tree`]; with `resume`, into a partial earlier copy: existing
-/// folders and links are kept, and files already there with the right
-/// size are skipped. Anything else is copied again from the start.
-fn copy_tree_inner(
+/// [`copy_tree`] with extra care, such as verifying each file.
+pub fn copy_tree_with(
     src: &dyn Vfs,
     entry: &Entry,
     dst: &dyn Vfs,
     target: &Path,
     progress: &Progress,
-    resume: bool,
+    options: &CopyOptions,
 ) -> Result<()> {
-    progress.check()?;
-    let existing = if resume { dst.stat(target).ok() } else { None };
-    match entry.kind {
-        EntryKind::Dir => {
-            if !existing.as_ref().is_some_and(|e| e.kind == EntryKind::Dir) {
-                dst.create_dir(target)?;
+    Copier { src, dst, progress, options }.tree(entry, target, false)
+}
+
+/// One copy from `src` to `dst`.
+struct Copier<'a> {
+    src: &'a dyn Vfs,
+    dst: &'a dyn Vfs,
+    progress: &'a Progress,
+    options: &'a CopyOptions,
+}
+
+impl Copier<'_> {
+    /// Copies `entry` to `target`; with `resume`, into a partial earlier
+    /// copy: existing folders and links are kept, and files already there
+    /// with the right size are skipped (when verifying, only if their
+    /// contents match too). Anything else is copied again from the start.
+    fn tree(&self, entry: &Entry, target: &Path, resume: bool) -> Result<()> {
+        let (src, dst, progress) = (self.src, self.dst, self.progress);
+        progress.check()?;
+        let existing = if resume { dst.stat(target).ok() } else { None };
+        match entry.kind {
+            EntryKind::Dir => {
+                if !existing.as_ref().is_some_and(|e| e.kind == EntryKind::Dir) {
+                    dst.create_dir(target)?;
+                }
+                for child in src.read_dir(&entry.path)? {
+                    let child_target = dst.join(target, &child.name);
+                    self.tree(&child, &child_target, resume)?;
+                }
             }
-            for child in src.read_dir(&entry.path)? {
-                let child_target = dst.join(target, &child.name);
-                copy_tree_inner(src, &child, dst, &child_target, progress, resume)?;
+            EntryKind::Symlink { .. } if existing.as_ref().is_some_and(Entry::is_symlink) => {}
+            EntryKind::Symlink { .. } if src.is_local() && dst.is_local() => {
+                copy_local_symlink(&entry.path, target)?;
             }
+            EntryKind::File
+                if existing.as_ref().is_some_and(|e| e.kind == EntryKind::File && e.size == entry.size)
+                    && self.already_copied(entry, target)? => {}
+            // Directory links on remote backends are skipped to avoid cycles.
+            EntryKind::Symlink { to_dir: true } => {}
+            EntryKind::File | EntryKind::Symlink { .. } => {
+                progress.set_current(entry.name.clone());
+                let mut reader = src.reader(&entry.path)?;
+                let mut writer = dst.writer(target)?;
+                let mut hasher = self.options.verifies(dst).then(Sha256::new);
+                stream(&mut *reader, &mut *writer, progress, hasher.as_mut())
+                    .with_context(|| format!("copy {}", entry.path.display()))?;
+                drop(writer);
+                if let Some(hasher) = hasher {
+                    self.check_copy(entry, target, &hex(&hasher.finalize()))?;
+                }
+            }
+            EntryKind::Other => {}
         }
-        EntryKind::Symlink { .. } if existing.as_ref().is_some_and(Entry::is_symlink) => {}
-        EntryKind::Symlink { .. } if src.is_local() && dst.is_local() => {
-            copy_local_symlink(&entry.path, target)?;
-        }
-        EntryKind::File if existing.as_ref().is_some_and(|e| e.kind == EntryKind::File && e.size == entry.size) => {
-            progress.add_bytes(entry.size);
-        }
-        // Directory links on remote backends are skipped to avoid cycles.
-        EntryKind::Symlink { to_dir: true } => {}
-        EntryKind::File | EntryKind::Symlink { .. } => {
-            progress.set_current(entry.name.clone());
-            let mut reader = src.reader(&entry.path)?;
-            let mut writer = dst.writer(target)?;
-            stream(&mut *reader, &mut *writer, progress).with_context(|| format!("copy {}", entry.path.display()))?;
-        }
-        EntryKind::Other => {}
+        Ok(())
     }
-    Ok(())
+
+    /// Whether a file found at `target` when resuming (with the right size)
+    /// can stay: always, unless verifying, when it must match the source.
+    fn already_copied(&self, entry: &Entry, target: &Path) -> Result<bool> {
+        if !self.options.verifies(self.dst) {
+            self.progress.add_bytes(entry.size);
+            return Ok(true);
+        }
+        self.progress.set_current(format!("verifying {}", entry.name));
+        let source = inspect::hash_file(self.src, &entry.path, &[HashAlgo::Sha256], self.progress)?.remove(0);
+        let copy = inspect::hash_file(self.dst, target, &[HashAlgo::Sha256], self.progress)?.remove(0);
+        if source == copy {
+            return Ok(true);
+        }
+        // Copied again from the start: take back what was counted.
+        self.progress.done_bytes.fetch_sub(entry.size * 2, Ordering::Relaxed);
+        Ok(false)
+    }
+
+    /// Reads the copy back and compares its hash with the source's. A copy
+    /// that differs is removed, so it is not mistaken for a good one.
+    fn check_copy(&self, entry: &Entry, target: &Path, expected: &str) -> Result<()> {
+        self.progress.set_current(format!("verifying {}", entry.name));
+        let actual = inspect::hash_file(self.dst, target, &[HashAlgo::Sha256], self.progress)
+            .with_context(|| format!("verify {}", target.display()))?
+            .remove(0);
+        if actual != expected {
+            let _ = self.dst.remove_file(target);
+            bail!(
+                "verification failed: the copy of {} does not match the original (SHA-256 {} ≠ {})",
+                entry.path.display(),
+                short_hash(&actual),
+                short_hash(expected)
+            );
+        }
+        Ok(())
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn short_hash(hash: &str) -> &str {
+    &hash[..hash.len().min(12)]
 }
 
 /// Moves `from` (on `src`) to exactly `to` (on `dst`): a rename when
@@ -324,13 +425,22 @@ pub fn relocate(src: &VfsRef, from: &Path, dst: &VfsRef, to: &Path, progress: &P
     src.remove_all(from)
 }
 
-fn stream(reader: &mut dyn Read, writer: &mut dyn Write, progress: &Progress) -> Result<()> {
+/// Copies `reader` into `writer`, feeding the bytes to `hasher` if given.
+fn stream(
+    reader: &mut dyn Read,
+    writer: &mut dyn Write,
+    progress: &Progress,
+    mut hasher: Option<&mut Sha256>,
+) -> Result<()> {
     let mut buf = vec![0u8; BUF_SIZE];
     loop {
         progress.check()?;
         let n = reader.read(&mut buf)?;
         if n == 0 {
             break;
+        }
+        if let Some(hasher) = hasher.as_mut() {
+            hasher.update(&buf[..n]);
         }
         writer.write_all(&buf[..n])?;
         progress.add_bytes(n as u64);
@@ -486,6 +596,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         let p = Progress::default();
         copy().run(&p).unwrap();
@@ -514,6 +625,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         let finished: TransferLog = Mutex::new(vec![(a.clone(), dest.join("a.txt"))]);
         assert_eq!(transfer.remaining(&finished), vec![(b, dest.join("b (1).txt"))]);
@@ -537,6 +649,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         }
         .run(&Progress::default())
         .unwrap();
@@ -559,6 +672,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         }
         .run(&Progress::default());
         assert!(err.is_err());
@@ -582,6 +696,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         }
         .run_logged(&Progress::default(), &log)
         .unwrap();
@@ -611,6 +726,7 @@ mod tests {
             conflict: Conflict::Skip,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         assert_eq!(t.conflicts(), vec!["a.txt".to_string()]);
         t.run(&Progress::default()).unwrap();
@@ -647,6 +763,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Arc::new(Mutex::new(vec![(src.clone(), earlier.clone())])),
+            options: Default::default(),
         };
         let p = Progress::default();
         t.run(&p).unwrap();
@@ -704,6 +821,7 @@ mod tests {
             conflict: Conflict::Skip,
             resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         assert_eq!(transfer.clashes().len(), 5);
         let answers = &mut transfer.resolutions.per_source;
@@ -732,6 +850,144 @@ mod tests {
         }
         assert!(dest.join("fresh.txt").exists());
         assert!(transfer.resolutions.replaced.lock().unwrap().is_empty());
+    }
+
+    /// The local disk, but every file written comes out with its first
+    /// byte changed: a copy that verification must catch.
+    #[derive(Debug)]
+    struct Corrupting;
+
+    struct FlipFirst(Box<dyn Write + Send>, bool);
+
+    impl Write for FlipFirst {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.1 || buf.is_empty() {
+                return self.0.write(buf);
+            }
+            self.1 = true;
+            let mut first = buf.to_vec();
+            first[0] ^= 0xff;
+            self.0.write_all(&first)?;
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.0.flush()
+        }
+    }
+
+    impl Vfs for Corrupting {
+        fn scheme(&self) -> &'static str {
+            "local"
+        }
+        fn label(&self) -> String {
+            "corrupting".into()
+        }
+        fn is_local(&self) -> bool {
+            true
+        }
+        fn home(&self) -> PathBuf {
+            LocalVfs.home()
+        }
+        fn read_dir(&self, path: &Path) -> Result<Vec<Entry>> {
+            LocalVfs.read_dir(path)
+        }
+        fn stat(&self, path: &Path) -> Result<Entry> {
+            LocalVfs.stat(path)
+        }
+        fn create_dir(&self, path: &Path) -> Result<()> {
+            LocalVfs.create_dir(path)
+        }
+        fn create_file(&self, path: &Path) -> Result<()> {
+            LocalVfs.create_file(path)
+        }
+        fn remove_file(&self, path: &Path) -> Result<()> {
+            LocalVfs.remove_file(path)
+        }
+        fn remove_dir(&self, path: &Path) -> Result<()> {
+            LocalVfs.remove_dir(path)
+        }
+        fn rename(&self, _from: &Path, _to: &Path) -> Result<()> {
+            bail!("another filesystem")
+        }
+        fn reader(&self, path: &Path) -> Result<Box<dyn Read + Send>> {
+            LocalVfs.reader(path)
+        }
+        fn writer(&self, path: &Path) -> Result<Box<dyn Write + Send>> {
+            Ok(Box::new(FlipFirst(LocalVfs.writer(path)?, false)))
+        }
+    }
+
+    fn verified(mode: TransferMode, src: VfsRef, sources: Vec<PathBuf>, dst: VfsRef, dest_dir: &Path) -> Transfer {
+        Transfer {
+            mode,
+            src,
+            sources,
+            dst,
+            dest_dir: dest_dir.to_path_buf(),
+            conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
+            targets: Default::default(),
+            options: CopyOptions { verify: true },
+        }
+    }
+
+    #[test]
+    fn verified_copies_read_the_copy_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(src.join("sub")).unwrap();
+        fs::write(src.join("a.txt"), "hello").unwrap();
+        fs::write(src.join("sub/b.txt"), "world!").unwrap();
+        let dest = dir.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+        let p = Progress::default();
+        verified(TransferMode::Copy, local(), vec![src.clone()], local(), &dest).run(&p).unwrap();
+        assert_eq!(fs::read_to_string(dest.join("src/sub/b.txt")).unwrap(), "world!");
+        assert_eq!(p.total_bytes.load(Ordering::Relaxed), 22, "reading back counts as much as copying");
+        assert_eq!(p.done_bytes.load(Ordering::Relaxed), 22);
+    }
+
+    #[test]
+    fn a_bad_copy_fails_the_move_and_keeps_the_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f.bin");
+        fs::write(&file, b"precious").unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        // A move to another filesystem (the rename fails): copy, then delete.
+        let bad: VfsRef = Arc::new(Corrupting);
+        let err = verified(TransferMode::Move, bad.clone(), vec![file.clone()], bad.clone(), &dest)
+            .run(&Progress::default())
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("verification failed"), "{err:#}");
+        assert_eq!(fs::read(&file).unwrap(), b"precious", "the source is kept");
+        assert!(!dest.join("f.bin").exists(), "the bad copy is removed");
+
+        // Without verification the same copy goes through unnoticed.
+        let mut unchecked = verified(TransferMode::Copy, local(), vec![file.clone()], bad, &dest);
+        unchecked.options.verify = false;
+        unchecked.run(&Progress::default()).unwrap();
+        assert_ne!(fs::read(dest.join("f.bin")).unwrap(), b"precious");
+    }
+
+    #[test]
+    fn verified_resumes_copy_again_files_that_differ() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("same.txt"), "complete").unwrap();
+        fs::write(src.join("bad.txt"), "original").unwrap();
+        let dest = dir.path().join("dest");
+        let earlier = dest.join("src");
+        fs::create_dir_all(&earlier).unwrap();
+        fs::write(earlier.join("same.txt"), "complete").unwrap();
+        fs::write(earlier.join("bad.txt"), "garbled!").unwrap();
+        let t = verified(TransferMode::Copy, local(), vec![src.clone()], local(), &dest);
+        t.targets.lock().unwrap().push((src.clone(), earlier.clone()));
+        let p = Progress::default();
+        t.run(&p).unwrap();
+        assert_eq!(fs::read_to_string(earlier.join("bad.txt")).unwrap(), "original");
+        assert_eq!(p.done_bytes.load(Ordering::Relaxed), p.total_bytes.load(Ordering::Relaxed));
     }
 
     #[test]

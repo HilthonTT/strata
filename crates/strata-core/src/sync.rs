@@ -10,7 +10,7 @@ use anyhow::{bail, Result};
 
 use crate::compare;
 use crate::jobs::{Cancelled, Progress};
-use crate::ops::{copy_tree, tree_size};
+use crate::ops::{copy_tree_with, tree_size, CopyOptions};
 use crate::Vfs;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -19,6 +19,9 @@ pub struct SyncOptions {
     pub mirror: bool,
     /// Replace a differing file only when the source copy is newer.
     pub newer_only: bool,
+    /// Read each copied file back and compare checksums (local
+    /// destinations only, see [`CopyOptions::verify`]).
+    pub verify: bool,
 }
 
 /// What to do with one path, relative to both roots.
@@ -115,10 +118,12 @@ pub fn apply(
     plan: &SyncPlan,
     src: (&dyn Vfs, &Path),
     dst: (&dyn Vfs, &Path),
+    opts: SyncOptions,
     progress: &Progress,
     log: &Mutex<SyncLog>,
 ) -> Result<()> {
-    progress.total_bytes.store(plan.bytes, Ordering::Relaxed);
+    let copy = CopyOptions { verify: opts.verify };
+    progress.total_bytes.store(plan.bytes * copy.progress_weight(dst.0), Ordering::Relaxed);
     progress.total_items.store(plan.steps.len(), Ordering::Relaxed);
     let record = |f: fn(&mut SyncLog) -> &mut Vec<PathBuf>, path: PathBuf| {
         f(&mut log.lock().unwrap_or_else(|e| e.into_inner())).push(path);
@@ -131,7 +136,7 @@ pub fn apply(
         let (from, to) = (join_rel(src.0, src.1, step.rel()), join_rel(dst.0, dst.1, step.rel()));
         let result = match step {
             SyncStep::Copy(_) => src.0.stat(&from).and_then(|entry| {
-                copy_tree(src.0, &entry, dst.0, &to, progress)?;
+                copy_tree_with(src.0, &entry, dst.0, &to, progress, &copy)?;
                 record(|l| &mut l.created, to.clone());
                 Ok(())
             }),
@@ -140,7 +145,7 @@ pub fn apply(
                 // Recorded before copying: undo must bring the old version
                 // back even when the new one arrived only in part.
                 record(|l| &mut l.replaced, to.clone());
-                copy_tree(src.0, &entry, dst.0, &to, progress)
+                copy_tree_with(src.0, &entry, dst.0, &to, progress, &copy)
             }),
             SyncStep::Delete(_) => remove(&to).map(|()| record(|l| &mut l.trashed, to.clone())),
         };
@@ -265,7 +270,7 @@ mod tests {
         let opts = SyncOptions { mirror: true, ..Default::default() };
         let plan = plan((&LocalVfs, &a), (&NoTrash, &b), opts, &p).unwrap();
         let log = Mutex::default();
-        apply(&plan, (&LocalVfs, &a), (&NoTrash, &b), &p, &log).unwrap();
+        apply(&plan, (&LocalVfs, &a), (&NoTrash, &b), opts, &p, &log).unwrap();
         assert!(compare::compare_dirs((&LocalVfs, &a), (&LocalVfs, &b), &p).unwrap().is_identical());
         let log = log.into_inner().unwrap();
         assert_eq!(log.created, [b.join("sub/new")]);
@@ -280,7 +285,14 @@ mod tests {
             steps: vec![SyncStep::Copy("missing".into()), SyncStep::Copy("sub/new".into())],
             ..Default::default()
         };
-        let err = apply(&plan, (&LocalVfs, &a), (&NoTrash, &b), &Progress::default(), &Mutex::default());
+        let err = apply(
+            &plan,
+            (&LocalVfs, &a),
+            (&NoTrash, &b),
+            SyncOptions::default(),
+            &Progress::default(),
+            &Mutex::default(),
+        );
         assert!(err.unwrap_err().to_string().starts_with("missing:"));
         assert!(b.join("sub/new").exists());
     }

@@ -13,7 +13,7 @@ Everything you need, nothing you don't.
 - **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR` or with a pattern (`photo-{n:3}{.ext}`, `s/old/new/`) and a live preview, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them; name clashes are settled one by one (overwrite, skip, keep both or overwrite if newer, optionally for all the rest)
 - **Trash browser**: restore, delete or empty, newest first
 - **Sync and dedupe**: make one folder match another (`:sync`, with a dry run and undo) and find duplicate files (`:dupes`)
-- **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
+- **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512), check downloads against a hash or `SHA256SUMS`, and verify copies against the original (`:paste --verify`, `:sync --verify` or `verify_copies = true`)
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`
 - **Folder sizes** in the file list (`d c`), measured in the background
 - **Jobs you control**: see each transfer's speed and time left, pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
