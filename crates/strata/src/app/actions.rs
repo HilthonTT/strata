@@ -248,7 +248,8 @@ impl App {
             CopyPath => self.copy_path(),
             Filter => {
                 let current = self.panel().filter.clone();
-                self.overlay = Some(Overlay::Input(InputState::new("Filter", current, InputPurpose::Filter)));
+                let prompt = "Filter (fuzzy · *.{jpg,png} glob · re: regex)";
+                self.overlay = Some(Overlay::Input(InputState::new(prompt, current, InputPurpose::Filter)));
             }
             FuzzyFind => self.start_find(),
             ToggleHidden => {

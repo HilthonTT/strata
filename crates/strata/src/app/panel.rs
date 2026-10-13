@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::time::Duration;
 
+use strata_core::filter::Matcher;
 use strata_core::find::{self, Query};
 use strata_core::search::Fuzzy;
 use strata_core::sort::{sort_entries, SortKey, SortOptions};
@@ -77,6 +78,11 @@ pub struct Panel {
     pub offset: usize,
     pub marked: HashSet<PathBuf>,
     pub filter: String,
+    /// Why `filter` is not a valid regex or glob; the last valid query
+    /// keeps filtering meanwhile.
+    pub filter_error: Option<String>,
+    /// The last valid parse of `filter`.
+    matcher: Option<Matcher>,
     pub sort: SortOptions,
     pub show_hidden: bool,
     /// Leave out what git ignores (local folders in a repository).
@@ -131,6 +137,8 @@ impl Panel {
             offset: 0,
             marked: HashSet::new(),
             filter: String::new(),
+            filter_error: None,
+            matcher: None,
             sort,
             show_hidden,
             hide_gitignored: false,
@@ -530,13 +538,23 @@ impl Panel {
             }
             candidates.push(i);
         }
-        self.visible = if self.filter.is_empty() {
-            candidates.into_iter().map(|i| (i, Vec::new())).collect()
+        self.filter_error = None;
+        if self.filter.is_empty() {
+            self.matcher = None;
         } else {
-            let mut fuzzy = Fuzzy::default();
-            let labels: Vec<Cow<str>> = candidates.iter().map(|&i| self.label(&self.entries[i])).collect();
-            let matches = fuzzy.filter(&self.filter, labels.iter().map(|l| l.as_ref()));
-            matches.into_iter().map(|m| (candidates[m.index], m.positions)).collect()
+            match Matcher::parse(&self.filter) {
+                Ok(m) => self.matcher = Some(m),
+                // Half-typed regexes keep the last valid one's matches.
+                Err(e) => self.filter_error = Some(e),
+            }
+        }
+        self.visible = match &self.matcher {
+            None => candidates.into_iter().map(|i| (i, Vec::new())).collect(),
+            Some(matcher) => {
+                let labels: Vec<Cow<str>> = candidates.iter().map(|&i| self.label(&self.entries[i])).collect();
+                let matches = matcher.filter(&mut Fuzzy::default(), labels.iter().map(|l| l.as_ref()));
+                matches.into_iter().map(|m| (candidates[m.index], m.positions)).collect()
+            }
         };
         self.clamp();
     }
@@ -711,16 +729,17 @@ impl Panel {
         }
     }
 
-    /// Marks entries whose names match a `*`/`?` glob. Returns the count.
-    pub fn mark_glob(&mut self, pattern: &str) -> usize {
-        let paths: Vec<PathBuf> = (0..self.len())
-            .filter_map(|r| self.entry_at(r))
-            .filter(|e| glob_match(pattern, &e.name))
-            .map(|e| e.path.clone())
-            .collect();
+    /// Marks the shown entries matching a `:select` pattern: a glob such as
+    /// `*.{jpg,png}`, or `re:<regex>` (see [`Matcher`]). Returns the count.
+    pub fn mark_matching(&mut self, pattern: &str) -> Result<usize, String> {
+        let matcher = Matcher::parse_selection(pattern)?;
+        let entries: Vec<&Entry> = (0..self.len()).filter_map(|r| self.entry_at(r)).collect();
+        let labels: Vec<Cow<str>> = entries.iter().map(|e| self.label(e)).collect();
+        let found = matcher.filter(&mut Fuzzy::default(), labels.iter().map(|l| l.as_ref()));
+        let paths: Vec<PathBuf> = found.into_iter().map(|m| entries[m.index].path.clone()).collect();
         let n = paths.len();
         self.marked.extend(paths);
-        n
+        Ok(n)
     }
 
     pub fn toggle_visual(&mut self) {
@@ -796,8 +815,6 @@ impl Panel {
         had
     }
 }
-
-pub use strata_core::util::glob_match;
 
 /// Whether a local folder can be opened, without listing it. `None` when
 /// the check takes longer than [`LOCAL_WAIT`] (a slow or stale mount): the
@@ -899,9 +916,9 @@ mod tests {
 
     #[test]
     fn globs() {
-        assert!(glob_match("*.rs", "main.RS"));
-        assert!(glob_match("a?c", "abc"));
-        assert!(!glob_match("*.rs", "main.rsx"));
+        assert!(strata_core::util::glob_match("*.rs", "main.RS"));
+        assert!(strata_core::util::glob_match("a?c", "abc"));
+        assert!(!strata_core::util::glob_match("*.rs", "main.rsx"));
     }
 
     #[test]
@@ -926,6 +943,35 @@ mod tests {
         p.set_filter("");
         assert_eq!(p.hovered().unwrap().name, "b.txt", "clearing the filter keeps the cursor");
         assert!(p.go_back());
+    }
+
+    #[test]
+    fn filters_take_globs_and_regexes_and_survive_bad_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in ["a.jpg", "b.png", "c.txt", "v1.md", "v22.md"] {
+            std::fs::write(dir.path().join(n), "").unwrap();
+        }
+        let mut p = panel_in(dir.path());
+        let names = |p: &Panel| (0..p.len()).map(|r| p.entry_at(r).unwrap().name.clone()).collect::<Vec<_>>();
+        p.set_filter("*.{jpg,png}");
+        assert_eq!(names(&p), ["a.jpg", "b.png"]);
+        p.set_filter(r"re:^v\d{2}");
+        assert_eq!(names(&p), ["v22.md"]);
+        assert_eq!(p.visible[0].1, [0, 1, 2], "the regex match is highlighted");
+        p.set_filter(r"re:^v\d{2}(");
+        assert!(p.filter_error.as_deref().is_some_and(|e| e.starts_with("bad regex")));
+        assert_eq!(names(&p), ["v22.md"], "a bad regex keeps the last good matches");
+        p.set_filter("");
+        assert!(p.filter_error.is_none());
+        p.set_filter("re:(");
+        assert_eq!(p.len(), 5, "nothing valid typed yet: everything stays listed");
+
+        p.set_filter("");
+        assert_eq!(p.mark_matching("*.md"), Ok(2));
+        assert_eq!(p.mark_matching("re:^[ab]\\."), Ok(2));
+        assert_eq!(p.mark_matching("c.txt"), Ok(1));
+        assert_eq!(p.marked.len(), 5);
+        assert!(p.mark_matching("re:(").is_err());
     }
 
     #[test]

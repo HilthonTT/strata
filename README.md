@@ -20,7 +20,7 @@ Everything you need, nothing you don't.
 - **Shell commands on your selection**: `:!tar czf out.tgz {s}` fills in the marked items, and `:each gzip -k` runs once per item
 - **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
-- **Search**: filter, fuzzy find, content search with ripgrep, and `:find` by name, size, age, type or tag with the results listed in the panel; `:flatten` lists every file below a folder
+- **Search**: filter (fuzzy, glob `*.{jpg,png}` or regex `re:^v\d+`), fuzzy find, content search with ripgrep, and `:find` by name, size, age, type or tag with the results listed in the panel; `:flatten` lists every file below a folder
 - **Tags and colour labels** (`,`): coloured dots in the list, a sidebar section, `:find --tag`; mirrored to `user.xdg.tags` on Linux
 - **Removable drives**: `:drives` mounts and opens USB sticks and SD cards, `:eject` powers them off safely
 - **Git**: status markers next to every file, and a git menu (`;`) to diff, stage, unstage, discard, commit, and show the log or blame of the marked files

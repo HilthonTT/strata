@@ -20,7 +20,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
     ("rename-pattern", "rename-pattern <pattern> — rename marked items: photo-{n:3}{.ext}, s/find/repl/gi"),
-    ("select", "select <glob>|tag:<name> — mark matching items"),
+    ("select", "select <glob>|re:<regex>|tag:<name> — mark matching items"),
     ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] [--tag t] — list matches below here"),
     ("flatten", "flatten — list every file below this folder, or go back"),
     ("tree", "tree — show folders as an expandable tree, or go back to the list"),
@@ -105,7 +105,10 @@ impl App {
             "select" => {
                 let n = match args.strip_prefix("tag:") {
                     Some(tag) => self.select_tagged(tag),
-                    None => self.panel_mut().mark_glob(if args.is_empty() { "*" } else { args }),
+                    None => match self.panel_mut().mark_matching(if args.is_empty() { "*" } else { args }) {
+                        Ok(n) => n,
+                        Err(e) => return self.error(format!("select: {e}")),
+                    },
                 };
                 self.info(format!("marked {n} item(s)"));
             }

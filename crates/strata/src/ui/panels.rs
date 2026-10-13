@@ -77,10 +77,14 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         let key = app.keymap.keys_for(Action::Filter).unwrap_or_else(|| "/".into());
         Line::styled(format!(" {search_icon} ({key}) Type something"), muted)
     } else {
-        Line::from(vec![
+        let mut spans = vec![
             Span::styled(format!(" {search_icon} "), Style::default().fg(theme.palette.accent)),
             Span::styled(panel.filter.clone(), Style::default().fg(theme.fg)),
-        ])
+        ];
+        if let Some(err) = &panel.filter_error {
+            spans.push(Span::styled(format!("  {err}"), Style::default().fg(theme.error)));
+        }
+        Line::from(spans)
     };
     frame.render_widget(Paragraph::new(search), Rect { height: 1, ..inner });
     let list = Rect { y: inner.y + 1, height: inner.height - 1, ..inner };

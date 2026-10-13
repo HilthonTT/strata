@@ -9,6 +9,7 @@ pub mod compress;
 pub mod dupes;
 pub mod elevate;
 pub mod entry;
+pub mod filter;
 pub mod find;
 pub mod git;
 pub mod inspect;
