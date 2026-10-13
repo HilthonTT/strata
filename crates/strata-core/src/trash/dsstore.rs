@@ -161,7 +161,7 @@ impl<'a> Reader<'a> {
 
     fn utf16(&mut self, units: usize) -> Option<String> {
         let raw = self.bytes(units.checked_mul(2)?)?;
-        let units: Vec<u16> = raw.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let units: Vec<u16> = raw.as_chunks::<2>().0.iter().map(|&c| u16::from_be_bytes(c)).collect();
         Some(String::from_utf16_lossy(&units))
     }
 }

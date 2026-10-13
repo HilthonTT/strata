@@ -278,6 +278,7 @@ mod tests {
         use crate::vfs::Locked;
         use std::sync::Arc;
 
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let (dir, mut items) = sample();
         #[cfg(unix)]
         {
