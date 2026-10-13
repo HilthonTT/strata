@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use strata_core::compare::{self, FileDiff};
+use strata_core::elevate::Privileged;
 use strata_core::inspect::{self, HashAlgo};
 use strata_core::ops::{Conflict, Transfer, TransferMode};
 use strata_core::perm::{self, ChangeLog, ModeSpec, Owner};
@@ -138,9 +139,11 @@ impl App {
         let log = Arc::new(ChangeLog::default());
         let job_log = log.clone();
         let job_vfs = vfs.clone();
+        let plan = Privileged::Chmod { mode: spec_text(split_recursive(input).1), recursive, paths: paths.clone() };
         let job = self.jobs.spawn(label.clone(), move |progress| {
             perm::change_mode(&*job_vfs, &paths, &spec, recursive, progress, &job_log)
         });
+        self.offer_elevation(job, &[&vfs], plan);
         self.panel_mut().clear_marks();
         self.track_job(job, label, PendingUndo::Mode { vfs, log });
     }
@@ -162,9 +165,12 @@ impl App {
         let label = format!("chown {} {}", spec_text(args), describe(&paths));
         let log = Arc::new(ChangeLog::default());
         let job_log = log.clone();
+        let plan = Privileged::Chown { owner: spec_text(spec), recursive, paths: paths.clone() };
         let job = self
             .jobs
             .spawn(label.clone(), move |progress| perm::change_owner(&paths, owner, recursive, progress, &job_log));
+        let vfs = self.panel().vfs.clone();
+        self.offer_elevation(job, &[&vfs], plan);
         self.panel_mut().clear_marks();
         self.track_job(job, label, PendingUndo::Owner { log });
     }

@@ -7,6 +7,7 @@ pub mod bulk;
 pub mod compare;
 pub mod compress;
 pub mod dupes;
+pub mod elevate;
 pub mod entry;
 pub mod find;
 pub mod git;

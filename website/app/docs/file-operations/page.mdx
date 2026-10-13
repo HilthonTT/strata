@@ -17,6 +17,8 @@ If some names already exist in the destination, strata asks once for the whole p
 
 Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer; <Kbd>alt+p</Kbd> pauses or resumes the latest one and <Kbd>ctrl+x</Kbd> cancels it. If a copy or move fails or is cancelled, <Kbd>alt+R</Kbd> (or `:retry`) picks it up where it stopped: items that finished are left alone, files that already arrived complete are kept, and the rest go into the same destinations as before. Copies work between any locations — local disk, SFTP servers and Docker containers.
 
+When a local copy, move, delete, `chmod` or `chown` fails with *permission denied*, the error says so, and <Kbd>alt+s</Kbd> (or `:sudo`) runs the rest of it again as root. strata asks first, then hands the matching `cp`, `mv`, `rm`, `chmod` or `chown` to `sudo` in the terminal, where it can ask for your password. Items that already finished are left alone. A delete done as root is permanent, since root's trash is not yours, and undo does not cover anything done as root. To use `doas`, `run0` or another program, set `elevate` in the config.
+
 ## Create, rename, delete
 
 | Keys | Action |

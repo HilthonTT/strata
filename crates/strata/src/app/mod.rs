@@ -11,6 +11,7 @@ mod commands;
 mod dirsize;
 mod drives;
 mod dupes;
+mod elevate;
 pub use commands::COMMANDS;
 pub use vcs::GitReply;
 mod external;
@@ -227,6 +228,10 @@ pub struct App {
     pub dir_sizes: dirsize::DirSizes,
     /// Transfers that can be resumed if their job fails, by job id.
     retryable: HashMap<u64, (strata_core::ops::Transfer, Arc<strata_core::ops::TransferLog>)>,
+    /// How to run running jobs as root if they are refused, by job id.
+    elevatable: HashMap<u64, strata_core::elevate::Privileged>,
+    /// The last operation refused for lack of permission, for `:sudo`.
+    refused: Option<strata_core::elevate::Privileged>,
     /// The last `:dupes` scan, for `:dupes keep` and the picker.
     dupes: Option<dupes::DupeScan>,
     /// Tags and colour labels on local items.
@@ -368,6 +373,8 @@ impl App {
             layout: LayoutCache::default(),
             dir_sizes: dirsize::DirSizes::default(),
             retryable: HashMap::new(),
+            elevatable: HashMap::new(),
+            refused: None,
             dupes: None,
             tags: TagDb::default(),
             last_hover: None,
@@ -544,6 +551,11 @@ impl App {
             AppEvent::Job(done) => {
                 self.job_finished_for_undo(done.id, &done.state);
                 self.remote_download_finished(done.id, &done.state);
+                let failure = match &done.state {
+                    JobState::Failed(e) => Some(e.as_str()),
+                    _ => None,
+                };
+                let hint = self.elevation_on_finish(done.id, failure).unwrap_or_default();
                 self.prune_retryable(done.id, &done.state);
                 let (state, error) = match &done.state {
                     JobState::Done => ("done", None),
@@ -553,7 +565,7 @@ impl App {
                 };
                 match &done.state {
                     JobState::Done => self.info(format!("✓ {}", done.label)),
-                    JobState::Failed(e) => self.error(format!("{} failed: {e}", done.label)),
+                    JobState::Failed(e) => self.error(format!("{} failed{hint}: {e}", done.label)),
                     JobState::Cancelled => self.notify(format!("{} cancelled", done.label), Level::Warn),
                     JobState::Running => {}
                 }

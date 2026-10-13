@@ -42,6 +42,7 @@ start_dir = ""               # directory opened when no paths are given; empty =
 page_size = 0                # rows moved by page up/down; 0 = a full page
 si_units = false             # sizes in kB/MB (1000) instead of KiB/MiB (1024)
 shell_close_on_success = false  # skip "press enter" after a `!` command that succeeds
+elevate = ""                 # runs operations refused for lack of permission as root (:sudo); empty = sudo
 check_updates = false        # look for a newer release on GitHub, at most once a day
 md5_checksum = false         # show the MD5 of the hovered file (reads the whole file)
 sha256_checksum = false      # show the SHA-256 of the hovered file (reads the whole file)

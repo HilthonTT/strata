@@ -267,6 +267,8 @@ pub enum Confirm {
         root: PathBuf,
         paths: Vec<PathBuf>,
     },
+    /// Run an operation refused for lack of permission as root.
+    Elevate(strata_core::elevate::Privileged),
     Quit,
 }
 

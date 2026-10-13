@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use strata_config::Action;
+use strata_core::elevate::Privileged;
 use strata_core::jobs::JobState;
 use strata_core::ops::{self, Conflict, Transfer, TransferLog, TransferMode};
 use strata_core::sort::SortKey;
@@ -209,6 +210,7 @@ impl App {
                 p.move_by(if action == SelectDown { 1 } else { -1 });
             }
             SortMenu => self.open_sort_menu(),
+            RetryAsRoot => self.retry_as_root(),
             CopyCwd => {
                 let cwd = self.panel().cwd.to_string_lossy().into_owned();
                 copy_to_clipboard(&cwd);
@@ -656,7 +658,10 @@ impl App {
             ("permanent", PluginValue::Bool(permanent)),
         ]);
         self.emit_plugin_event_with("delete", data);
-        let job = self.jobs.spawn(label, move |progress| ops::delete(&vfs, &paths, !permanent, progress));
+        let plan = Privileged::Delete(paths.clone());
+        let job_vfs = vfs.clone();
+        let job = self.jobs.spawn(label, move |progress| ops::delete(&job_vfs, &paths, !permanent, progress));
+        self.offer_elevation(job, &[&vfs], plan);
         if let Some(pending) = undo {
             self.track_job(job, undo_label, pending);
         }

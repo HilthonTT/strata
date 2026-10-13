@@ -220,6 +220,7 @@ impl App {
             Confirm::Sync(request) => self.start_sync(*request),
             Confirm::TrashDupe(path) => self.trash_dupe(path),
             Confirm::GitDiscard { root, paths } => self.git_discard(root, paths),
+            Confirm::Elevate(plan) => self.run_as_root(plan),
             Confirm::Quit => {
                 self.jobs.cancel_all();
                 self.quit();

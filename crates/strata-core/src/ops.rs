@@ -132,6 +132,40 @@ impl Transfer {
             .collect()
     }
 
+    /// `(source, destination)` of the top-level items not in `finished`,
+    /// without changing anything: items that already started keep their
+    /// destination, others get one from the conflict policy (an existing
+    /// destination is replaced only with [`Conflict::Overwrite`]).
+    pub fn remaining(&self, finished: &TransferLog) -> Vec<(PathBuf, PathBuf)> {
+        let finished = finished.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let started = self.targets.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        self.sources
+            .iter()
+            .filter(|s| !finished.iter().any(|(done, _)| done == *s))
+            .filter_map(|source| {
+                if let Some((_, target)) = started.iter().find(|(s, _)| s == source) {
+                    return Some((source.clone(), target.clone()));
+                }
+                let name = source.file_name()?.to_string_lossy().into_owned();
+                let target = self.dst.join(&self.dest_dir, &name);
+                if !self.dst.exists(&target) {
+                    return Some((source.clone(), target));
+                }
+                if same_vfs(&self.src, &self.dst) && target == *source && self.mode == TransferMode::Move {
+                    return None;
+                }
+                match self.conflict {
+                    Conflict::Skip => None,
+                    Conflict::Overwrite => Some((source.clone(), target)),
+                    Conflict::KeepBoth => {
+                        let name = unique_name(&name, |n| self.dst.exists(&self.dst.join(&self.dest_dir, n)));
+                        Some((source.clone(), self.dst.join(&self.dest_dir, &name)))
+                    }
+                }
+            })
+            .collect()
+    }
+
     /// Resolves the destination path for a top-level source, honouring the
     /// conflict policy. `None` means skip.
     fn target_for(&self, entry: &Entry) -> Result<Option<PathBuf>> {
@@ -391,6 +425,30 @@ mod tests {
         assert_eq!(fs::read_to_string(dest.join("src/nested/a.txt")).unwrap(), "hello");
         assert!(dest.join("src (1)/nested/a.txt").exists());
         assert!(src.exists());
+    }
+
+    #[test]
+    fn remaining_skips_finished_items_and_keeps_both_on_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.txt"), dir.path().join("b.txt"));
+        fs::write(&a, "a").unwrap();
+        fs::write(&b, "b").unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(dest.join("b.txt"), "old").unwrap();
+        let vfs = local();
+        let transfer = Transfer {
+            mode: TransferMode::Copy,
+            src: vfs.clone(),
+            sources: vec![a.clone(), b.clone()],
+            dst: vfs,
+            dest_dir: dest.clone(),
+            conflict: Conflict::KeepBoth,
+            targets: Default::default(),
+        };
+        let finished: TransferLog = Mutex::new(vec![(a.clone(), dest.join("a.txt"))]);
+        assert_eq!(transfer.remaining(&finished), vec![(b, dest.join("b (1).txt"))]);
+        assert!(!dest.join("b (1).txt").exists(), "nothing is changed");
     }
 
     #[test]

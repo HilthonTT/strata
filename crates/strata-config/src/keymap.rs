@@ -88,6 +88,7 @@ actions! {
     CancelJob => "cancel_job", "Cancel the latest running job";
     PauseJob => "pause_job", "Pause / resume the latest running job";
     RetryJob => "retry_job", "Resume the latest failed or cancelled copy";
+    RetryAsRoot => "retry_as_root", "Retry an operation refused for lack of permission as root";
     Filter => "filter", "Filter the current directory";
     FuzzyFind => "fuzzy_find", "Fuzzy-find files recursively";
     FindPrompt => "find_prompt", "Find files by name, size, age, type or tag";
@@ -370,6 +371,7 @@ const COMMON: &[(&str, &str)] = &[
     ("ctrl+g", "content_search"),
     ("alt+p", "pause_job"),
     ("alt+R", "retry_job"),
+    ("alt+s", "retry_as_root"),
     ("f5", "refresh"),
     ("alt+j", "preview_down"),
     ("alt+down", "preview_down"),

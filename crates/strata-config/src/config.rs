@@ -163,6 +163,9 @@ pub struct General {
     /// Return to strata straight away when a `!` shell command succeeds
     /// instead of waiting for Enter.
     pub shell_close_on_success: bool,
+    /// Program that runs an operation refused for lack of permission again
+    /// as root (`:sudo`), e.g. `doas` or `run0`. Empty = `sudo`.
+    pub elevate: String,
     /// Look for a newer strata release on GitHub (at most once a day).
     pub check_updates: bool,
     /// Show the MD5 checksum of the hovered file (reads the whole file).
@@ -225,6 +228,7 @@ impl Default for General {
             page_size: 0,
             si_units: false,
             shell_close_on_success: false,
+            elevate: String::new(),
             check_updates: false,
             md5_checksum: false,
             sha256_checksum: false,
