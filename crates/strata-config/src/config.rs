@@ -172,6 +172,10 @@ pub struct General {
     /// Read every copied file back and compare SHA-256 checksums with the
     /// original before a move deletes it (local destinations only).
     pub verify_copies: bool,
+    /// Most bytes per second each copy job may move, like rclone's
+    /// `--bwlimit`: `10M`, `512K`. Empty = unlimited. `:limit` changes it
+    /// for the session.
+    pub bandwidth_limit: String,
     /// Program that receives copied text on stdin, e.g. `wl-copy`. Empty =
     /// detect one locally and fall back to the terminal (OSC 52);
     /// `osc52` = always the terminal.
@@ -244,6 +248,7 @@ impl Default for General {
             shell_close_on_success: false,
             elevate: String::new(),
             verify_copies: false,
+            bandwidth_limit: String::new(),
             clipboard: String::new(),
             check_updates: false,
             md5_checksum: false,

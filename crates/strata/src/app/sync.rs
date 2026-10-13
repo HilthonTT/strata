@@ -43,7 +43,7 @@ impl SyncRequest {
         if self.opts.newer_only {
             cmd.push_str(" --newer");
         }
-        if self.opts.verify {
+        if self.opts.copy.verify {
             cmd.push_str(" --verify");
         }
         cmd
@@ -53,13 +53,15 @@ impl SyncRequest {
 impl App {
     /// `:sync [--mirror] [--newer] [--verify] [--dry-run]`
     pub(super) fn sync_command(&mut self, args: &str) {
-        let mut opts = SyncOptions { verify: self.config.general.verify_copies, ..Default::default() };
+        let mut opts = SyncOptions::default();
+        opts.copy.verify = self.config.general.verify_copies;
+        opts.copy.bandwidth_limit = self.bandwidth_limit();
         let mut dry_run = false;
         for arg in args.split_whitespace() {
             match arg {
                 "--mirror" | "-m" => opts.mirror = true,
                 "--newer" | "-n" => opts.newer_only = true,
-                "--verify" | "-v" => opts.verify = true,
+                "--verify" | "-v" => opts.copy.verify = true,
                 "--dry-run" | "-d" => dry_run = true,
                 _ => return self.error("usage: sync [--mirror] [--newer] [--verify] [--dry-run]"),
             }

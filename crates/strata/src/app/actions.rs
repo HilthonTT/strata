@@ -9,7 +9,8 @@ use strata_core::elevate::Privileged;
 use strata_core::jobs::JobState;
 use strata_core::ops::{self, Conflict, CopyOptions, Transfer, TransferLog, TransferMode};
 use strata_core::sort::SortKey;
-use strata_core::util::posix;
+use strata_core::throttle;
+use strata_core::util::{human_size, posix};
 use strata_core::VfsRef;
 use strata_plugin::{Level, PluginValue};
 
@@ -594,6 +595,7 @@ impl App {
 
     pub(super) fn start_transfer(&mut self, mut transfer: Transfer) {
         transfer.options.verify |= self.config.general.verify_copies;
+        transfer.options.bandwidth_limit = self.bandwidth_limit();
         let verb = if transfer.mode == TransferMode::Copy { "Copy" } else { "Move" };
         let what = match transfer.sources.as_slice() {
             [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
@@ -614,6 +616,32 @@ impl App {
         let job = self.jobs.spawn(label, move |progress| transfer.run_logged(progress, &log));
         self.track_job(job, undo_label, pending);
         self.retryable.insert(job, retry);
+    }
+
+    /// The bandwidth limit for new jobs: `bandwidth_limit` from the config,
+    /// or what `:limit` set since.
+    pub(super) fn bandwidth_limit(&mut self) -> Option<u64> {
+        match throttle::parse_rate(&self.config.general.bandwidth_limit) {
+            Ok(limit) => limit,
+            Err(e) => {
+                self.error(format!("bandwidth_limit: {e:#}; copying without a limit"));
+                None
+            }
+        }
+    }
+
+    /// `:limit [rate|off]`
+    pub(super) fn limit_command(&mut self, args: &str) {
+        if !args.is_empty() {
+            if let Err(e) = throttle::parse_rate(args) {
+                return self.error(format!("{e:#}"));
+            }
+            self.config.general.bandwidth_limit = args.to_string();
+        }
+        match self.bandwidth_limit() {
+            Some(rate) => self.info(format!("new copies are limited to {}/s", human_size(rate))),
+            None => self.info("new copies run at full speed"),
+        }
     }
 
     /// Runs the latest failed or cancelled copy or move again, without the

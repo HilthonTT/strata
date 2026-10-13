@@ -57,6 +57,7 @@ si_units = false             # sizes in kB/MB (1000) instead of KiB/MiB (1024)
 shell_close_on_success = false  # skip "press enter" after a `!` command that succeeds
 elevate = ""                 # runs operations refused for lack of permission as root (:sudo); empty = sudo
 verify_copies = false        # read copies back and compare checksums (local destinations; slower)
+bandwidth_limit = ""          # cap each copy job, e.g. "10M" or "512K" (per second); empty = unlimited; :limit changes it
 clipboard = ""               # program fed copied text, e.g. "wl-copy"; empty = detect, then OSC 52; "osc52" = terminal only
 check_updates = false        # look for a newer release on GitHub (needs curl), at most once a day
 md5_checksum = false         # MD5 of the hovered file in the metadata box

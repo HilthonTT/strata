@@ -19,9 +19,8 @@ pub struct SyncOptions {
     pub mirror: bool,
     /// Replace a differing file only when the source copy is newer.
     pub newer_only: bool,
-    /// Read each copied file back and compare checksums (local
-    /// destinations only, see [`CopyOptions::verify`]).
-    pub verify: bool,
+    /// Verification and bandwidth limit for the copies.
+    pub copy: CopyOptions,
 }
 
 /// What to do with one path, relative to both roots.
@@ -122,7 +121,7 @@ pub fn apply(
     progress: &Progress,
     log: &Mutex<SyncLog>,
 ) -> Result<()> {
-    let copy = CopyOptions { verify: opts.verify };
+    let copy = opts.copy;
     progress.total_bytes.store(plan.bytes * copy.progress_weight(dst.0), Ordering::Relaxed);
     progress.total_items.store(plan.steps.len(), Ordering::Relaxed);
     let record = |f: fn(&mut SyncLog) -> &mut Vec<PathBuf>, path: PathBuf| {

@@ -1,13 +1,15 @@
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use super::child::{last_line, ChildReader, ChildWriter};
 use super::Vfs;
+use crate::jobs::{Cancelled, Progress};
+use crate::throttle::rclone_rate;
 use crate::util::posix;
 use crate::{Entry, EntryKind};
 
@@ -87,6 +89,118 @@ impl RcloneVfs {
             mode: None,
         }
     }
+}
+
+impl RcloneVfs {
+    /// Copies `entry` (a file, or a folder with everything in it) from this
+    /// remote to `to` on `dst` in one rclone call: on the server when both
+    /// sides are the same provider, otherwise streamed by rclone itself
+    /// instead of through strata. Returns false, having copied nothing,
+    /// when the two remotes need conflicting settings (such as two
+    /// different WebDAV passwords) that one rclone process cannot hold.
+    pub fn copy_to(
+        &self,
+        entry: &Entry,
+        dst: &RcloneVfs,
+        to: &Path,
+        bwlimit: Option<u64>,
+        progress: &Progress,
+    ) -> Result<bool> {
+        let conflicting = dst.env.iter().any(|(key, value)| self.env.iter().any(|(k, v)| k == key && v != value));
+        if conflicting {
+            return Ok(false);
+        }
+        let verb = if entry.is_dir() { "copy" } else { "copyto" };
+        let mut cmd = self.command();
+        cmd.envs(dst.env.iter().map(|(k, v)| (k, v)));
+        cmd.args([verb, &self.target(&entry.path), &dst.target(to)]);
+        // Progress comes as JSON stats on stderr.
+        cmd.args(["--use-json-log", "--stats", "500ms", "--stats-log-level", "ERROR"]);
+        if entry.is_dir() {
+            cmd.arg("--create-empty-src-dirs");
+        }
+        if let Some(rate) = bwlimit {
+            cmd.args(["--bwlimit", &rclone_rate(rate)]);
+        }
+        let mut child =
+            cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(spawn_error)?;
+        let stderr = child.stderr.take().context("no stderr from rclone")?;
+        let (status, (reported, error)) = std::thread::scope(|scope| {
+            let log = scope.spawn(|| follow_log(stderr, progress));
+            let mut stopped = false;
+            let status = loop {
+                if progress.is_cancelled() {
+                    let _ = child.kill();
+                } else if progress.is_paused() != stopped {
+                    stopped = !stopped;
+                    signal_pause(child.id(), stopped);
+                }
+                match child.try_wait() {
+                    Ok(Some(status)) => break Ok(status),
+                    Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+                    Err(e) => break Err(e),
+                }
+            };
+            (status, log.join().unwrap_or_default())
+        });
+        if progress.is_cancelled() {
+            bail!(Cancelled);
+        }
+        if !status?.success() {
+            bail!("{}", error.unwrap_or_else(|| format!("rclone {verb} failed")));
+        }
+        // Files rclone found already there were not counted.
+        if !entry.is_dir() {
+            progress.add_bytes(entry.size.saturating_sub(reported));
+        }
+        Ok(true)
+    }
+}
+
+/// Pauses or resumes a running rclone, where the platform allows.
+#[cfg(unix)]
+fn signal_pause(pid: u32, stop: bool) {
+    let signal = if stop { "-STOP" } else { "-CONT" };
+    let _ = Command::new("kill").args([signal, &pid.to_string()]).stderr(Stdio::null()).status();
+}
+
+#[cfg(not(unix))]
+fn signal_pause(_pid: u32, _stop: bool) {}
+
+/// One line of rclone's `--use-json-log` output.
+#[derive(Debug, PartialEq, Eq)]
+enum LogLine {
+    /// Bytes copied so far.
+    Stats(u64),
+    Message(String),
+}
+
+fn parse_log_line(line: &str) -> Option<LogLine> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if let Some(stats) = value.get("stats") {
+        let field = |name: &str| stats.get(name).and_then(serde_json::Value::as_u64).unwrap_or(0);
+        return Some(LogLine::Stats(field("bytes").max(field("serverSideCopyBytes"))));
+    }
+    let msg = value.get("msg")?.as_str()?.trim();
+    (!msg.is_empty()).then(|| LogLine::Message(msg.to_string()))
+}
+
+/// Feeds rclone's stats into `progress` until it exits. Returns the bytes
+/// it reported and its last error message.
+fn follow_log(stderr: impl Read, progress: &Progress) -> (u64, Option<String>) {
+    let (mut reported, mut error) = (0, None);
+    for line in BufReader::new(stderr).lines().map_while(std::io::Result::ok) {
+        match parse_log_line(&line) {
+            Some(LogLine::Stats(bytes)) if bytes > reported => {
+                progress.add_bytes(bytes - reported);
+                reported = bytes;
+            }
+            Some(LogLine::Stats(_)) => {}
+            Some(LogLine::Message(msg)) => error = Some(msg),
+            None => error = last_line(&line).or(error),
+        }
+    }
+    (reported, error)
 }
 
 fn parse_time(s: &str) -> Option<SystemTime> {
@@ -202,6 +316,10 @@ impl Vfs for RcloneVfs {
             .spawn()
             .map_err(spawn_error)?;
         Ok(Box::new(ChildReader::new(child, "rclone")))
+    }
+
+    fn as_rclone(&self) -> Option<&RcloneVfs> {
+        Some(self)
     }
 
     fn writer(&self, path: &Path) -> Result<Box<dyn Write + Send>> {
@@ -335,6 +453,56 @@ mod tests {
         if let Err(panic) = result {
             std::panic::resume_unwind(panic);
         }
+    }
+
+    #[test]
+    fn reads_json_stats_and_errors() {
+        let stats =
+            r#"{"level":"error","msg":"\nTransferred: 5 MiB","stats":{"bytes":5271552,"serverSideCopyBytes":0}}"#;
+        assert_eq!(parse_log_line(stats), Some(LogLine::Stats(5_271_552)));
+        let server = r#"{"msg":"","stats":{"bytes":0,"serverSideCopyBytes":42}}"#;
+        assert_eq!(parse_log_line(server), Some(LogLine::Stats(42)));
+        let err = r#"{"level":"error","msg":"a.txt: Failed to copy: 403 Forbidden"}"#;
+        assert_eq!(parse_log_line(err), Some(LogLine::Message("a.txt: Failed to copy: 403 Forbidden".into())));
+        assert_eq!(parse_log_line("not json"), None);
+    }
+
+    #[test]
+    fn copies_between_remotes_in_one_call() {
+        use crate::ops::{Conflict, CopyOptions, Transfer, TransferMode};
+        use std::sync::Arc;
+        if !crate::nas::which("rclone") {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let (a, b) = (tmp.path().join("a"), tmp.path().join("b"));
+        std::fs::create_dir_all(a.join("dir/empty")).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("dir/x.txt"), "x".repeat(1000)).unwrap();
+        std::fs::write(a.join("f.txt"), "hello").unwrap();
+        let remote = |root: &Path| -> crate::VfsRef {
+            let home = PathBuf::from(posix(root));
+            Arc::new(RcloneVfs::new("rclone", "local", ":local:/", Vec::new(), home))
+        };
+        let (src, dst) = (remote(tmp.path()), remote(tmp.path()));
+        let p = Progress::default();
+        Transfer {
+            mode: TransferMode::Copy,
+            src,
+            sources: vec![PathBuf::from(posix(&a.join("dir"))), PathBuf::from(posix(&a.join("f.txt")))],
+            dst,
+            dest_dir: PathBuf::from(posix(&b)),
+            conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
+            targets: Default::default(),
+            options: CopyOptions { bandwidth_limit: Some(10 << 20), ..Default::default() },
+        }
+        .run(&p)
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(b.join("f.txt")).unwrap(), "hello");
+        assert_eq!(std::fs::read(b.join("dir/x.txt")).unwrap().len(), 1000);
+        assert!(b.join("dir/empty").is_dir(), "empty folders come along");
+        assert_eq!(p.done_bytes.load(std::sync::atomic::Ordering::Relaxed), 1005);
     }
 
     #[test]

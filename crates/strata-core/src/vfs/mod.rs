@@ -117,6 +117,12 @@ pub trait Vfs: Send + Sync + fmt::Debug {
         None
     }
 
+    /// The rclone remote behind this backend, so copies between two of them
+    /// can be left to rclone.
+    fn as_rclone(&self) -> Option<&RcloneVfs> {
+        None
+    }
+
     /// Command line that opens an interactive shell at `path`, for remote
     /// backends (`docker exec -it`, `ssh -t`). `None` for the local disk.
     fn shell_command(&self, _path: &Path) -> Option<Vec<String>> {

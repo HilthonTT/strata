@@ -1,5 +1,6 @@
 //! File transfers and deletion that work across any pair of [`Vfs`] backends.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::inspect::{self, HashAlgo};
 use crate::jobs::Progress;
+use crate::throttle::Throttle;
 use crate::util::unique_name;
 use crate::vfs::{same_vfs, VfsRef};
 use crate::{Entry, EntryKind, Vfs};
@@ -86,6 +88,9 @@ pub struct CopyOptions {
     /// copies onto the local disk are checked; other destinations would
     /// have to be downloaded again, so they are copied without a check.
     pub verify: bool,
+    /// Bytes per second each job may move at most; `None` = unlimited.
+    /// Copies between two rclone remotes hand it to rclone (`--bwlimit`).
+    pub bandwidth_limit: Option<u64>,
 }
 
 impl CopyOptions {
@@ -144,6 +149,7 @@ impl Transfer {
 
         let same = same_vfs(&self.src, &self.dst);
         let earlier: Vec<(PathBuf, PathBuf)> = self.targets.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let copier = Copier::new(&*self.src, &*self.dst, progress, &self.options);
         for source in &self.sources {
             progress.check()?;
             let entry = self.src.stat(source)?;
@@ -167,8 +173,7 @@ impl Transfer {
                 progress.item_done();
                 continue;
             }
-            let copy = Copier { src: &*self.src, dst: &*self.dst, progress, options: &self.options };
-            copy.tree(&entry, &target, resumed.is_some())?;
+            copier.tree(&entry, &target, resumed.is_some())?;
             if self.mode == TransferMode::Move {
                 progress.set_current(format!("removing {}", entry.name));
                 self.src.remove_all(source)?;
@@ -309,7 +314,7 @@ pub fn copy_tree_with(
     progress: &Progress,
     options: &CopyOptions,
 ) -> Result<()> {
-    Copier { src, dst, progress, options }.tree(entry, target, false)
+    Copier::new(src, dst, progress, options).tree(entry, target, false)
 }
 
 /// One copy from `src` to `dst`.
@@ -318,9 +323,16 @@ struct Copier<'a> {
     dst: &'a dyn Vfs,
     progress: &'a Progress,
     options: &'a CopyOptions,
+    /// Shared by every file, so the limit holds for the whole job.
+    throttle: RefCell<Option<Throttle>>,
 }
 
-impl Copier<'_> {
+impl<'a> Copier<'a> {
+    fn new(src: &'a dyn Vfs, dst: &'a dyn Vfs, progress: &'a Progress, options: &'a CopyOptions) -> Self {
+        let throttle = RefCell::new(options.bandwidth_limit.map(Throttle::new));
+        Self { src, dst, progress, options, throttle }
+    }
+
     /// Copies `entry` to `target`; with `resume`, into a partial earlier
     /// copy: existing folders and links are kept, and files already there
     /// with the right size are skipped (when verifying, only if their
@@ -328,6 +340,15 @@ impl Copier<'_> {
     fn tree(&self, entry: &Entry, target: &Path, resume: bool) -> Result<()> {
         let (src, dst, progress) = (self.src, self.dst, self.progress);
         progress.check()?;
+        // Between two rclone remotes, rclone copies by itself: on the
+        // server when it can, without passing through here otherwise.
+        let remotes = src.as_rclone().zip(dst.as_rclone()).filter(|_| entry.kind != EntryKind::Other);
+        if let Some((from, to)) = remotes {
+            progress.set_current(entry.name.clone());
+            if from.copy_to(entry, to, target, self.options.bandwidth_limit, progress)? {
+                return Ok(());
+            }
+        }
         let existing = if resume { dst.stat(target).ok() } else { None };
         match entry.kind {
             EntryKind::Dir => {
@@ -353,7 +374,8 @@ impl Copier<'_> {
                 let mut reader = src.reader(&entry.path)?;
                 let mut writer = dst.writer(target)?;
                 let mut hasher = self.options.verifies(dst).then(Sha256::new);
-                stream(&mut *reader, &mut *writer, progress, hasher.as_mut())
+                let mut throttle = self.throttle.borrow_mut();
+                stream(&mut *reader, &mut *writer, progress, hasher.as_mut(), throttle.as_mut())
                     .with_context(|| format!("copy {}", entry.path.display()))?;
                 drop(writer);
                 if let Some(hasher) = hasher {
@@ -425,17 +447,20 @@ pub fn relocate(src: &VfsRef, from: &Path, dst: &VfsRef, to: &Path, progress: &P
     src.remove_all(from)
 }
 
-/// Copies `reader` into `writer`, feeding the bytes to `hasher` if given.
+/// Copies `reader` into `writer`, feeding the bytes to `hasher` if given
+/// and keeping to `throttle`'s rate if given.
 fn stream(
     reader: &mut dyn Read,
     writer: &mut dyn Write,
     progress: &Progress,
     mut hasher: Option<&mut Sha256>,
+    mut throttle: Option<&mut Throttle>,
 ) -> Result<()> {
     let mut buf = vec![0u8; BUF_SIZE];
+    let chunk = throttle.as_ref().map_or(BUF_SIZE, |t| t.chunk(BUF_SIZE));
     loop {
         progress.check()?;
-        let n = reader.read(&mut buf)?;
+        let n = reader.read(&mut buf[..chunk])?;
         if n == 0 {
             break;
         }
@@ -444,6 +469,9 @@ fn stream(
         }
         writer.write_all(&buf[..n])?;
         progress.add_bytes(n as u64);
+        if let Some(throttle) = throttle.as_mut() {
+            progress.sleep(throttle.delay(n as u64, std::time::Instant::now()));
+        }
     }
     writer.flush()?;
     Ok(())
@@ -927,7 +955,7 @@ mod tests {
             conflict: Conflict::KeepBoth,
             resolutions: Default::default(),
             targets: Default::default(),
-            options: CopyOptions { verify: true },
+            options: CopyOptions { verify: true, ..Default::default() },
         }
     }
 
@@ -988,6 +1016,22 @@ mod tests {
         t.run(&p).unwrap();
         assert_eq!(fs::read_to_string(earlier.join("bad.txt")).unwrap(), "original");
         assert_eq!(p.done_bytes.load(Ordering::Relaxed), p.total_bytes.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn bandwidth_limits_slow_copies_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f.bin");
+        fs::write(&file, vec![7u8; 300 * 1024]).unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let mut t = verified(TransferMode::Copy, local(), vec![file], local(), &dest);
+        t.options = CopyOptions { bandwidth_limit: Some(1 << 20), ..Default::default() };
+        let started = std::time::Instant::now();
+        t.run(&Progress::default()).unwrap();
+        // 300 KiB at 1 MiB/s: about 0.3 s (the last chunk's wait included).
+        assert!(started.elapsed() >= std::time::Duration::from_millis(250), "{:?}", started.elapsed());
+        assert_eq!(fs::read(dest.join("f.bin")).unwrap().len(), 300 * 1024);
     }
 
     #[test]

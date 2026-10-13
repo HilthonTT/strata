@@ -16,7 +16,7 @@ Everything you need, nothing you don't.
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512), check downloads against a hash or `SHA256SUMS`, and verify copies against the original (`:paste --verify`, `:sync --verify` or `verify_copies = true`)
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`
 - **Folder sizes** in the file list (`d c`), measured in the background
-- **Jobs you control**: see each transfer's speed and time left, pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
+- **Jobs you control**: see each transfer's speed and time left, cap it (`:limit 10M` or `bandwidth_limit`), pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
 - **Shell commands on your selection**: `:!tar czf out.tgz {s}` fills in the marked items, and `:each gzip -k` runs once per item
 - **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
@@ -28,7 +28,7 @@ Everything you need, nothing you don't.
 - **Hide git-ignored files** (`z i`): leave build output, logs and anything else your `.gitignore` lists out of the listing
 - **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, CSV/TSV tables, JSON/YAML/TOML outlines, SQLite tables and columns, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
-- **Remote connections**: SMB, NFS and SFTP, plus S3 (AWS, MinIO, R2…), WebDAV, FTP and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox…) browsed in-app, with live reachability checks, a step-by-step connection test and passwords in your system keychain
+- **Remote connections**: SMB, NFS and SFTP, plus S3 (AWS, MinIO, R2…), WebDAV, FTP and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox…) browsed in-app (copies between two of them go remote to remote, server-side where possible), with live reachability checks, a step-by-step connection test and passwords in your system keychain
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own

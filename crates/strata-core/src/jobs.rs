@@ -76,6 +76,18 @@ impl Progress {
         Ok(())
     }
 
+    /// Sleeps for `duration`, waking early when the job is cancelled.
+    pub fn sleep(&self, duration: Duration) {
+        let until = Instant::now() + duration;
+        while !self.is_cancelled() {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            thread::sleep(left.min(Duration::from_millis(100)));
+        }
+    }
+
     /// Fraction complete in `0.0..=1.0`, by bytes when known, else by items.
     pub fn ratio(&self) -> f64 {
         let total = self.total_bytes.load(Ordering::Relaxed);
