@@ -91,8 +91,7 @@ impl App {
         if request.dry_run {
             let title = format!("Sync plan · {}", request.title());
             let lines = plan_lines(&request);
-            self.overlay = Some(Overlay::Text(TextPopup { title, lines, scroll: 0, colored: true }));
-            return;
+            return self.show_overlay(Overlay::Text(TextPopup { title, lines, scroll: 0, colored: true }));
         }
         let mut message = format!("Sync {}? {}.", request.title(), summary(&request.plan));
         let (_, replace, delete) = request.plan.counts();
@@ -103,7 +102,7 @@ impl App {
                 " Replaced and deleted items are removed for good."
             });
         }
-        self.overlay = Some(Overlay::Confirm(ConfirmState { message, action: Confirm::Sync(Box::new(request)) }));
+        self.show_overlay(Overlay::Confirm(ConfirmState { message, action: Confirm::Sync(Box::new(request)) }));
     }
 
     pub(super) fn start_sync(&mut self, request: SyncRequest) {

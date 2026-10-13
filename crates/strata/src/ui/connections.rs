@@ -98,7 +98,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             fit("LAST SEEN", seen_w)
         );
         let mut lines = vec![Line::styled(header, Style::default().fg(theme.muted).add_modifier(Modifier::BOLD))];
-        for (i, c) in conns.iter().enumerate() {
+        // Scroll so the cursor stays below the header.
+        let height = inner.height.saturating_sub(1) as usize;
+        let offset = app.nas.cursor.saturating_sub(height.saturating_sub(1));
+        app.layout.list_offset = offset;
+        for (i, c) in conns.iter().enumerate().skip(offset).take(height) {
             let status = app.nas.statuses.get(&c.name);
             let session = app.nas.sessions.contains_key(&c.name);
             let (dot, color, text) = match (session, status) {
@@ -132,7 +136,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         frame.render_widget(Paragraph::new(lines), inner);
     }
-    let keys = " enter connect/open · a add · t diagnose · u disconnect · r recheck · e edit config · 1 files";
+    let keys = " enter connect/open · a add · t diagnose · u disconnect · r recheck · p save password · f forget password · e edit config · 1 files";
     frame.render_widget(Paragraph::new(Line::styled(keys, Style::default().fg(theme.muted))), hint);
 }
 

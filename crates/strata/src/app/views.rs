@@ -52,7 +52,11 @@ impl App {
                 workers::container_logs(self.tx.clone(), id, name);
                 return true;
             }
-            'e' if container.is_running() => {
+            'e' if !container.is_running() => {
+                self.notify(format!("{name} is not running — press s to start it"), Level::Warn);
+                return true;
+            }
+            'e' => {
                 let shell = DockerVfs::new(id, name).shell_command(std::path::Path::new("/"));
                 self.queue_external(External::Shell { cwd: PathBuf::from("/"), remote: shell });
                 return true;
@@ -99,7 +103,7 @@ impl App {
         true
     }
 
-    fn view_len(&self) -> usize {
+    pub(super) fn view_len(&self) -> usize {
         match self.view {
             View::Docker => self.docker.containers.len(),
             View::Connections => self.config.connections.len(),
@@ -183,7 +187,20 @@ impl App {
         if let Some(path) = conn.mounted_at() {
             return self.cd_local(path);
         }
-        let password = if conn.protocol == Protocol::Smb { strata_core::secrets::get(&conn.name) } else { None };
+        // The keychain talks D-Bus, which can wait on an unlock prompt.
+        if conn.protocol == Protocol::Smb {
+            let tx = self.tx.clone();
+            std::thread::spawn(move || {
+                let password = strata_core::secrets::get(&conn.name);
+                let _ = tx.send(crate::event::AppEvent::MountReady { conn, password });
+            });
+            return;
+        }
+        self.mount_connection(conn, None);
+    }
+
+    /// Mounts an SMB or NFS share, with the SMB password from the keychain.
+    pub(super) fn mount_connection(&mut self, conn: Connection, password: Option<String>) {
         let Some(plan) = conn.mount_plan(password.as_deref()) else {
             return;
         };
@@ -201,14 +218,31 @@ impl App {
         self.overlay = Some(Overlay::Input(InputState::new(prompt, "", InputPurpose::SavePassword(name)).masked()));
     }
 
+    pub(super) fn save_password(&mut self, name: String, password: String) {
+        let done = format!("saved the password for {name} in the system keychain");
+        self.keychain_task(done, move || strata_core::secrets::set(&name, &password));
+    }
+
     pub(super) fn forget_password(&mut self, name: &str) {
-        match strata_core::secrets::delete(name) {
-            Ok(()) => {
-                self.nas.saved_passwords.remove(name);
-                self.info(format!("removed the saved password for {name}"));
-            }
-            Err(e) => self.error(format!("{e:#}")),
-        }
+        let done = format!("removed the saved password for {name}");
+        let name = name.to_string();
+        self.keychain_task(done, move || strata_core::secrets::delete(&name));
+    }
+
+    /// Changes the keychain off the UI thread (D-Bus can wait on an unlock
+    /// prompt), then reports and refreshes which connections have a password.
+    fn keychain_task(&mut self, done: String, op: impl FnOnce() -> anyhow::Result<()> + Send + 'static) {
+        let names: Vec<String> = self.config.connections.iter().map(|c| c.name.clone()).collect();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let (message, level) = match op() {
+                Ok(()) => (done, Level::Info),
+                Err(e) => (format!("{e:#}"), Level::Error),
+            };
+            let _ = tx.send(crate::event::AppEvent::Notify { message, level });
+            let saved = names.into_iter().filter(|n| strata_core::secrets::get(n).is_some()).collect();
+            let _ = tx.send(crate::event::AppEvent::Keychain(saved));
+        });
     }
 
     /// Checks which connections have a keychain password, off the UI thread.
@@ -256,7 +290,7 @@ impl App {
                     if pending == name && self.connection(&name).is_some() {
                         let message = format!("Save the password for {name} in the system keychain?");
                         let action = Confirm::SavePassword { name, password };
-                        self.overlay = Some(Overlay::Confirm(ConfirmState { message, action }));
+                        self.show_overlay(Overlay::Confirm(ConfirmState { message, action }));
                     }
                 }
             }
@@ -275,8 +309,9 @@ impl App {
                     }
                     (_, user) => format!("Password for {}@{}", user.clone().unwrap_or_default(), conn.host),
                 };
-                self.overlay =
-                    Some(Overlay::Input(InputState::new(prompt, "", InputPurpose::RemotePassword(conn)).masked()));
+                self.show_overlay(Overlay::Input(
+                    InputState::new(prompt, "", InputPurpose::RemotePassword(conn)).masked(),
+                ));
             }
             Err(e) => {
                 self.pending_password = None;
@@ -303,7 +338,7 @@ impl App {
         }
         lines.push(String::new());
         lines.push("✓ ok   ! warning   ✗ failed   – skipped (an earlier step failed)".into());
-        self.overlay = Some(Overlay::Text(TextPopup { title: "Diagnose".into(), lines, scroll: 0, colored: false }));
+        self.show_overlay(Overlay::Text(TextPopup { title: "Diagnose".into(), lines, scroll: 0, colored: false }));
     }
 
     /// Mounts SMB shares marked `auto_connect` through GVFS, which needs no

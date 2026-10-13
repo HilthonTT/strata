@@ -58,6 +58,12 @@ impl App {
 
     fn on_overlay_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        // ctrl+c backs out of any overlay, like Esc.
+        let key = if ctrl && key.code == KeyCode::Char('c') { KeyEvent::from(KeyCode::Esc) } else { key };
+        let ctrl = ctrl && key.code != KeyCode::Esc;
+        // Unbound ctrl/alt chords are not text (AltGr sends both, and is).
+        let text = ctrl == key.modifiers.contains(KeyModifiers::ALT);
+        let max_scroll = self.layout.popup_max_scroll.get();
         match self.overlay.as_mut() {
             Some(Overlay::Input(input)) => match key.code {
                 KeyCode::Esc => self.cancel_input(),
@@ -77,7 +83,7 @@ impl App {
                 KeyCode::Right => input.right(),
                 KeyCode::Home => input.home(),
                 KeyCode::End => input.end(),
-                KeyCode::Char(c) => input.insert(c),
+                KeyCode::Char(c) if text => input.insert(c),
                 _ => {}
             },
             Some(Overlay::Picker(picker)) => {
@@ -99,7 +105,7 @@ impl App {
                         picker.query.pop();
                         picker.refilter();
                     }
-                    KeyCode::Char(c) => {
+                    KeyCode::Char(c) if text => {
                         picker.query.push(c);
                         picker.refilter();
                     }
@@ -122,7 +128,8 @@ impl App {
                     }
                 }
             }
-            Some(Overlay::Confirm(_)) => match key.code {
+            Some(Overlay::Confirm(confirm)) => match key.code {
+                KeyCode::Enter if confirm.action.is_destructive() => {}
                 KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
                     if let Some(Overlay::Confirm(c)) = self.overlay.take() {
                         self.confirmed(c.action);
@@ -134,12 +141,12 @@ impl App {
             Some(Overlay::Help { scroll }) | Some(Overlay::Text(super::overlay::TextPopup { scroll, .. })) => {
                 match key.code {
                     KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') | KeyCode::Enter => self.overlay = None,
-                    KeyCode::Char('j') | KeyCode::Down => *scroll += 1,
+                    KeyCode::Char('j') | KeyCode::Down => *scroll = (*scroll + 1).min(max_scroll),
                     KeyCode::Char('k') | KeyCode::Up => *scroll = scroll.saturating_sub(1),
-                    KeyCode::Char('d') | KeyCode::PageDown => *scroll += 15,
+                    KeyCode::Char('d') | KeyCode::PageDown => *scroll = (*scroll + 15).min(max_scroll),
                     KeyCode::Char('u') | KeyCode::PageUp => *scroll = scroll.saturating_sub(15),
                     KeyCode::Char('g') | KeyCode::Home => *scroll = 0,
-                    KeyCode::Char('G') | KeyCode::End => *scroll = usize::MAX / 2,
+                    KeyCode::Char('G') | KeyCode::End => *scroll = max_scroll,
                     _ => {}
                 }
             }
@@ -177,8 +184,8 @@ impl App {
                     self.apply_theme(&original, false);
                 }
                 PickerPurpose::Plugin(callback) => self.call_plugin(callback, Some(None)),
-                PickerPurpose::Find { .. }
-                | PickerPurpose::Sort
+                PickerPurpose::Find { .. } => self.find_cancel.store(true, std::sync::atomic::Ordering::Relaxed),
+                PickerPurpose::Sort
                 | PickerPurpose::Grep { .. }
                 | PickerPurpose::Trash { .. }
                 | PickerPurpose::Dupes { .. }
@@ -208,13 +215,7 @@ impl App {
             Confirm::DockerRemove { id, name } => {
                 super::workers::container_action(self.tx.clone(), id, name, strata_sys::docker::ContainerAction::Remove)
             }
-            Confirm::SavePassword { name, password } => match strata_core::secrets::set(&name, &password) {
-                Ok(()) => {
-                    self.nas.saved_passwords.insert(name.clone());
-                    self.info(format!("saved the password for {name} in the system keychain"));
-                }
-                Err(e) => self.error(format!("{e:#}")),
-            },
+            Confirm::SavePassword { name, password } => self.save_password(name, password),
             Confirm::PurgeTrash(items) => self.purge_trash(Some(items)),
             Confirm::EmptyTrash => self.purge_trash(None),
             Confirm::Sync(request) => self.start_sync(*request),
@@ -241,6 +242,23 @@ impl App {
 
     pub(super) fn on_mouse(&mut self, mouse: MouseEvent) {
         if self.overlay.is_some() {
+            // The wheel scrolls the open popup or picker.
+            let delta: isize = match mouse.kind {
+                MouseEventKind::ScrollDown => 3,
+                MouseEventKind::ScrollUp => -3,
+                _ => return,
+            };
+            let max_scroll = self.layout.popup_max_scroll.get();
+            match self.overlay.as_mut() {
+                Some(Overlay::Help { scroll }) | Some(Overlay::Text(super::overlay::TextPopup { scroll, .. })) => {
+                    *scroll = scroll.saturating_add_signed(delta).min(max_scroll);
+                }
+                Some(Overlay::Picker(picker)) => {
+                    picker.move_by(delta);
+                    self.on_picker_moved();
+                }
+                _ => {}
+            }
             return;
         }
         let (x, y) = (mouse.column, mouse.row);
@@ -281,8 +299,10 @@ impl App {
                     MouseEventKind::ScrollDown => self.sidebar.move_by(1),
                     MouseEventKind::ScrollUp => self.sidebar.move_by(-1),
                     MouseEventKind::Down(MouseButton::Left) => {
-                        let row = y.saturating_sub(rect.y + 1) as usize + self.sidebar.offset;
-                        if self.sidebar.items.get(row).is_some_and(|i| i.selectable()) {
+                        // Below the border, the title line and a blank line.
+                        let top = rect.y + 3;
+                        let row = y.saturating_sub(top) as usize + self.sidebar.offset;
+                        if y >= top && self.sidebar.items.get(row).is_some_and(|i| i.selectable()) {
                             self.sidebar.cursor = row;
                             self.open_sidebar_item();
                         }
@@ -297,10 +317,13 @@ impl App {
                 MouseEventKind::ScrollDown => 1,
                 MouseEventKind::ScrollUp => -1,
                 MouseEventKind::Down(MouseButton::Left) => {
-                    let row = y.saturating_sub(rect.y + 2) as usize;
-                    self.set_view_cursor(row);
-                    if self.is_double_click(x, y) {
-                        self.dispatch(strata_config::Action::Open);
+                    // Row 0 is the border, row 1 the column header.
+                    let row = y.saturating_sub(rect.y + 2) as usize + self.layout.list_offset;
+                    if y >= rect.y + 2 && row < self.view_len() {
+                        self.set_view_cursor(row);
+                        if self.is_double_click(x, y) {
+                            self.dispatch(strata_config::Action::Open);
+                        }
                     }
                     0
                 }

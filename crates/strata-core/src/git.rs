@@ -210,7 +210,14 @@ pub fn commit(root: &Path, message: &str) -> Result<String> {
     if message.trim().is_empty() {
         bail!("the commit message is empty");
     }
-    let out = run(root, &["commit", "-q", "-m", message], &[])?;
+    let out = run(root, &["commit", "-q", "-m", message], &[]).map_err(|e| {
+        let text = e.to_string();
+        if text.contains("identity unknown") || text.contains("auto-detect email") {
+            anyhow::anyhow!("{text}: set user.name and user.email with `git config --global`")
+        } else {
+            e
+        }
+    })?;
     let summary = run(root, &["log", "-1", "--format=%h %s"], &[]).unwrap_or(out);
     Ok(summary.trim().to_string())
 }

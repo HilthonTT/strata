@@ -107,6 +107,15 @@ pub enum GitReply {
     Show { title: String, body: String, colored: bool },
     /// The repository changed; the message goes in the status line.
     Changed(String),
+    /// Nothing to do, and why.
+    Warn(String),
+    /// The repository of the marked items was found: open the menu
+    /// (`op` is `None`) or run `op`, committing with `message` if given.
+    Target { op: Option<GitOp>, target: GitTarget, branch: Option<String>, message: String },
+    /// Ask for a commit message.
+    CommitPrompt { root: PathBuf, staged: usize, branch: Option<String> },
+    /// The commit failed; ask again with the message typed so far.
+    CommitFailed { root: PathBuf, message: String, error: String },
 }
 
 /// The repository and items a git action works on.
@@ -116,37 +125,43 @@ pub struct GitTarget {
 }
 
 impl App {
-    /// The marked items (or the hovered one) and their repository, or an
-    /// explanation of why there are none.
-    fn git_target(&mut self) -> Option<GitTarget> {
+    /// Finds the repository of the marked items (or the hovered one) off
+    /// the UI thread, as git can be slow on big repositories or network
+    /// drives, then opens the menu (`op` is `None`) or runs `op`.
+    fn with_git_target(&mut self, op: Option<GitOp>, message: String) {
         let p = self.panel();
         if !p.vfs.is_local() {
-            self.notify("git works on local folders", strata_plugin::Level::Warn);
-            return None;
+            return self.notify("git works on local folders", strata_plugin::Level::Warn);
         }
-        let Some(root) = git::repo_root(&p.cwd) else {
-            self.notify("not inside a git repository", strata_plugin::Level::Warn);
-            return None;
-        };
         // An empty folder has nothing hovered: act on the folder, never on
         // the whole repository by accident.
         let mut paths = p.targets();
         if paths.is_empty() {
             paths.push(p.cwd.clone());
         }
-        Some(GitTarget { root, paths })
+        let cwd = p.cwd.clone();
+        self.spawn_git(move || {
+            let Some(root) = git::repo_root(&cwd) else {
+                return Ok(GitReply::Warn("not inside a git repository".into()));
+            };
+            let branch = if op.is_none() { git::branch(&root) } else { None };
+            Ok(GitReply::Target { op, target: GitTarget { root, paths }, branch, message })
+        });
     }
 
     /// The git menu for the marked items.
     pub(super) fn git_menu(&mut self) {
-        let Some(target) = self.git_target() else { return };
-        let branch = git::branch(&target.root).map(|b| format!(" · {b}")).unwrap_or_default();
+        self.with_git_target(None, String::new());
+    }
+
+    fn open_git_menu(&mut self, target: GitTarget, branch: Option<String>) {
+        let branch = branch.map(|b| format!(" · {b}")).unwrap_or_default();
         let title = format!("Git{branch} · {} item(s)", target.paths.len());
         let ops: Vec<GitOp> =
             GitOp::MENU.into_iter().filter(|op| *op != GitOp::Blame || self.blame_file(&target).is_some()).collect();
         let rows = ops.iter().map(|op| op.row().to_string()).collect();
         let purpose = PickerPurpose::Git { target, ops };
-        self.overlay = Some(Overlay::Picker(PickerState::new(title, rows, purpose)));
+        self.show_overlay(Overlay::Picker(PickerState::new(title, rows, purpose)));
     }
 
     /// `:git <op> [message]` on the marked items; no op opens the menu.
@@ -162,11 +177,7 @@ impl App {
             }
             return self.run_shell_line(&format!("git {args}"));
         };
-        let Some(target) = self.git_target() else { return };
-        if op == GitOp::Commit && !rest.is_empty() {
-            return self.git_commit(target.root, rest.to_string());
-        }
-        self.run_git_op(op, target);
+        self.with_git_target(Some(op), rest.to_string());
     }
 
     /// The single file `blame` would show.
@@ -180,21 +191,20 @@ impl App {
     pub(super) fn run_git_op(&mut self, op: GitOp, target: GitTarget) {
         let GitTarget { root, paths } = target;
         match op {
-            GitOp::Commit => {
-                let staged = match git::staged_count(&root) {
-                    Ok(0) => return self.notify("nothing staged — stage items first", strata_plugin::Level::Warn),
-                    Ok(n) => n,
-                    Err(e) => return self.error(format!("git: {e:#}")),
-                };
-                let branch = git::branch(&root).map(|b| format!(" on {b}")).unwrap_or_default();
-                let title = format!("Commit {staged} staged file(s){branch}");
-                let input = InputState::new(title, "", InputPurpose::GitCommit(root));
-                self.overlay = Some(Overlay::Input(input));
-            }
+            GitOp::Commit => self.spawn_git(move || {
+                let staged = git::staged_count(&root)?;
+                if staged == 0 {
+                    return Ok(GitReply::Warn("nothing staged — stage items first".into()));
+                }
+                let branch = git::branch(&root);
+                Ok(GitReply::CommitPrompt { root, staged, branch })
+            }),
             GitOp::Discard => {
                 let message = format!("Discard unstaged changes to {} item(s)? This cannot be undone.", paths.len());
-                self.overlay =
-                    Some(Overlay::Confirm(ConfirmState { message, action: Confirm::GitDiscard { root, paths } }));
+                self.show_overlay(Overlay::Confirm(ConfirmState {
+                    message,
+                    action: Confirm::GitDiscard { root, paths },
+                }));
             }
             GitOp::Blame => {
                 let Some(file) = self.blame_file(&GitTarget { root: root.clone(), paths }) else {
@@ -240,7 +250,10 @@ impl App {
 
     pub(super) fn git_commit(&mut self, root: PathBuf, message: String) {
         self.spawn_git(move || {
-            git::commit(&root, &message).map(|summary| GitReply::Changed(format!("committed {summary}")))
+            Ok(match git::commit(&root, &message) {
+                Ok(summary) => GitReply::Changed(format!("committed {summary}")),
+                Err(e) => GitReply::CommitFailed { root, message, error: format!("git: {e:#}") },
+            })
         });
     }
 
@@ -255,7 +268,7 @@ impl App {
         match result {
             Ok(GitReply::Show { title, body, colored }) => {
                 let lines = body.lines().map(str::to_string).collect();
-                self.overlay = Some(Overlay::Text(TextPopup { title, lines, scroll: 0, colored }));
+                self.show_overlay(Overlay::Text(TextPopup { title, lines, scroll: 0, colored }));
             }
             Ok(GitReply::Changed(message)) => {
                 self.info(message);
@@ -265,6 +278,23 @@ impl App {
                     panel.reload();
                 }
                 self.invalidate_preview();
+            }
+            Ok(GitReply::Warn(message)) => self.notify(message, strata_plugin::Level::Warn),
+            Ok(GitReply::Target { op: None, target, branch, .. }) => self.open_git_menu(target, branch),
+            Ok(GitReply::Target { op: Some(GitOp::Commit), target, message, .. }) if !message.is_empty() => {
+                self.git_commit(target.root, message)
+            }
+            Ok(GitReply::Target { op: Some(op), target, .. }) => self.run_git_op(op, target),
+            Ok(GitReply::CommitPrompt { root, staged, branch }) => {
+                let branch = branch.map(|b| format!(" on {b}")).unwrap_or_default();
+                let title = format!("Commit {staged} staged file(s){branch}");
+                self.show_overlay(Overlay::Input(InputState::new(title, "", InputPurpose::GitCommit(root))));
+            }
+            Ok(GitReply::CommitFailed { root, message, error }) => {
+                self.error(error);
+                let input =
+                    InputState::new("Commit message (the commit failed)", message, InputPurpose::GitCommit(root));
+                self.show_overlay(Overlay::Input(input));
             }
             Err(e) => self.error(e),
         }

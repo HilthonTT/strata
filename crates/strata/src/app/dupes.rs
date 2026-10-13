@@ -83,7 +83,11 @@ impl App {
         );
         let mut picker = PickerState::new(title, rows, PickerPurpose::Dupes { paths });
         picker.move_by(row.min(picker.matches.len().saturating_sub(1)) as isize);
-        self.overlay = Some(Overlay::Picker(picker));
+        // Refreshing the open picker (after ctrl+d) replaces it.
+        if let Some(Overlay::Picker(PickerState { purpose: PickerPurpose::Dupes { .. }, .. })) = &self.overlay {
+            self.overlay = None;
+        }
+        self.show_overlay(Overlay::Picker(picker));
     }
 
     /// `ctrl+d` in the duplicates picker trashes the highlighted copy.

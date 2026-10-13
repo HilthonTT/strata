@@ -652,14 +652,32 @@ fn id_of(flag: &str) -> String {
 }
 
 /// True when `program` is on the PATH.
+///
+/// Results are cached: on WSL, `PATH` holds Windows folders where every
+/// lookup is slow, and this runs on key presses. A miss is checked again
+/// after a while, in case the program was installed meanwhile.
 pub fn which(program: &str) -> bool {
-    let Some(paths) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&paths).any(|dir| {
-        let candidate = dir.join(program);
-        candidate.is_file() || candidate.with_extension("exe").is_file()
-    })
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    static CACHE: OnceLock<Mutex<HashMap<String, (bool, Instant)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let cached = cache.lock().ok().and_then(|c| c.get(program).copied());
+    if let Some((found, at)) = cached {
+        if found || at.elapsed() < Duration::from_secs(30) {
+            return found;
+        }
+    }
+    let found = std::env::var_os("PATH").is_some_and(|paths| {
+        std::env::split_paths(&paths).any(|dir| {
+            let candidate = dir.join(program);
+            candidate.is_file() || candidate.with_extension("exe").is_file()
+        })
+    });
+    if let Ok(mut c) = cache.lock() {
+        c.insert(program.to_string(), (found, Instant::now()));
+    }
+    found
 }
 
 /// `(source, target)` pairs of currently mounted filesystems.

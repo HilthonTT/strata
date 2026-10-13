@@ -49,6 +49,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         let mut lines = vec![Line::styled(header, Style::default().fg(theme.muted).add_modifier(Modifier::BOLD))];
         let height = inner.height.saturating_sub(1) as usize;
         let offset = app.docker.cursor.saturating_sub(height.saturating_sub(1));
+        app.layout.list_offset = offset;
         for (i, c) in app.docker.containers.iter().enumerate().skip(offset).take(height) {
             let dot_color = match c.state.as_str() {
                 "running" => theme.success,

@@ -182,7 +182,8 @@ impl App {
             }
             ClosePanel => self.close_panel(),
             FocusSidebar => {
-                if self.config.general.sidebar {
+                // Only when it was drawn: it hides in narrow terminals.
+                if self.config.general.sidebar && self.layout.sidebar.is_some() {
                     self.focus = Focus::Sidebar;
                 }
             }
@@ -323,8 +324,8 @@ impl App {
         self.view = View::Files;
         self.focus = Focus::Panels;
         if !self.panel_mut().cd(path) {
-            let err = self.panel().error.clone().unwrap_or_default();
-            self.panel_mut().reload();
+            // The listing was kept; only the message moves to the status line.
+            let err = self.panel_mut().error.take().unwrap_or_default();
             self.error(err);
         }
     }
@@ -685,18 +686,24 @@ impl App {
         self.find_cancel.store(true, Ordering::Relaxed);
         let cancel = Arc::new(AtomicBool::new(false));
         self.find_cancel = cancel.clone();
-        self.info("indexing…");
-        super::workers::find_files(self.tx.clone(), self.panel().cwd.clone(), self.panel().show_hidden, cancel);
+        let root = self.panel().cwd.clone();
+        // The picker opens at once, so keys typed while indexing go into
+        // its query instead of running as commands.
+        let purpose = PickerPurpose::Find { vfs: self.panel().vfs.clone(), root: root.clone() };
+        let title = format!("Find in {} · indexing…", short_path(&root));
+        self.overlay = Some(Overlay::Picker(PickerState::new(title, Vec::new(), purpose)));
+        super::workers::find_files(self.tx.clone(), root, self.panel().show_hidden, cancel);
     }
 
+    /// Fills the find picker once indexing is done, keeping the query.
     pub(super) fn open_find_picker(&mut self, root: PathBuf, files: Vec<PathBuf>) {
-        if self.overlay.is_some() || root != self.panel().cwd {
+        let Some(Overlay::Picker(picker)) = &mut self.overlay else { return };
+        if !matches!(&picker.purpose, PickerPurpose::Find { root: r, .. } if *r == root) {
             return;
         }
-        let items = files.iter().map(|p| posix(p)).collect();
-        let purpose = PickerPurpose::Find { vfs: self.panel().vfs.clone(), root: root.clone() };
-        self.overlay =
-            Some(Overlay::Picker(PickerState::new(format!("Find in {}", short_path(&root)), items, purpose)));
+        picker.title = format!("Find in {} · {} files", short_path(&root), files.len());
+        picker.items = files.iter().map(|p| posix(p)).collect();
+        picker.refilter();
     }
 
     pub fn open_theme_picker(&mut self) {

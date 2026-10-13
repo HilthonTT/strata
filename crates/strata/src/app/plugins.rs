@@ -142,10 +142,10 @@ impl App {
             },
             Request::Command(line) => self.run_command(&line),
             Request::Select { title, items, callback } => {
-                self.overlay = Some(Overlay::Picker(PickerState::new(title, items, PickerPurpose::Plugin(callback))));
+                self.show_overlay(Overlay::Picker(PickerState::new(title, items, PickerPurpose::Plugin(callback))));
             }
             Request::Input { prompt, default, callback } => {
-                self.overlay = Some(Overlay::Input(InputState::new(prompt, default, InputPurpose::Plugin(callback))));
+                self.show_overlay(Overlay::Input(InputState::new(prompt, default, InputPurpose::Plugin(callback))));
             }
             Request::TogglePanel(name) => {
                 if let Some(i) = self.open_plugin_panels.iter().position(|n| *n == name) {

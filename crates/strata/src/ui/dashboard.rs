@@ -260,6 +260,7 @@ fn draw_usage(frame: &mut Frame, app: &mut App, area: Rect) {
     let height = inner.height as usize;
     let cursor = app.dashboard.cursor;
     let offset = cursor.saturating_sub(height.saturating_sub(1));
+    app.layout.list_offset = offset;
     let width = inner.width as usize;
     let name_w = (width / 3).clamp(10, 40);
     let bar_w = width.saturating_sub(name_w + 22).max(4);

@@ -429,18 +429,22 @@ impl App {
         true
     }
 
+    /// Deletes trashed items for good, or empties the trash, as a job: a
+    /// big trash takes a while and must not freeze the UI.
     pub(super) fn purge_trash(&mut self, items: Option<Vec<TrashedItem>>) {
-        let result = match items {
-            Some(items) => {
-                let n = items.len();
-                trash::purge(items).map(|()| n)
-            }
-            None => trash::empty(),
+        let label = match &items {
+            Some(items) => format!("Delete {} item(s) from the trash", items.len()),
+            None => "Empty the trash".into(),
         };
-        match result {
-            Ok(n) => self.info(format!("deleted {n} item(s) from the trash")),
-            Err(e) => self.error(format!("{e:#}")),
-        }
+        self.jobs.spawn(label, move |_| {
+            match items {
+                Some(items) => trash::purge(items)?,
+                None => {
+                    trash::empty()?;
+                }
+            }
+            Ok(())
+        });
     }
 
     // --- archives -------------------------------------------------------------

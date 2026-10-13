@@ -54,6 +54,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 fn draw_files(frame: &mut Frame, app: &mut App, area: Rect) {
     let general = &app.config.general;
     let show_sidebar = general.sidebar && general.sidebar_width > 0 && area.width >= 90;
+    // Keys must not drive a sidebar that is hidden (toggled off, or the
+    // terminal is too narrow).
+    if !show_sidebar && app.focus == crate::app::Focus::Sidebar {
+        app.focus = crate::app::Focus::Panels;
+    }
     let show_preview = general.preview && area.width >= 70;
     let plugin_panels = app.visible_plugin_panels().len() as u16;
     let plugin_width = if area.width >= 120 { 32 * plugin_panels } else { 0 };

@@ -126,4 +126,11 @@ pub enum AppEvent {
     },
     /// Connections that have a password in the keychain.
     Keychain(std::collections::HashSet<String>),
+    /// Finishes work started with `App::run_io` on the UI thread.
+    Then(Box<dyn FnOnce(&mut crate::app::App) + Send>),
+    /// An SMB share's keychain password was looked up: mount it.
+    MountReady {
+        conn: Connection,
+        password: Option<String>,
+    },
 }

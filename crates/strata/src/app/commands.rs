@@ -326,30 +326,38 @@ impl App {
         let path = p.vfs.join(&into, name);
         let vfs = p.vfs.clone();
         // The outermost path that does not exist yet is what undo removes.
-        let first = name.split(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(name);
-        let first_path = vfs.join(&into, first);
-        let created = (!vfs.exists(&first_path)).then(|| first_path.clone());
-        let result = if dir {
-            vfs.create_dir(&path)
-        } else {
-            let parent = vfs.parent(&path).filter(|parent| !vfs.exists(parent));
-            parent.map(|parent| vfs.create_dir(&parent)).transpose().and_then(|_| vfs.create_file(&path))
+        let first = name.split(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(name).to_string();
+        let first_path = vfs.join(&into, &first);
+        let work = {
+            let (vfs, path, first_path) = (vfs.clone(), path.clone(), first_path.clone());
+            move || {
+                let created = (!vfs.exists(&first_path)).then_some(first_path);
+                if dir {
+                    vfs.create_dir(&path)?;
+                } else {
+                    if let Some(parent) = vfs.parent(&path).filter(|parent| !vfs.exists(parent)) {
+                        vfs.create_dir(&parent)?;
+                    }
+                    vfs.create_file(&path)?;
+                }
+                Ok(created)
+            }
         };
-        match result {
-            Ok(()) => {
-                self.panel_mut().reload();
-                self.panel_mut().focus_path(&first_path);
+        self.run_io(&vfs.clone(), work, move |app, result| match result {
+            Ok(created) => {
+                app.panel_mut().reload();
+                app.panel_mut().focus_path(&first_path);
                 let data = strata_plugin::PluginValue::map([
                     ("path", strata_plugin::PluginValue::str(path.to_string_lossy())),
                     ("dir", strata_plugin::PluginValue::Bool(dir)),
                 ]);
                 if let Some(path) = created {
-                    self.push_undo(format!("create {first}"), vec![super::undo::UndoOp::Created { vfs, path }]);
+                    app.push_undo(format!("create {first}"), vec![super::undo::UndoOp::Created { vfs, path }]);
                 }
-                self.emit_plugin_event_with("create", data);
+                app.emit_plugin_event_with("create", data);
             }
-            Err(e) => self.error(format!("{e:#}")),
-        }
+            Err(e) => app.error(format!("{e:#}")),
+        });
     }
 
     fn rename(&mut self, from: PathBuf, new_name: &str) {
@@ -362,21 +370,28 @@ impl App {
         if to == from {
             return;
         }
-        if vfs.exists(&to) {
-            return self.error(format!("'{new_name}' already exists"));
-        }
-        match vfs.rename(&from, &to) {
+        let new_name = new_name.to_string();
+        let work = {
+            let (vfs, from, to, new_name) = (vfs.clone(), from.clone(), to.clone(), new_name.clone());
+            move || {
+                if vfs.exists(&to) {
+                    anyhow::bail!("'{new_name}' already exists");
+                }
+                vfs.rename(&from, &to)
+            }
+        };
+        self.run_io(&vfs.clone(), work, move |app, result| match result {
             Ok(()) => {
                 if vfs.is_local() {
-                    self.tags.moved(&from, &to);
+                    app.tags.moved(&from, &to);
                 }
-                self.emit_rename_event(&from, &to);
-                self.panel_mut().reload();
-                self.panel_mut().focus_path(&to);
-                self.push_undo(format!("rename to {new_name}"), vec![super::undo::UndoOp::Rename { vfs, from, to }]);
+                app.emit_rename_event(&from, &to);
+                app.panel_mut().reload();
+                app.panel_mut().focus_path(&to);
+                app.push_undo(format!("rename to {new_name}"), vec![super::undo::UndoOp::Rename { vfs, from, to }]);
             }
-            Err(e) => self.error(format!("{e:#}")),
-        }
+            Err(e) => app.error(format!("{e:#}")),
+        });
     }
 
     pub(super) fn submit_input(&mut self) {
@@ -430,6 +445,18 @@ impl App {
     }
 
     pub(super) fn submit_picker(&mut self) {
+        // Enter on nothing keeps the picker open and says why, rather than
+        // closing it silently.
+        if let Some(Overlay::Picker(p)) = &self.overlay {
+            if p.matches.is_empty() && !matches!(p.purpose, PickerPurpose::Plugin(_)) {
+                let message = match (&p.purpose, p.query.is_empty()) {
+                    (PickerPurpose::Find { .. }, _) if p.items.is_empty() => "still indexing…".to_string(),
+                    (_, true) => "nothing to pick".to_string(),
+                    (_, false) => format!("nothing matches '{}' · backspace edits, esc closes", p.query),
+                };
+                return self.notify(message, Level::Warn);
+            }
+        }
         let Some(Overlay::Picker(picker)) = self.overlay.take() else {
             return;
         };
@@ -543,14 +570,27 @@ impl App {
             _ => Vec::new(),
         };
         let completion = match candidates.as_slice() {
-            [] => return,
+            [] => return self.notify("no completions", Level::Warn),
             [one] => one.clone(),
             many => common_prefix(many),
         };
-        if let Some(Overlay::Input(input)) = &mut self.overlay {
-            if completion.len() >= input.value.len() {
+        if completion.len() > value.len() {
+            if let Some(Overlay::Input(input)) = &mut self.overlay {
                 input.set(completion);
             }
+        } else if candidates.len() > 1 {
+            // Nothing more in common: list what Tab can't choose between.
+            let names: Vec<&str> = candidates
+                .iter()
+                .map(|c| {
+                    let name = c.trim_end_matches([' ', '/']);
+                    let start = name.rfind([' ', '/']).map_or(0, |i| i + 1);
+                    &c[start..]
+                })
+                .collect();
+            let shown = names.iter().take(12).copied().collect::<Vec<_>>().join("  ");
+            let more = if names.len() > 12 { format!("  … {} more", names.len() - 12) } else { String::new() };
+            self.info(format!("{shown}{more}"));
         }
     }
 
@@ -561,13 +601,22 @@ impl App {
             None => ("", partial),
         };
         let dir = if dir_part.is_empty() { p.cwd.clone() } else { self.resolve(dir_part) };
-        let Ok(entries) = p.vfs.read_dir(&dir) else {
+        // The panel's own folder is listed already; other remote folders
+        // would mean a network round trip on every Tab, so they are skipped.
+        let names: Vec<String> = if p.vfs.is_local() {
+            let Ok(entries) = p.vfs.read_dir(&dir) else {
+                return Vec::new();
+            };
+            entries.into_iter().filter(|e| e.is_dir()).map(|e| e.name).collect()
+        } else if dir == p.cwd && p.flat.is_none() && !p.tree {
+            p.dirs().filter_map(|d| d.file_name()).map(|n| n.to_string_lossy().into_owned()).collect()
+        } else {
             return Vec::new();
         };
-        let mut out: Vec<String> = entries
+        let mut out: Vec<String> = names
             .into_iter()
-            .filter(|e| e.is_dir() && e.name.starts_with(name_part) && (name_part.starts_with('.') || !e.is_hidden()))
-            .map(|e| format!("{dir_part}{}/", e.name))
+            .filter(|n| n.starts_with(name_part) && (name_part.starts_with('.') || !n.starts_with('.')))
+            .map(|n| format!("{dir_part}{n}/"))
             .collect();
         out.sort();
         out

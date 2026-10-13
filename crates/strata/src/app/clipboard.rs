@@ -107,7 +107,7 @@ fn run_to_end(argv: &[&str], text: &str) -> bool {
 }
 
 fn which(program: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    strata_core::nas::which(program)
 }
 
 /// The OSC 52 sequence setting the clipboard to `text`, wrapped in a DCS

@@ -166,6 +166,10 @@ pub struct LayoutCache {
     pub sidebar: Option<Rect>,
     pub preview: Option<Rect>,
     pub list: Option<Rect>,
+    /// First row shown in `list` (it scrolls with the cursor).
+    pub list_offset: usize,
+    /// Furthest the open help or text popup can scroll.
+    pub popup_max_scroll: std::cell::Cell<usize>,
 }
 
 pub struct App {
@@ -192,6 +196,9 @@ pub struct App {
     pub sidebar: Sidebar,
     pub pinned: Vec<PathBuf>,
     pub overlay: Option<Overlay>,
+    /// Overlays from background results that arrived while another was
+    /// open, shown in turn once it closes.
+    overlay_queue: std::collections::VecDeque<Overlay>,
     pub clipboard: Option<Clipboard>,
     pub jobs: JobManager<AppEvent>,
     pub notifications: Vec<Notification>,
@@ -332,6 +339,7 @@ impl App {
             sidebar: Sidebar::default(),
             pinned,
             overlay: None,
+            overlay_queue: Default::default(),
             clipboard: None,
             jobs,
             notifications: Vec::new(),
@@ -529,6 +537,16 @@ impl App {
     }
 
     fn drain_events(&mut self) {
+        // Local listings that were too slow to wait for.
+        let active_id = self.panels.get(self.active).map(|p| p.id);
+        let mut active_listed = false;
+        for p in self.panels.iter_mut().chain(self.tabs.iter_mut().flat_map(|t| t.panels.iter_mut())) {
+            active_listed |= p.poll_listing() && Some(p.id) == active_id;
+        }
+        if active_listed {
+            self.invalidate_preview();
+            self.on_flat_listed();
+        }
         while let Ok(listing) = self.listing_rx.try_recv() {
             let id = listing.panel;
             let active = self.panels.get(self.active).is_some_and(|p| p.id == id);
@@ -623,7 +641,7 @@ impl App {
             AppEvent::Text { title, body } => {
                 let lines = body.lines().map(str::to_string).collect::<Vec<_>>();
                 let scroll = lines.len().saturating_sub(10);
-                self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll, colored: false }));
+                self.show_overlay(Overlay::Text(overlay::TextPopup { title, lines, scroll, colored: false }));
             }
             AppEvent::Notify { message, level } => self.notify(message, level),
             AppEvent::Inspected { path, arch } => {
@@ -641,13 +659,15 @@ impl App {
             AppEvent::DirSizesDone { root } => self.on_dir_sizes_done(root),
             AppEvent::Grep { root, pattern, result } => self.on_grep_results(root, pattern, result),
             AppEvent::Keychain(names) => self.nas.saved_passwords = names,
+            AppEvent::MountReady { conn, password } => self.mount_connection(conn, password),
+            AppEvent::Then(finish) => finish(self),
             AppEvent::Checksum { path, sums } => {
                 if self.inspection.path.as_ref() == Some(&path) {
                     self.inspection.sums = Some(sums);
                 }
             }
             AppEvent::Report { title, lines } => {
-                self.overlay = Some(Overlay::Text(overlay::TextPopup { title, lines, scroll: 0, colored: true }));
+                self.show_overlay(Overlay::Text(overlay::TextPopup { title, lines, scroll: 0, colored: true }));
             }
             AppEvent::SyncPlanned(request) => self.on_sync_planned(*request),
             AppEvent::Dupes { root, report } => self.on_dupes_found(root, report),
@@ -663,6 +683,9 @@ impl App {
     /// Periodic work: key-sequence timeouts, previews, plugin refresh and
     /// polling views.
     fn tick(&mut self) {
+        if self.overlay.is_none() {
+            self.overlay = self.overlay_queue.pop_front();
+        }
         if !self.pending_keys.is_empty() && self.pending_since.elapsed() > Duration::from_millis(900) {
             self.flush_pending_keys();
         }
@@ -757,11 +780,6 @@ impl App {
                 return;
             }
             self.preview_generation += 1;
-            if let Some(lines) = self.plugin_preview(&entry) {
-                self.preview = lines;
-                self.preview_due = None;
-                return;
-            }
             if !same_path {
                 self.preview = PreviewContent::Loading;
             }
@@ -769,6 +787,12 @@ impl App {
         }
         if self.preview_due.is_some_and(|due| Instant::now() >= due) {
             self.preview_due = None;
+            // Plugin previewers run Lua on this thread, so like the built-in
+            // previews they wait until the cursor settles.
+            if let Some(lines) = self.plugin_preview(&entry) {
+                self.preview = lines;
+                return;
+            }
             preview::PreviewJob {
                 generation: self.preview_generation,
                 vfs: self.panel().vfs.clone(),
@@ -807,6 +831,38 @@ impl App {
                 .filter_map(|(on, algo)| on.then_some(algo))
                 .collect();
             workers::inspect(self.tx.clone(), self.panel().vfs.clone(), path, algos, progress);
+        }
+    }
+
+    /// Runs `work` and hands its result to `done`: on a worker thread for
+    /// remote filesystems, where each call is a network round trip that
+    /// must not freeze the UI, and right away for local ones.
+    pub(super) fn run_io<T: Send + 'static>(
+        &mut self,
+        vfs: &VfsRef,
+        work: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+        done: impl FnOnce(&mut App, anyhow::Result<T>) + Send + 'static,
+    ) {
+        if vfs.is_local() {
+            let result = work();
+            return done(self, result);
+        }
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let result = work();
+            let _ = tx.send(AppEvent::Then(Box::new(move |app: &mut App| done(app, result))));
+        });
+    }
+
+    /// Shows an overlay for a result that arrived in the background. If one
+    /// is already open it waits its turn, so it never takes over a prompt
+    /// the user is typing in (where their next key would answer it).
+    pub(super) fn show_overlay(&mut self, overlay: Overlay) {
+        if self.overlay.is_none() {
+            self.overlay = Some(overlay);
+        } else {
+            self.overlay_queue.push_back(overlay);
+            self.info("a result is waiting: it opens when you close this");
         }
     }
 

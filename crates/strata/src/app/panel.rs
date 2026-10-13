@@ -5,8 +5,9 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
+use std::time::Duration;
 
 use strata_core::find::{self, Query};
 use strata_core::search::Fuzzy;
@@ -17,7 +18,13 @@ use strata_core::{Entry, EntryKind, Vfs, VfsRef};
 /// stall the panel.
 const TREE_LIMIT: usize = 20_000;
 
-/// A directory listing produced off the UI thread (remote locations).
+/// How long the UI waits for a local listing before showing the panel as
+/// loading and taking the listing whenever it arrives. Most folders list in
+/// a few milliseconds; a huge folder, a slow disk or a stale network mount
+/// must not freeze the UI.
+const LOCAL_WAIT: Duration = Duration::from_millis(100);
+
+/// A directory listing produced off the UI thread.
 pub struct Listing {
     pub panel: u64,
     generation: u64,
@@ -81,6 +88,9 @@ pub struct Panel {
     generation: u64,
     /// A background listing is in flight.
     pub loading: bool,
+    /// A local listing that took longer than [`LOCAL_WAIT`], picked up by
+    /// [`Panel::poll_listing`].
+    inflight: Option<Receiver<Listing>>,
     /// Name to put the cursor on once the listing arrives.
     pending_focus: Option<String>,
     /// Counts listings, so folder sizes are copied into each new one.
@@ -124,6 +134,7 @@ impl Panel {
             lister,
             generation: 0,
             loading: false,
+            inflight: None,
             pending_focus: None,
             listed: 0,
             sizes_seen: (0, 0),
@@ -192,8 +203,8 @@ impl Panel {
     }
 
     /// Re-reads the directory, keeping the cursor on the same name if
-    /// possible. Remote locations are listed in the background so a slow
-    /// server never freezes the UI.
+    /// possible. Listings run off the UI thread so a slow server or mount
+    /// never freezes it (see [`Panel::start_listing`]).
     pub fn reload(&mut self) {
         if self.pending_focus.is_none() {
             self.pending_focus = self.hovered().map(|e| self.label(e).into_owned());
@@ -201,43 +212,67 @@ impl Panel {
         if let Some(flat) = &self.flat {
             return self.reload_flat(flat.source.clone());
         }
+        let (vfs, root) = (self.vfs.clone(), self.cwd.clone());
+        let remote = !vfs.is_local();
         if self.tree {
-            return self.reload_tree();
+            let (expanded, sort) = (self.expanded.clone(), self.sort);
+            return self.start_listing(remote, move || build_tree(&*vfs, &root, &expanded, sort));
         }
-        match self.lister.clone().filter(|_| !self.vfs.is_local()) {
-            Some(tx) => {
-                self.generation += 1;
-                self.loading = true;
-                let (vfs, path, panel, generation) = (self.vfs.clone(), self.cwd.clone(), self.id, self.generation);
-                std::thread::spawn(move || {
-                    let result = vfs.read_dir(&path).map_err(|e| format!("{e:#}"));
-                    let _ = tx.send(Listing { panel, generation, path, result, depths: Vec::new(), truncated: false });
-                });
+        self.start_listing(remote, move || (vfs.read_dir(&root).map_err(|e| format!("{e:#}")), Vec::new(), false));
+    }
+
+    /// Lists on a worker thread. With `background` (and a lister) the panel
+    /// shows as loading until the listing arrives; otherwise it waits up to
+    /// [`LOCAL_WAIT`] so a quick listing shows at once, without flicker.
+    fn start_listing<F>(&mut self, background: bool, build: F)
+    where
+        F: FnOnce() -> (Result<Vec<Entry>, String>, Vec<u16>, bool) + Send + 'static,
+    {
+        self.generation += 1;
+        self.inflight = None;
+        let (panel, generation, path) = (self.id, self.generation, self.cwd.clone());
+        let run = move || {
+            let (result, depths, truncated) = build();
+            Listing { panel, generation, path, result, depths, truncated }
+        };
+        if let Some(tx) = self.lister.clone().filter(|_| background) {
+            self.loading = true;
+            std::thread::spawn(move || {
+                let _ = tx.send(run());
+            });
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(run());
+        });
+        match rx.recv_timeout(LOCAL_WAIT) {
+            Ok(listing) => {
+                self.apply_listing(listing);
             }
-            None => {
-                let result = self.vfs.read_dir(&self.cwd).map_err(|e| format!("{e:#}"));
-                self.apply_entries(result, Vec::new());
+            Err(_) => {
+                self.loading = true;
+                self.inflight = Some(rx);
             }
         }
     }
 
-    /// Lists the directory with its expanded folders nested inside.
-    fn reload_tree(&mut self) {
-        let (vfs, root, expanded) = (self.vfs.clone(), self.cwd.clone(), self.expanded.clone());
-        match self.lister.clone().filter(|_| !self.vfs.is_local()) {
-            Some(tx) => {
-                self.generation += 1;
-                self.loading = true;
-                let (path, panel, generation) = (self.cwd.clone(), self.id, self.generation);
-                std::thread::spawn(move || {
-                    let (result, depths, truncated) = build_tree(&*vfs, &root, &expanded);
-                    let _ = tx.send(Listing { panel, generation, path, result, depths, truncated });
-                });
+    /// Applies a slow local listing if it has arrived. Returns whether the
+    /// entries changed.
+    pub fn poll_listing(&mut self) -> bool {
+        let Some(rx) = &self.inflight else {
+            return false;
+        };
+        match rx.try_recv() {
+            Ok(listing) => {
+                self.inflight = None;
+                self.apply_listing(listing)
             }
-            None => {
-                let (result, depths, truncated) = build_tree(&*vfs, &root, &expanded);
-                self.tree_truncated = truncated;
-                self.apply_entries(result, depths);
+            Err(TryRecvError::Empty) => false,
+            Err(TryRecvError::Disconnected) => {
+                self.inflight = None;
+                self.loading = false;
+                false
             }
         }
     }
@@ -353,24 +388,10 @@ impl Panel {
                 FlatSource::Paths(paths) => (Ok(paths.iter().filter_map(|p| vfs.stat(p).ok()).collect()), false),
             }
         };
-        match self.lister.clone() {
-            Some(tx) => {
-                self.generation += 1;
-                self.loading = true;
-                let (path, panel, generation) = (self.cwd.clone(), self.id, self.generation);
-                std::thread::spawn(move || {
-                    let (result, truncated) = build();
-                    let _ = tx.send(Listing { panel, generation, path, result, depths: Vec::new(), truncated });
-                });
-            }
-            None => {
-                let (result, truncated) = build();
-                if let Some(flat) = &mut self.flat {
-                    flat.truncated = truncated;
-                }
-                self.apply_entries(result, Vec::new());
-            }
-        }
+        self.start_listing(true, move || {
+            let (result, truncated) = build();
+            (result, Vec::new(), truncated)
+        });
     }
 
     /// Applies a background listing. Returns false if it is stale.
@@ -481,10 +502,16 @@ impl Panel {
         self.clamp();
     }
 
+    /// Typing a filter puts the cursor on the best match; clearing it
+    /// keeps the cursor on the item found with it.
     pub fn set_filter(&mut self, filter: &str) {
+        let keep = filter.is_empty().then(|| self.hovered().map(|e| e.path.clone())).flatten();
         self.filter = filter.to_string();
         self.cursor = 0;
         self.refilter();
+        if let Some(path) = keep {
+            self.focus_path(&path);
+        }
     }
 
     /// Changes directory, recording history. Returns false on failure.
@@ -496,8 +523,8 @@ impl Panel {
         // Local folders are checked first so a failed cd keeps the listing;
         // remote ones report errors when their listing arrives.
         if self.vfs.is_local() {
-            if let Err(e) = self.vfs.read_dir(&path) {
-                self.error = Some(format!("{e:#}"));
+            if let Some(Err(e)) = can_open_dir(&path) {
+                self.error = Some(e);
                 return false;
             }
         }
@@ -567,7 +594,11 @@ impl Panel {
     }
 
     /// Puts the cursor on the entry listed as `name` (see [`Panel::label`]).
+    /// While a listing is in flight, the cursor goes there once it arrives.
     pub fn focus_name(&mut self, name: &str) {
+        if self.loading {
+            self.pending_focus = Some(name.to_string());
+        }
         if let Some(row) = self.visible.iter().position(|(i, _)| self.label(&self.entries[*i]) == name) {
             self.cursor = row;
             self.clamp();
@@ -575,6 +606,14 @@ impl Panel {
     }
 
     pub fn focus_path(&mut self, path: &Path) {
+        if self.loading {
+            let name = match path.strip_prefix(&self.cwd) {
+                Ok(rel) if self.flat.is_some() || self.tree => Some(strata_core::util::posix(rel)),
+                _ if self.flat.is_some() || self.tree => Some(super::short_path(path)),
+                _ => path.file_name().map(|n| n.to_string_lossy().into_owned()),
+            };
+            self.pending_focus = name.or(self.pending_focus.take());
+        }
         if let Some(row) = self.visible.iter().position(|(i, _)| self.entries[*i].path == path) {
             self.cursor = row;
             self.clamp();
@@ -721,19 +760,50 @@ impl Panel {
 
 pub use strata_core::util::glob_match;
 
+/// Whether a local folder can be opened, without listing it. `None` when
+/// the check takes longer than [`LOCAL_WAIT`] (a slow or stale mount): the
+/// listing then reports any error when it arrives.
+fn can_open_dir(path: &Path) -> Option<Result<(), String>> {
+    let (tx, rx) = mpsc::channel();
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        let result = std::fs::read_dir(&path).map(drop).map_err(|e| format!("read {}: {e}", path.display()));
+        let _ = tx.send(result);
+    });
+    rx.recv_timeout(LOCAL_WAIT).ok()
+}
+
 /// Lists `root` and, depth first, every expanded folder below it. Folders
 /// that cannot be read are shown collapsed. Returns the entries in tree
-/// order (unsorted within each folder), their depths and whether the
-/// listing stopped at [`TREE_LIMIT`].
-fn build_tree(vfs: &dyn Vfs, root: &Path, expanded: &HashSet<PathBuf>) -> (Result<Vec<Entry>, String>, Vec<u16>, bool) {
+/// order, their depths and whether the listing stopped at [`TREE_LIMIT`].
+/// Each folder is sorted as it is read, so a cut-off folder shows its
+/// first items, and the items after it at the levels above stay listed.
+fn build_tree(
+    vfs: &dyn Vfs,
+    root: &Path,
+    expanded: &HashSet<PathBuf>,
+    sort: SortOptions,
+) -> (Result<Vec<Entry>, String>, Vec<u16>, bool) {
+    let sorted = |mut entries: Vec<Entry>| {
+        sort_entries(&mut entries, sort);
+        entries
+    };
     let top = match vfs.read_dir(root) {
-        Ok(top) => top,
+        Ok(top) => sorted(top),
         Err(e) => return (Err(format!("{e:#}")), Vec::new(), false),
     };
     let (mut entries, mut depths) = (Vec::new(), Vec::new());
     let mut stack: Vec<(Entry, u16)> = top.into_iter().rev().map(|e| (e, 0)).collect();
     while let Some((entry, depth)) = stack.pop() {
         if entries.len() >= TREE_LIMIT {
+            // Skip the rest of this folder, but not what follows it.
+            stack.push((entry, depth));
+            while let Some((entry, d)) = stack.pop() {
+                if d < depth {
+                    entries.push(entry);
+                    depths.push(d);
+                }
+            }
             return (Ok(entries), depths, true);
         }
         // Only folders the user opened are read, one level per expansion,
@@ -744,7 +814,7 @@ fn build_tree(vfs: &dyn Vfs, root: &Path, expanded: &HashSet<PathBuf>) -> (Resul
         depths.push(depth);
         if open {
             if let Ok(children) = vfs.read_dir(&path) {
-                stack.extend(children.into_iter().rev().map(|c| (c, depth + 1)));
+                stack.extend(sorted(children).into_iter().rev().map(|c| (c, depth + 1)));
             }
         }
     }
@@ -814,6 +884,8 @@ mod tests {
         assert_eq!(p.targets(), vec![dir.path().join("b.txt")]);
         p.set_filter("bt");
         assert_eq!(p.len(), 1);
+        p.set_filter("");
+        assert_eq!(p.hovered().unwrap().name, "b.txt", "clearing the filter keeps the cursor");
         assert!(p.go_back());
     }
 
@@ -1045,5 +1117,75 @@ mod tests {
         assert!(p.loading);
         assert!(p.apply_listing(rx.recv().unwrap()));
         assert_eq!(rows(&p), [(0, "sub".into()), (1, "inner.txt".into())]);
+    }
+
+    /// A local folder that takes a while to list (a slow disk or mount).
+    #[derive(Debug)]
+    struct Slow(LocalVfs);
+
+    impl strata_core::Vfs for Slow {
+        fn scheme(&self) -> &'static str {
+            "local"
+        }
+        fn label(&self) -> String {
+            "local".into()
+        }
+        fn is_local(&self) -> bool {
+            true
+        }
+        fn home(&self) -> PathBuf {
+            self.0.home()
+        }
+        fn read_dir(&self, path: &Path) -> anyhow::Result<Vec<Entry>> {
+            std::thread::sleep(LOCAL_WAIT * 3);
+            self.0.read_dir(path)
+        }
+        fn stat(&self, path: &Path) -> anyhow::Result<Entry> {
+            self.0.stat(path)
+        }
+        fn create_dir(&self, path: &Path) -> anyhow::Result<()> {
+            self.0.create_dir(path)
+        }
+        fn create_file(&self, path: &Path) -> anyhow::Result<()> {
+            self.0.create_file(path)
+        }
+        fn remove_file(&self, path: &Path) -> anyhow::Result<()> {
+            self.0.remove_file(path)
+        }
+        fn remove_dir(&self, path: &Path) -> anyhow::Result<()> {
+            self.0.remove_dir(path)
+        }
+        fn rename(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
+            self.0.rename(from, to)
+        }
+        fn reader(&self, path: &Path) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
+            self.0.reader(path)
+        }
+        fn writer(&self, path: &Path) -> anyhow::Result<Box<dyn std::io::Write + Send>> {
+            self.0.writer(path)
+        }
+    }
+
+    #[test]
+    fn slow_local_listings_do_not_block_and_keep_the_requested_focus() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(dir.path().join(name), "").unwrap();
+        }
+        let vfs: VfsRef = Arc::new(Slow(LocalVfs));
+        let started = std::time::Instant::now();
+        let mut p = Panel::new(vfs, dir.path().to_path_buf(), SortOptions::default(), false, None);
+        assert!(started.elapsed() < LOCAL_WAIT * 2, "the UI only waits briefly");
+        assert!(p.loading);
+        assert_eq!(p.len(), 0);
+
+        p.focus_path(&dir.path().join("b.txt"));
+        while !p.poll_listing() {
+            assert!(started.elapsed() < Duration::from_secs(5), "the listing never arrived");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!p.loading);
+        assert_eq!(p.len(), 3);
+        assert_eq!(p.hovered().unwrap().name, "b.txt");
     }
 }

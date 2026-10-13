@@ -42,23 +42,31 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         }
         Overlay::Picker(picker) => draw_picker(frame, app, picker, area),
         Overlay::Confirm(c) => {
-            let width = (c.message.width() as u16 + 6).clamp(36, 80);
-            let rect = centered(area, width, 6);
+            let width = (c.message.width() as u16 + 6).clamp(36, 80).min(area.width.saturating_sub(2));
+            // Tall enough for the wrapped message, the blank line and the keys.
+            let text_lines = wrapped_lines(&c.message, width.saturating_sub(4) as usize);
+            let rect = centered(area, width, text_lines as u16 + 4);
             frame.render_widget(Clear, rect);
             let b = block(&app.theme, app.border, "Confirm", true);
             let inner = b.inner(rect);
             frame.render_widget(b, rect);
             let lines = vec![
-                Line::styled(format!(" {}", c.message), Style::default().fg(app.theme.fg)),
+                Line::styled(c.message.as_str(), Style::default().fg(app.theme.fg)),
                 Line::raw(""),
                 Line::from(vec![
-                    Span::styled(" [y]", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
+                    Span::styled("[y]", Style::default().fg(app.theme.success).add_modifier(Modifier::BOLD)),
                     Span::styled("es   ", Style::default().fg(app.theme.muted)),
                     Span::styled("[n]", Style::default().fg(app.theme.error).add_modifier(Modifier::BOLD)),
                     Span::styled("o", Style::default().fg(app.theme.muted)),
+                    Span::styled(
+                        if c.action.is_destructive() { "   (press y to confirm)" } else { "   (enter = yes)" },
+                        Style::default().fg(app.theme.muted),
+                    ),
                 ]),
             ];
-            frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+            // A margin keeps wrapped lines aligned with the first.
+            let text = inner.inner(ratatui::layout::Margin { horizontal: 1, vertical: 0 });
+            frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), text);
         }
         Overlay::Conflict(c) => {
             let theme = &app.theme;
@@ -70,10 +78,11 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             let inner = b.inner(rect);
             frame.render_widget(b, rect);
             let width = inner.width as usize;
-            let mut lines = vec![Line::styled(
-                truncate(&format!(" {} item(s) already exist in {dest}:", c.names.len()), width),
-                Style::default().fg(theme.fg),
-            )];
+            // Cut the folder from the left: its own name is the useful end.
+            let lead = format!(" {} item(s) already exist in ", c.names.len());
+            let dest = super::truncate_left(&format!("{dest}:"), width.saturating_sub(lead.width()).max(8));
+            let mut lines =
+                vec![Line::styled(truncate(&format!("{lead}{dest}"), width), Style::default().fg(theme.fg))];
             for name in c.names.iter().take(shown) {
                 lines.push(Line::styled(truncate(&format!("   • {name}"), width), Style::default().fg(theme.warning)));
             }
@@ -279,12 +288,34 @@ fn draw_text(frame: &mut Frame, app: &App, area: Rect, title: &str, lines: &[Str
     render_scrollable(frame, app, rect, title, lines, scroll);
 }
 
+/// Lines `text` takes when word-wrapped to `width` columns.
+fn wrapped_lines(text: &str, width: usize) -> usize {
+    let width = width.max(1);
+    let (mut lines, mut used) = (1, 0);
+    for word in text.split(' ') {
+        let w = word.width();
+        let needed = if used == 0 { w } else { used + 1 + w };
+        if needed <= width {
+            used = needed;
+            continue;
+        }
+        if used > 0 {
+            lines += 1;
+        }
+        // A word longer than the line is broken across lines.
+        lines += w.saturating_sub(1) / width;
+        used = w.saturating_sub(1) % width + 1;
+    }
+    lines
+}
+
 fn render_scrollable(frame: &mut Frame, app: &App, rect: Rect, title: &str, lines: Vec<Line>, scroll: usize) {
     frame.render_widget(Clear, rect);
     let total = lines.len();
     let b = block(&app.theme, app.border, title, true);
     let inner = b.inner(rect);
     let max_scroll = total.saturating_sub(inner.height as usize);
+    app.layout.popup_max_scroll.set(max_scroll);
     let scroll = scroll.min(max_scroll);
     let b = b.title_bottom(
         Line::styled(
@@ -332,4 +363,17 @@ fn which_key(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrapped_lines;
+
+    #[test]
+    fn counts_word_wrapped_lines() {
+        assert_eq!(wrapped_lines("short", 20), 1);
+        assert_eq!(wrapped_lines("one two three", 9), 2);
+        assert_eq!(wrapped_lines("one two three four", 9), 3);
+        assert_eq!(wrapped_lines("aaaaaaaaaaaaaaaaaaaaaaaaa", 10), 3, "long words are broken");
+    }
 }

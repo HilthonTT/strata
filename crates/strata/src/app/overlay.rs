@@ -230,7 +230,11 @@ impl PickerState {
             return;
         }
         let len = self.matches.len() as isize;
-        self.cursor = (self.cursor as isize + delta).rem_euclid(len) as usize;
+        // Single steps wrap around; page jumps stop at the ends.
+        self.cursor = match delta {
+            -1 | 1 => (self.cursor as isize + delta).rem_euclid(len),
+            _ => (self.cursor as isize + delta).clamp(0, len - 1),
+        } as usize;
     }
 
     pub fn focus(&mut self, item: &str) {
@@ -270,6 +274,23 @@ pub enum Confirm {
     /// Run an operation refused for lack of permission as root.
     Elevate(strata_core::elevate::Privileged),
     Quit,
+}
+
+impl Confirm {
+    /// Cannot be undone (or not by strata), so only `y` confirms it, never
+    /// an Enter meant for something else.
+    pub fn is_destructive(&self) -> bool {
+        match self {
+            Confirm::Delete { permanent, .. } => *permanent,
+            Confirm::DockerRemove { .. }
+            | Confirm::PurgeTrash(_)
+            | Confirm::EmptyTrash
+            | Confirm::Sync(_)
+            | Confirm::GitDiscard { .. }
+            | Confirm::Elevate(_) => true,
+            Confirm::SavePassword { .. } | Confirm::TrashDupe(_) | Confirm::Quit => false,
+        }
+    }
 }
 
 pub struct ConfirmState {
@@ -317,5 +338,20 @@ mod tests {
         i.end();
         i.delete_word();
         assert_eq!(i.value, "");
+    }
+
+    #[test]
+    fn pickers_wrap_on_single_steps_and_stop_on_pages() {
+        let items = (0..20).map(|i| format!("item {i}")).collect();
+        let mut p = PickerState::new("t", items, PickerPurpose::Sort);
+        p.move_by(-1);
+        assert_eq!(p.cursor, 19, "up from the top wraps");
+        p.move_by(1);
+        assert_eq!(p.cursor, 0, "down from the bottom wraps");
+        p.move_by(15);
+        p.move_by(10);
+        assert_eq!(p.cursor, 19, "page down stops at the end");
+        p.move_by(-30);
+        assert_eq!(p.cursor, 0, "page up stops at the start");
     }
 }
