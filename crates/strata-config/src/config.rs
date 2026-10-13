@@ -101,6 +101,9 @@ pub struct General {
     /// Use the terminal's own background instead of the theme's.
     pub transparent: bool,
     pub show_hidden: bool,
+    /// Leave out files and folders git ignores (`.gitignore`,
+    /// `.git/info/exclude`, the global excludes file).
+    pub hide_gitignored: bool,
     /// Number of file panels opened at start.
     pub panels: usize,
     pub preview: bool,
@@ -166,6 +169,13 @@ pub struct General {
     /// Program that runs an operation refused for lack of permission again
     /// as root (`:sudo`), e.g. `doas` or `run0`. Empty = `sudo`.
     pub elevate: String,
+    /// Read every copied file back and compare SHA-256 checksums with the
+    /// original before a move deletes it (local destinations only).
+    pub verify_copies: bool,
+    /// Most bytes per second each copy job may move, like rclone's
+    /// `--bwlimit`: `10M`, `512K`. Empty = unlimited. `:limit` changes it
+    /// for the session.
+    pub bandwidth_limit: String,
     /// Program that receives copied text on stdin, e.g. `wl-copy`. Empty =
     /// detect one locally and fall back to the terminal (OSC 52);
     /// `osc52` = always the terminal.
@@ -180,6 +190,9 @@ pub struct General {
     pub markdown_preview: bool,
     /// Hex dump of binary files in the preview.
     pub hex_preview: bool,
+    /// CSV files as tables, JSON, YAML and TOML as outlines and SQLite
+    /// databases as their tables in the preview.
+    pub data_preview: bool,
     /// PDF pages, video frames, cover art and media details in the preview
     /// (with poppler-utils, ffmpeg or mediainfo installed).
     pub media_preview: bool,
@@ -199,6 +212,7 @@ impl Default for General {
             keymap: KeymapPreset::Vim,
             transparent: false,
             show_hidden: false,
+            hide_gitignored: false,
             panels: 2,
             preview: true,
             image_preview: true,
@@ -233,12 +247,15 @@ impl Default for General {
             si_units: false,
             shell_close_on_success: false,
             elevate: String::new(),
+            verify_copies: false,
+            bandwidth_limit: String::new(),
             clipboard: String::new(),
             check_updates: false,
             md5_checksum: false,
             sha256_checksum: false,
             markdown_preview: true,
             hex_preview: true,
+            data_preview: true,
             media_preview: true,
             browse_archives: true,
             diff_tool: String::new(),

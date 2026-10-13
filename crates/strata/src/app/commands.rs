@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use strata_config::Action;
 use strata_core::nas::Connection;
+use strata_core::ops::CopyOptions;
 use strata_core::sort::SortKey;
 use strata_core::util::expand_tilde;
 use strata_plugin::Level;
@@ -16,11 +17,15 @@ use super::App;
 pub const COMMANDS: &[(&str, &str)] = &[
     ("cd", "cd <path> — change directory"),
     ("local", "local [path] — leave a remote filesystem"),
+    ("z", "z [words] — jump to the best visited folder matching the words; no words: pick one"),
     ("mkdir", "mkdir <name> — create a directory"),
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
     ("rename-pattern", "rename-pattern <pattern> — rename marked items: photo-{n:3}{.ext}, s/find/repl/gi"),
-    ("select", "select <glob>|tag:<name> — mark matching items"),
+    (
+        "select",
+        "select <glob>|re:<regex>|tag:<name> — mark matching items; select save|add|load|delete <name>, select list — saved selections",
+    ),
     ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] [--tag t] — list matches below here"),
     ("flatten", "flatten — list every file below this folder, or go back"),
     ("tree", "tree — show folders as an expandable tree, or go back to the list"),
@@ -36,24 +41,26 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("chmod", "chmod [-R] <mode> — set permissions (755, u+x, go-w)"),
     ("chown", "chown [-R] <user[:group]> — change the owner"),
     ("compare", "compare — diff two marked items, or the hovered one with the next panel"),
-    ("sync", "sync [--mirror] [--newer] [--dry-run] — copy missing and changed files into the next panel"),
+    ("sync", "sync [--mirror] [--newer] [--verify] [--dry-run] — copy missing and changed files into the next panel"),
+    ("paste", "paste [--verify] — paste the clipboard here; --verify checks each copy against the original"),
     ("dupes", "dupes [keep oldest|newest|shortest] — find duplicate files here, or trash all but one copy"),
     ("checksum", "checksum [md5|sha1|sha256|sha512] — show checksums, or copy one"),
     ("verify", "verify [hash] — check a file against a hash, or a checksum file's list"),
-    ("compress", "compress [name] — pack marked items into a .zip or .tar.* archive"),
+    ("compress", "compress [--password] [name] — pack marked items into a .zip or .tar.* archive (AES-256 zip)"),
     ("extract", "extract — unpack the hovered archive here"),
     (
         "git",
         "git [diff|stage|unstage|discard|log|blame|commit [message]] — on marked items; no args: menu; else runs git",
     ),
     ("pause", "pause — pause or resume the latest running job"),
+    ("limit", "limit [rate|off] — cap the speed of new copies this session, e.g. 10M; no rate: show it"),
     ("retry", "retry — resume the latest failed or cancelled copy"),
     ("sudo", "sudo — run the last operation refused for lack of permission as root"),
     ("trash", "trash — browse, restore and delete trashed items"),
     ("empty-trash", "empty-trash — delete everything in the trash for good"),
     ("theme", "theme <name> — switch theme"),
-    ("sort", "sort name|size|modified|ext [rev]"),
-    ("set", "set hidden|preview|sidebar|footer|icons|dir_sizes [on|off]"),
+    ("sort", "sort name|size|modified|ext|<plugin sort> [rev]"),
+    ("set", "set hidden|gitignored|preview|sidebar|footer|icons|dir_sizes [on|off]"),
     ("connect", "connect <name|url> — open a connection: smb, nfs, sftp, s3, davs, ftp or rclone://remote"),
     ("disconnect", "disconnect <name> — unmount a share"),
     ("diagnose", "diagnose <name> — test a connection step by step"),
@@ -63,7 +70,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("tab", "tab <n> — go to tab n (or open a new one)"),
     ("undo", "undo — undo the last file operation"),
     ("password", "password <name> — save a NAS password in the keychain"),
-    ("forget", "forget <name> — remove a saved NAS password"),
+    ("forget", "forget [name] — remove a saved NAS password (no name: the hovered archive's)"),
     ("config", "config — edit config.toml"),
     ("plugins", "plugins — list loaded plugins"),
     ("messages", "messages — notification history"),
@@ -91,6 +98,7 @@ impl App {
                 let path = self.resolve(target);
                 self.cd(path);
             }
+            "z" | "jump" => self.z_command(args),
             "local" => {
                 let path = if args.is_empty() { dirs::home_dir().unwrap_or_default() } else { expand_tilde(args) };
                 self.cd_local(path);
@@ -102,10 +110,14 @@ impl App {
                     self.rename(path, args);
                 }
             }
+            "select" if self.selection_command(args) => {}
             "select" => {
                 let n = match args.strip_prefix("tag:") {
                     Some(tag) => self.select_tagged(tag),
-                    None => self.panel_mut().mark_glob(if args.is_empty() { "*" } else { args }),
+                    None => match self.panel_mut().mark_matching(if args.is_empty() { "*" } else { args }) {
+                        Ok(n) => n,
+                        Err(e) => return self.error(format!("select: {e}")),
+                    },
                 };
                 self.info(format!("marked {n} item(s)"));
             }
@@ -138,11 +150,17 @@ impl App {
             "chown" => self.error("usage: chown [-R] user[:group]"),
             "compare" | "diff" => self.dispatch(Action::Compare),
             "sync" => self.sync_command(args),
+            "paste" => match args {
+                "" => self.dispatch(Action::Paste),
+                "--verify" | "-v" => self.paste_with(CopyOptions { verify: true, ..Default::default() }),
+                _ => self.error("usage: paste [--verify]"),
+            },
             "dupes" | "duplicates" => self.dupes_command(args),
             "checksum" | "hash" => self.checksum(Some(args)),
             "compress" => self.compress_command(args),
             "extract" => self.extract_command(),
             "pause" => self.dispatch(Action::PauseJob),
+            "limit" | "bwlimit" => self.limit_command(args),
             "retry" | "resume" => self.dispatch(Action::RetryJob),
             "sudo" | "root" => self.dispatch(Action::RetryAsRoot),
             "verify" => self.verify(args),
@@ -196,6 +214,7 @@ impl App {
                 Some(conn) => self.prompt_save_password(conn.name),
                 None => self.error(format!("no connection named '{args}'")),
             },
+            "forget" if args.is_empty() => self.forget_archive_password(),
             "forget" => match self.connection(args) {
                 Some(conn) => self.forget_password(&conn.name),
                 None => self.error(format!("no connection named '{args}'")),
@@ -240,7 +259,7 @@ impl App {
     }
 
     /// Resolves a path typed by the user against the focused panel.
-    fn resolve(&self, input: &str) -> PathBuf {
+    pub(super) fn resolve(&self, input: &str) -> PathBuf {
         let p = self.panel();
         if p.vfs.is_local() {
             let path = expand_tilde(input);
@@ -261,8 +280,14 @@ impl App {
             Some("size") => SortKey::Size,
             Some("modified") | Some("time") | Some("mtime") => SortKey::Modified,
             Some("ext") | Some("extension") => SortKey::Extension,
-            _ => return self.error("usage: sort name|size|modified|ext [rev]"),
+            Some(name) if self.plugin_list.sorts.iter().any(|s| s.name == name) => {
+                let name = name.to_string();
+                self.panel_mut().sort.reverse = matches!(parts.next(), Some("rev") | Some("reverse") | Some("desc"));
+                return self.set_plugin_sort(Some(name));
+            }
+            _ => return self.error("usage: sort name|size|modified|ext|<plugin sort> [rev]"),
         };
+        self.set_plugin_sort(None);
         let reverse = matches!(parts.next(), Some("rev") | Some("reverse") | Some("desc"));
         let p = self.panel_mut();
         p.sort.key = key;
@@ -273,11 +298,13 @@ impl App {
     fn set_command(&mut self, args: &str) {
         let mut parts = args.split_whitespace();
         let (Some(name), value) = (parts.next(), parts.next()) else {
-            return self.error("usage: set hidden|preview|sidebar|footer|icons|dir_sizes [on|off]");
+            return self.error("usage: set hidden|gitignored|preview|sidebar|footer|icons|dir_sizes [on|off]");
         };
         let g = &self.config.general;
         let current = match name {
             "hidden" => g.show_hidden,
+            // On means shown, like `hidden`.
+            "gitignored" => !g.hide_gitignored,
             "preview" => g.preview,
             "sidebar" => g.sidebar,
             "footer" => g.footer,
@@ -295,6 +322,7 @@ impl App {
         }
         match name {
             "hidden" => self.dispatch(Action::ToggleHidden),
+            "gitignored" => self.dispatch(Action::ToggleGitignored),
             "preview" => self.dispatch(Action::TogglePreview),
             "sidebar" => self.dispatch(Action::ToggleSidebar),
             "footer" => self.dispatch(Action::ToggleFooter),
@@ -370,6 +398,10 @@ impl App {
         if to == from {
             return;
         }
+        let target = strata_plugin::PluginValue::strings([to.to_string_lossy().into_owned()]);
+        if self.plugin_vetoes("before_rename", std::slice::from_ref(&from), [("to", target)]) {
+            return;
+        }
         let new_name = new_name.to_string();
         let work = {
             let (vfs, from, to, new_name) = (vfs.clone(), from.clone(), to.clone(), new_name.clone());
@@ -434,7 +466,15 @@ impl App {
             InputPurpose::Chmod { vfs, paths } if !value.is_empty() => self.start_chmod(vfs, paths, &value),
             InputPurpose::Find if !value.is_empty() => self.find_command(&value),
             InputPurpose::RenamePattern(targets) if !value.is_empty() => self.apply_rename_pattern(targets, &value),
-            InputPurpose::Compress(items) if !value.is_empty() => self.compress(items, &value),
+            InputPurpose::Compress { items, encrypt } if !value.is_empty() => {
+                self.compress_or_ask(items, &value, encrypt)
+            }
+            InputPurpose::CompressPassword { items, name, first } if !input.value.is_empty() => {
+                self.on_compress_password(items, name, first, input.value)
+            }
+            InputPurpose::ArchivePassword { file, purpose } if !input.value.is_empty() => {
+                self.on_archive_password(file, purpose, input.value)
+            }
             InputPurpose::GitCommit(root) if !value.is_empty() => self.git_commit(root, value),
             InputPurpose::AddConnectionName(mut conn) if !value.is_empty() => {
                 conn.name = value;
@@ -517,6 +557,11 @@ impl App {
                     self.run_git_op(op, target);
                 }
             }
+            PickerPurpose::Jump { dirs } => {
+                if let Some(dir) = selected_index.and_then(|i| dirs.get(i)).cloned() {
+                    self.jump_to(dir);
+                }
+            }
             PickerPurpose::Drives { drives } => {
                 if let Some(drive) = selected_index.and_then(|i| drives.get(i)).cloned() {
                     self.open_drive(drive);
@@ -562,6 +607,7 @@ impl App {
                     names.dedup();
                     names.into_iter().filter(|n| n.starts_with(arg)).map(|n| format!("{cmd} {n}")).collect()
                 }
+                Some(("select", arg)) => self.complete_selection(arg),
                 Some((cmd @ ("cd" | "local"), arg)) => {
                     self.complete_path(arg).into_iter().map(|p| format!("{cmd} {p}")).collect()
                 }

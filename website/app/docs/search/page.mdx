@@ -8,6 +8,26 @@ export const metadata = { title: "Search" };
 
 <Kbd>/</Kbd> filters the focused panel as you type, with fuzzy matching — `rdm` finds `README.md`. Matched letters are highlighted. <Kbd>enter</Kbd> keeps the filter, <Kbd>esc</Kbd> clears it.
 
+Globs and regular expressions work too, and list matches in their usual order:
+
+| Filter | Shows |
+| --- | --- |
+| `rdm` | Fuzzy matches, best first |
+| `*.{jpg,png}`, `IMG_????.*`, `[a-c]*` | Names matching the glob (case is ignored). A query is a glob when it has `*`, `?`, a closed `[..]` or a `{a,b}` group |
+| `g:notes.txt` | A glob even without wildcards — the whole name must match |
+| `src/**/*.rs` | With a `/`, the glob matches the path relative to the folder (in the tree view and flat listings); `*` stops at `/`, `**` does not |
+| `re:^v\d+` | A [regular expression](https://docs.rs/regex/latest/regex/#syntax) anywhere in the name (the relative path in the tree view and flat listings); case is ignored unless it has a capital letter |
+
+While a regex or glob is half-typed and invalid, the search line says why in red and the list keeps the last valid matches. `:select` takes the same globs and `re:` patterns to mark items: `:select *.{jpg,png}`, `:select re:^IMG_\d+`.
+
+## Jump to frequent folders
+
+strata remembers every local folder you open and ranks them like [zoxide](https://github.com/ajeetdsouza/zoxide): each visit counts, and recent visits count more (four times within the hour, twice within the day, half after a week, a quarter after that). Old habits fade as the list grows, and folders that no longer exist are dropped.
+
+<Kbd>g j</Kbd> (<Kbd>alt+g</Kbd> in the classic preset) opens a picker over them, best first; type to narrow it down. `:z <words>` goes straight to the best folder whose path holds the words in order, the last one in the folder's own name — `:z str` for `~/projects/strata`, `:z old str` for `~/old/strata`. Capitals make the match case-sensitive. A path to an existing folder is entered as is, and `:z` alone opens the picker.
+
+The list lives in `jumps.json` in strata's data directory (`~/.local/share/strata` on Linux) and is written when you quit; strata instances running side by side add to it without overwriting each other. The `zoxide` plugin still works alongside it if you use zoxide in your shell too.
+
 ## Fuzzy-find files
 
 <Kbd>f</Kbd> (<Kbd>ctrl+f</Kbd> in the classic preset) indexes every file below the current directory and opens a picker. Type to narrow it down, then <Kbd>enter</Kbd> jumps to the file — or into the directory. Hidden files are included when they are shown in the panel; `.git`, `node_modules` and `target` are always skipped.

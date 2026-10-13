@@ -1,5 +1,6 @@
 //! Preview generation, done off the UI thread: directories, images, code,
-//! Markdown, documents, PDFs and media, and hex dumps of binary files.
+//! Markdown, documents, PDFs and media, structured data (CSV, JSON, YAML,
+//! TOML, SQLite), and hex dumps of binary files.
 
 use std::io::Read;
 use std::sync::mpsc::Sender;
@@ -17,6 +18,7 @@ use strata_core::util::human_size;
 use strata_core::{Entry, VfsRef};
 
 use super::highlight::Highlighter;
+use super::preview_data;
 use super::preview_docs::{self, Block};
 use super::preview_hex;
 use super::preview_markdown;
@@ -36,6 +38,12 @@ pub enum PreviewContent {
     Text(Vec<String>),
     /// Syntax-highlighted source.
     Code(Vec<Line<'static>>),
+    /// Tables and outlines of structured data: `head` stays at the top
+    /// while `body` scrolls.
+    Data {
+        head: Vec<Line<'static>>,
+        body: Vec<Line<'static>>,
+    },
     Dir(Vec<Entry>),
     Image(Box<Protocol>),
     /// A PDF page, video frame or cover art (when the terminal can show
@@ -60,6 +68,7 @@ pub struct PreviewOptions {
     pub markdown: bool,
     pub hex: bool,
     pub media: bool,
+    pub data: bool,
 }
 
 pub struct PreviewJob {
@@ -120,6 +129,16 @@ impl PreviewJob {
         if buf.is_empty() {
             return PreviewContent::Empty;
         }
+        // By content, whatever the database file is called.
+        #[cfg(feature = "sqlite")]
+        if self.options.data && buf.starts_with(super::preview_sqlite::MAGIC) {
+            if let Some(local) = self.vfs.local_path(&entry.path) {
+                return match super::preview_sqlite::inspect(&local) {
+                    Ok(objects) => self.data(super::preview_sqlite::render(&objects, entry.size, &self.theme)),
+                    Err(e) => PreviewContent::Error(format!("{e:#}")),
+                };
+            }
+        }
         if looks_binary(&buf) {
             return if self.options.hex { self.hex(&buf) } else { PreviewContent::Binary { size: entry.size } };
         }
@@ -129,6 +148,19 @@ impl PreviewJob {
             let mut lines = preview_markdown::render(&text, width, &self.theme, self.highlighter.as_deref());
             lines.truncate(MAX_LINES);
             return PreviewContent::Code(lines);
+        }
+        if self.options.data {
+            if preview_data::is_csv(&ext) {
+                return self.data(preview_data::csv(&text, &ext, entry.size, &self.theme));
+            }
+            // Only whole files parse; the rest (and invalid files) are
+            // highlighted as source below.
+            let whole = buf.len() as u64 >= entry.size;
+            if let Some(format) = preview_data::tree_format(&ext).filter(|_| whole) {
+                if let Ok(node) = preview_data::parse_tree(&text, format) {
+                    return self.data(preview_data::tree(&node, format, &self.theme, MAX_LINES));
+                }
+            }
         }
         let plain = |l: &str| l.replace('\t', "    ");
         if let Some(mut lines) =
@@ -145,6 +177,10 @@ impl PreviewJob {
 }
 
 impl PreviewJob {
+    fn data(&self, data: preview_data::Data) -> PreviewContent {
+        PreviewContent::Data { head: data.head, body: data.body }
+    }
+
     /// A header with the size and executable type, then the first bytes.
     fn hex(&self, buf: &[u8]) -> PreviewContent {
         let muted = Style::default().fg(self.theme.muted);

@@ -1,7 +1,8 @@
 //! Per-file git status for the file panels, and the git actions run on
 //! marked files: stage, unstage, discard, diff, log, blame and commit.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -222,6 +223,89 @@ pub fn commit(root: &Path, message: &str) -> Result<String> {
     Ok(summary.trim().to_string())
 }
 
+/// Which of `paths` git ignores, through `.gitignore` files,
+/// `.git/info/exclude` and the global excludes file. Paths are grouped by
+/// the repository holding them and each group is checked by one
+/// `git check-ignore --stdin`, so a listing of thousands of items costs a
+/// single process per repository. Tracked files are never ignored, and
+/// paths outside a repository (or without git installed) are kept.
+pub fn ignored<'a>(paths: impl IntoIterator<Item = &'a Path>) -> HashSet<PathBuf> {
+    let mut roots: HashMap<PathBuf, Option<PathBuf>> = HashMap::new();
+    let mut by_repo: HashMap<PathBuf, Vec<(&Path, String)>> = HashMap::new();
+    for path in paths {
+        let Some(root) = path.parent().and_then(|dir| repo_containing(dir, &mut roots)) else {
+            continue;
+        };
+        let Ok(rel) = path.strip_prefix(&root) else { continue };
+        // Git refuses to answer for its own directory, failing the batch.
+        if rel.as_os_str().is_empty() || rel.components().any(|c| c.as_os_str() == ".git") {
+            continue;
+        }
+        let rel = crate::util::posix(rel);
+        by_repo.entry(root).or_default().push((path, rel));
+    }
+    let mut ignored = HashSet::new();
+    for (root, items) in by_repo {
+        let found = check_ignore(&root, items.iter().map(|(_, rel)| rel.as_str()));
+        ignored.extend(items.into_iter().filter(|(_, rel)| found.contains(rel)).map(|(p, _)| p.to_path_buf()));
+    }
+    ignored
+}
+
+/// Nearest folder at or above `dir` holding a `.git` (a directory, or the
+/// file a worktree or submodule has). Answers are cached for every folder
+/// looked at, so a listing spread over many folders checks each only once.
+fn repo_containing(dir: &Path, cache: &mut HashMap<PathBuf, Option<PathBuf>>) -> Option<PathBuf> {
+    let mut walked = Vec::new();
+    let mut found = None;
+    for a in dir.ancestors() {
+        if let Some(known) = cache.get(a) {
+            found = known.clone();
+            break;
+        }
+        walked.push(a.to_path_buf());
+        if a.join(".git").exists() {
+            found = Some(a.to_path_buf());
+            break;
+        }
+    }
+    for a in walked {
+        cache.insert(a, found.clone());
+    }
+    found
+}
+
+/// Runs `git check-ignore` in `root` on paths relative to it. Returns
+/// those that are ignored; none when git fails.
+fn check_ignore<'a>(root: &Path, rels: impl Iterator<Item = &'a str>) -> HashSet<String> {
+    let input: Vec<u8> = rels.flat_map(|r| r.bytes().chain([0])).collect();
+    let child = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["check-ignore", "--stdin", "-z"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let Ok(mut child) = child else { return HashSet::new() };
+    let Some(mut stdin) = child.stdin.take() else { return HashSet::new() };
+    // Written from another thread so a full stdout pipe cannot deadlock.
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let out = child.wait_with_output();
+    let _ = writer.join();
+    // Exit code 1 means nothing is ignored; anything else but 0 is an error.
+    match out {
+        Ok(out) if out.status.success() => out
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|r| !r.is_empty())
+            .map(|r| String::from_utf8_lossy(r).into_owned())
+            .collect(),
+        _ => HashSet::new(),
+    }
+}
+
 /// Parses `git status --porcelain=v1 -z` output.
 pub fn parse(root: &Path, output: &[u8]) -> GitStatus {
     let mut status = GitStatus { root: root.to_path_buf(), ..Default::default() };
@@ -295,6 +379,58 @@ mod tests {
         let root = s.root.clone();
         assert_eq!(s.get(&root.join("new.txt")), Some(GitState::Untracked));
         assert!(status(&std::env::temp_dir().join("definitely-not-a-repo-xyz")).is_none());
+    }
+
+    #[test]
+    fn finds_ignored_paths_in_one_batch_per_repository() {
+        if !crate::nas::which("git") {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        Command::new("git").arg("-C").arg(root).args(["init", "-q"]).output().unwrap();
+        std::fs::write(root.join(".gitignore"), "target/\n*.log\n!keep.log\n").unwrap();
+        std::fs::create_dir_all(root.join(".git/info")).unwrap();
+        std::fs::write(root.join(".git/info/exclude"), "secret.txt\n").unwrap();
+        std::fs::create_dir_all(root.join("target/debug")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        // `target/` only matches folders: a file named `target` is kept.
+        for f in ["src/main.rs", "src/app.log", "keep.log", "secret.txt", "target/debug/x", "src/target"] {
+            std::fs::write(root.join(f), "").unwrap();
+        }
+        // A nested repository answers for its own files.
+        let nested = root.join("vendor");
+        std::fs::create_dir(&nested).unwrap();
+        Command::new("git").arg("-C").arg(&nested).args(["init", "-q"]).output().unwrap();
+        std::fs::write(nested.join(".gitignore"), "*.tmp\n").unwrap();
+        std::fs::write(nested.join("a.tmp"), "").unwrap();
+        std::fs::write(root.join("b.tmp"), "").unwrap();
+
+        let paths: Vec<PathBuf> = [
+            "target",
+            "target/debug/x",
+            "src",
+            "src/main.rs",
+            "src/app.log",
+            "src/target",
+            "keep.log",
+            "secret.txt",
+            ".git",
+            ".git/config",
+            "vendor/a.tmp",
+            "b.tmp",
+        ]
+        .iter()
+        .map(|p| root.join(p))
+        .collect();
+        let found = ignored(paths.iter().map(PathBuf::as_path));
+        let mut found: Vec<String> = found.iter().map(|p| crate::util::posix(p.strip_prefix(root).unwrap())).collect();
+        found.sort();
+        assert_eq!(found, ["secret.txt", "src/app.log", "target", "target/debug/x", "vendor/a.tmp"]);
+
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("x.log"), "").unwrap();
+        assert!(ignored([outside.path().join("x.log").as_path()]).is_empty(), "not in a repository");
     }
 
     #[test]

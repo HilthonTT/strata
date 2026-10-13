@@ -89,14 +89,38 @@ fn draw_jobs(frame: &mut Frame, app: &App, area: Rect) {
             ),
             Span::styled(format!(" {icon}"), Style::default().fg(color)),
         ]));
-        let bar_w = width.saturating_sub(7);
+        let mut suffix = format!(" {:>3.0}%", ratio * 100.0);
+        if state == JobState::Running && !paused && p.total_bytes.load(Ordering::Relaxed) > 0 {
+            if let Some(speed) = p.throughput() {
+                // Keep a usable bar: drop the time left, then the speed.
+                let rate = format!(" · {}/s", human_size(speed.bytes_per_sec as u64));
+                let eta = speed.eta.map(|t| format!(" · {} left", duration_text(t))).unwrap_or_default();
+                let fits = |extra: &str| width >= (suffix.clone() + extra).chars().count() + 2 + 8;
+                if fits(&format!("{rate}{eta}")) {
+                    suffix = format!("{suffix}{rate}{eta}");
+                } else if fits(&rate) {
+                    suffix.push_str(&rate);
+                }
+            }
+        }
+        let bar_w = width.saturating_sub(suffix.chars().count() + 2);
         let mut bar = vec![Span::raw(" ")];
         bar.extend(gradient_bar(ratio, bar_w, theme.palette.blue, theme.palette.accent, theme.surface));
-        bar.push(Span::styled(format!(" {:>3.0}%", ratio * 100.0), Style::default().fg(theme.muted)));
+        bar.push(Span::styled(suffix, Style::default().fg(theme.muted)));
         lines.push(Line::from(bar));
         lines.push(Line::raw(""));
     }
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// `45s`, `1m 12s`, `2h 05m`.
+fn duration_text(t: std::time::Duration) -> String {
+    let secs = t.as_secs();
+    match secs {
+        0..60 => format!("{secs}s"),
+        60..3600 => format!("{}m {:02}s", secs / 60, secs % 60),
+        _ => format!("{}h {:02}m", secs / 3600, secs % 3600 / 60),
+    }
 }
 
 fn draw_metadata(frame: &mut Frame, app: &App, area: Rect) {
@@ -220,4 +244,17 @@ fn draw_clipboard(frame: &mut Frame, app: &App, area: Rect) {
         ));
     }
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn durations_read_naturally() {
+        assert_eq!(duration_text(Duration::from_secs(45)), "45s");
+        assert_eq!(duration_text(Duration::from_secs(72)), "1m 12s");
+        assert_eq!(duration_text(Duration::from_secs(7500)), "2h 05m");
+    }
 }

@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+homepage.workspace = true
+readme = false
+keywords = ["file-manager", "filesystem", "vfs", "sftp", "trash"]
+categories = ["filesystem"]
 
 [features]
 default = []

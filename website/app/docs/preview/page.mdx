@@ -20,6 +20,9 @@ Matching lines are highlighted, and the bottom corner shows which lines you are 
 | Directories | Their contents, with icons |
 | Source code | Syntax highlighting coloured from your theme |
 | Markdown | Rendered: headings, lists, task boxes, quotes, tables, links and code blocks with syntax colours |
+| CSV and TSV | An aligned table with the header row pinned; the separator (comma, tab, semicolon or pipe) is detected and quoted fields are understood. Long cells are cut with `…`; the first 1,000 rows of the first 256 KiB are shown, with the row count (estimated for bigger files) |
+| JSON, YAML and TOML | A coloured outline in the file's key order, with item and key counts; containers nested more than 8 deep collapse to `{…12 keys}`. Invalid files (and files over 1 MB) show highlighted source instead |
+| SQLite databases | Tables and views with row counts and columns, recognised by content rather than name. Opened read-only, never waits more than a moment on a locked database, and counts stop at 100,000 rows |
 | Images | PNG, JPEG, GIF, WebP, BMP and ICO |
 | Documents | The text of Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`), OpenDocument (`.odt`, `.odp`, `.ods`) and EPUB files, with headings and tables |
 | PDFs | The first page as an image, or its text, with title, author and page count |
@@ -48,6 +51,7 @@ To turn the richer previews off:
 [general]
 markdown_preview = true   # false shows the highlighted Markdown source
 hex_preview = true        # false shows only the size of binary files
+data_preview = true       # false shows CSV, JSON, YAML and TOML as source, SQLite as hex
 media_preview = true      # false skips PDF, video and audio tools
 ```
 

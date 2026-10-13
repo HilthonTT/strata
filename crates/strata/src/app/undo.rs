@@ -172,6 +172,9 @@ pub enum PendingUndo {
         src: VfsRef,
         dst: VfsRef,
         log: Arc<TransferLog>,
+        /// Destinations that were overwritten, and when the job started.
+        replaced: Arc<Mutex<Vec<PathBuf>>>,
+        since: SystemTime,
     },
     Trash {
         paths: Vec<PathBuf>,
@@ -225,16 +228,10 @@ impl App {
     pub(super) fn job_finished_for_undo(&mut self, job: u64, state: &JobState) {
         let Some((label, pending)) = self.undo.pending.remove(&job) else { return };
         let ops = match pending {
-            PendingUndo::Transfer { mode, src, dst, log } => {
+            PendingUndo::Transfer { mode, src, dst, log, replaced, since } => {
                 let done = log.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                done.into_iter()
-                    .map(|(original, current)| match mode {
-                        TransferMode::Copy => UndoOp::Created { vfs: dst.clone(), path: current },
-                        TransferMode::Move => {
-                            UndoOp::Moved { from_vfs: src.clone(), original, to_vfs: dst.clone(), current }
-                        }
-                    })
-                    .collect()
+                let replaced = replaced.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                transfer_ops(mode, &src, &dst, done, &replaced, since)
             }
             PendingUndo::Trash { paths, since } if *state == JobState::Done => vec![UndoOp::Trashed { paths, since }],
             PendingUndo::Trash { .. } => Vec::new(),
@@ -314,6 +311,37 @@ impl App {
     }
 }
 
+/// The steps undoing a transfer that finished `done`. Destinations it
+/// overwrote on a local disk went to the trash and come back from there.
+fn transfer_ops(
+    mode: TransferMode,
+    src: &VfsRef,
+    dst: &VfsRef,
+    done: Vec<(PathBuf, PathBuf)>,
+    replaced: &[PathBuf],
+    since: SystemTime,
+) -> Vec<UndoOp> {
+    let mut ops = Vec::new();
+    for (original, current) in done {
+        let overwrote = dst.is_local() && replaced.contains(&current);
+        match mode {
+            TransferMode::Copy if overwrote => {
+                ops.push(UndoOp::Replaced { vfs: dst.clone(), paths: vec![current], since })
+            }
+            TransferMode::Copy => ops.push(UndoOp::Created { vfs: dst.clone(), path: current }),
+            TransferMode::Move => {
+                // Steps run last-to-first: the item moves back, then the
+                // version it replaced comes out of the trash.
+                if overwrote {
+                    ops.push(UndoOp::Trashed { paths: vec![current.clone()], since });
+                }
+                ops.push(UndoOp::Moved { from_vfs: src.clone(), original, to_vfs: dst.clone(), current });
+            }
+        }
+    }
+    ops
+}
+
 fn push_capped(stack: &mut Vec<UndoEntry>, entry: UndoEntry) {
     stack.push(entry);
     if stack.len() > MAX_HISTORY {
@@ -324,6 +352,7 @@ fn push_capped(stack: &mut Vec<UndoEntry>, entry: UndoEntry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use strata_core::vfs::LocalVfs;
 
     #[test]
@@ -363,6 +392,22 @@ mod tests {
         assert!(orig.exists() && !moved.exists());
         redo.run(&Progress::default()).unwrap();
         assert!(moved.exists() && !orig.exists());
+    }
+
+    #[test]
+    fn overwritten_destinations_come_back_from_the_trash() {
+        let vfs: VfsRef = Arc::new(LocalVfs);
+        let done = vec![("/s/a".into(), "/d/a".into()), ("/s/b".into(), "/d/b".into())];
+        let replaced = [PathBuf::from("/d/b")];
+        let now = SystemTime::now();
+        let copy = transfer_ops(TransferMode::Copy, &vfs, &vfs, done.clone(), &replaced, now);
+        assert!(matches!(&copy[0], UndoOp::Created { path, .. } if path == Path::new("/d/a")));
+        assert!(matches!(&copy[1], UndoOp::Replaced { paths, .. } if paths == &replaced));
+        let moved = transfer_ops(TransferMode::Move, &vfs, &vfs, done, &replaced, now);
+        assert_eq!(moved.len(), 3);
+        // Run last-to-first: b moves back before its old version is restored.
+        assert!(matches!(&moved[1], UndoOp::Trashed { paths, .. } if paths == &replaced));
+        assert!(matches!(&moved[2], UndoOp::Moved { current, .. } if current == Path::new("/d/b")));
     }
 
     #[cfg(unix)]

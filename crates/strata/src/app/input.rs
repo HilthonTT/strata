@@ -113,17 +113,25 @@ impl App {
                 }
                 self.on_picker_moved();
             }
-            Some(Overlay::Conflict(_)) => {
+            Some(Overlay::Conflict(state)) => {
                 let choice = match key.code {
-                    KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Enter => Some(Conflict::KeepBoth),
-                    KeyCode::Char('o') | KeyCode::Char('O') => Some(Conflict::Overwrite),
-                    KeyCode::Char('s') | KeyCode::Char('S') => Some(Conflict::Skip),
-                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('c') => None,
+                    KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Enter => Conflict::KeepBoth,
+                    KeyCode::Char('o') | KeyCode::Char('O') => Conflict::Overwrite,
+                    KeyCode::Char('s') | KeyCode::Char('S') => Conflict::Skip,
+                    KeyCode::Char('n') | KeyCode::Char('N') => Conflict::OverwriteIfNewer,
+                    KeyCode::Char('a') | KeyCode::Char('A') => {
+                        state.apply_all = !state.apply_all;
+                        return;
+                    }
+                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('c') => {
+                        self.overlay = None;
+                        return self.info("transfer cancelled");
+                    }
                     _ => return,
                 };
-                if let Some(Overlay::Conflict(mut state)) = self.overlay.take() {
-                    if let Some(conflict) = choice {
-                        state.transfer.conflict = conflict;
+                // Every answer is collected before anything is copied.
+                if state.answer(choice) {
+                    if let Some(Overlay::Conflict(state)) = self.overlay.take() {
                         self.start_transfer(state.transfer);
                     }
                 }
@@ -192,6 +200,7 @@ impl App {
                 | PickerPurpose::Tag { .. }
                 | PickerPurpose::Tags { .. }
                 | PickerPurpose::Drives { .. }
+                | PickerPurpose::Jump { .. }
                 | PickerPurpose::Git { .. } => {}
             },
             other => self.overlay = other,
@@ -216,6 +225,7 @@ impl App {
                 super::workers::container_action(self.tx.clone(), id, name, strata_sys::docker::ContainerAction::Remove)
             }
             Confirm::SavePassword { name, password } => self.save_password(name, password),
+            Confirm::SaveArchivePassword { file, password } => self.archive_keychain(file, Some(password)),
             Confirm::PurgeTrash(items) => self.purge_trash(Some(items)),
             Confirm::EmptyTrash => self.purge_trash(None),
             Confirm::Sync(request) => self.start_sync(*request),

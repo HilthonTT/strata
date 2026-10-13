@@ -1,4 +1,5 @@
-//! Creating zip and tar archives (plain, gz, bz2) from local files.
+//! Creating zip and tar archives (plain, gz, bz2) from local files, and
+//! AES-256 encrypted zips.
 //!
 //! xz and zstd archives are left to the system `tar`: the pure-Rust
 //! encoders available barely compress (xz) or can panic mid-stream (zstd).
@@ -25,11 +26,25 @@ pub fn can_write(name: &str) -> bool {
 /// `target`. The archive is written next to `target` and renamed into
 /// place once complete, so a failed or cancelled run leaves nothing behind.
 pub fn create_archive(items: &[PathBuf], target: &Path, progress: &Progress) -> Result<()> {
+    create_archive_with_password(items, target, None, progress)
+}
+
+/// Like [`create_archive`]; with a password, the contents of a zip are
+/// encrypted with AES-256 (names stay readable, as zip stores them).
+pub fn create_archive_with_password(
+    items: &[PathBuf],
+    target: &Path,
+    password: Option<&str>,
+    progress: &Progress,
+) -> Result<()> {
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let format = ArchiveFormat::detect(&name).filter(|_| can_write(&name));
     let Some(format) = format else {
         bail!("strata can't write {name}: use .zip, .tar, .tar.gz or .tar.bz2");
     };
+    if password.is_some() && format != ArchiveFormat::Zip {
+        bail!("only zip archives can have a password");
+    }
     if target.exists() {
         bail!("{} already exists", target.display());
     }
@@ -45,7 +60,7 @@ pub fn create_archive(items: &[PathBuf], target: &Path, progress: &Progress) -> 
     let partial = target.with_file_name(format!(".{name}.part"));
     let result = File::create(&partial)
         .with_context(|| format!("creating {}", partial.display()))
-        .and_then(|file| write(format, BufWriter::new(file), items, progress));
+        .and_then(|file| write(format, BufWriter::new(file), items, password, progress));
     match result {
         Ok(()) => fs::rename(&partial, target).with_context(|| format!("creating {}", target.display())),
         Err(e) => {
@@ -55,12 +70,18 @@ pub fn create_archive(items: &[PathBuf], target: &Path, progress: &Progress) -> 
     }
 }
 
-fn write(format: ArchiveFormat, out: BufWriter<File>, items: &[PathBuf], progress: &Progress) -> Result<()> {
+fn write(
+    format: ArchiveFormat,
+    out: BufWriter<File>,
+    items: &[PathBuf],
+    password: Option<&str>,
+    progress: &Progress,
+) -> Result<()> {
     match format {
         ArchiveFormat::Zip => {
             let mut zip = zip::ZipWriter::new(out);
             for item in items {
-                add_zip(&mut zip, item, &file_name(item)?, progress)?;
+                add_zip(&mut zip, item, &file_name(item)?, password, progress)?;
                 progress.item_done();
             }
             zip.finish()?.flush()?;
@@ -122,6 +143,7 @@ fn add_zip<W: Write + io::Seek>(
     zip: &mut zip::ZipWriter<W>,
     path: &Path,
     name: &str,
+    password: Option<&str>,
     progress: &Progress,
 ) -> Result<()> {
     progress.check()?;
@@ -135,19 +157,24 @@ fn add_zip<W: Write + io::Seek>(
         use std::os::unix::fs::PermissionsExt;
         options = options.unix_permissions(meta.permissions().mode() & 0o7777);
     }
+    // Folders have no data to encrypt.
+    let data_options = match password {
+        Some(password) => options.with_aes_encryption(zip::AesMode::Aes256, password),
+        None => options,
+    };
     if meta.is_dir() {
         zip.add_directory(format!("{name}/"), options)?;
         let mut children: Vec<_> = fs::read_dir(path)?.filter_map(|e| e.ok().map(|e| e.path())).collect();
         children.sort();
         for child in children {
-            add_zip(zip, &child, &format!("{name}/{}", file_name(&child)?), progress)?;
+            add_zip(zip, &child, &format!("{name}/{}", file_name(&child)?), password, progress)?;
         }
     } else if meta.file_type().is_symlink() {
         let target = fs::read_link(path)?;
-        zip.add_symlink(name, target.to_string_lossy(), options)?;
+        zip.add_symlink(name, target.to_string_lossy(), data_options)?;
     } else if meta.is_file() {
         progress.set_current(name.to_string());
-        zip.start_file(name, options)?;
+        zip.start_file(name, data_options)?;
         io::copy(&mut Counted { inner: File::open(path)?, progress }, zip)
             .with_context(|| format!("adding {}", path.display()))?;
     }
@@ -243,6 +270,61 @@ mod tests {
         assert!(create_archive(&items, &dir.path().join("b.txt"), &p).is_err());
         assert!(!can_write("x.7z"));
         assert!(can_write("x.TGZ"));
+    }
+
+    #[test]
+    fn encrypted_zips_round_trip() {
+        use crate::ops::{Conflict, Transfer, TransferMode};
+        use crate::vfs::Locked;
+        use std::sync::Arc;
+
+        let (dir, mut items) = sample();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("b.txt", dir.path().join("link")).unwrap();
+            items.push(dir.path().join("link"));
+        }
+        let target = dir.path().join("secret.zip");
+        create_archive_with_password(&items, &target, Some("correct horse"), &Progress::default()).unwrap();
+        // The contents are not stored in the clear.
+        let raw = fs::read(&target).unwrap();
+        assert!(!raw.windows(5).any(|w| w == b"alpha"));
+
+        let locked = |password| ArchiveVfs::open_with_password(&target, password).unwrap_err();
+        assert_eq!(ArchiveVfs::open(&target).unwrap_err().downcast_ref(), Some(&Locked::NeedsPassword));
+        assert_eq!(locked(Some("wrong")).downcast_ref(), Some(&Locked::WrongPassword));
+        assert_eq!(locked(Some("")).downcast_ref(), Some(&Locked::WrongPassword));
+
+        let archive = ArchiveVfs::open_with_password(&target, Some("correct horse")).unwrap();
+        #[cfg(unix)]
+        assert!(archive.stat(Path::new("/link")).unwrap().is_symlink());
+        let vfs: crate::VfsRef = Arc::new(archive);
+        let out = dir.path().join("out");
+        fs::create_dir(&out).unwrap();
+        Transfer {
+            mode: TransferMode::Copy,
+            src: vfs.clone(),
+            sources: vfs.read_dir(Path::new("/")).unwrap().into_iter().map(|e| e.path).collect(),
+            dst: Arc::new(crate::vfs::LocalVfs),
+            dest_dir: out.clone(),
+            conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
+            targets: Default::default(),
+            options: Default::default(),
+        }
+        .run(&Progress::default())
+        .unwrap();
+        assert_eq!(fs::read_to_string(out.join("folder/inner/a.txt")).unwrap(), "alpha");
+        assert_eq!(fs::read_to_string(out.join("b.txt")).unwrap(), "bravo!");
+    }
+
+    #[test]
+    fn only_zips_take_a_password() {
+        let (dir, items) = sample();
+        let target = dir.path().join("out.tar.gz");
+        let err = create_archive_with_password(&items, &target, Some("pw"), &Progress::default()).unwrap_err();
+        assert!(err.to_string().contains("only zip"));
+        assert!(!target.exists());
     }
 
     #[test]

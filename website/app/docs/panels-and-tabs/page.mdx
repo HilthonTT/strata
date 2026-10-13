@@ -29,6 +29,12 @@ Press <Kbd>z t</Kbd> (<Kbd>alt+t</Kbd> with the classic preset), or run `:tree`,
 
 New files, new folders and pastes go inside the hovered folder when it is expanded, and next to the hovered item otherwise. Marks, file operations, git markers and folder sizes work across the whole tree. The filter matches paths relative to the panel's folder and lists matches flat. Expanded folders are watched for changes too, and the tree works on remote connections, where each folder loads in the background.
 
+## Hide files ignored by git
+
+Press <Kbd>z i</Kbd> (<Kbd>alt+i</Kbd> with the classic preset), or run `:set gitignored`, to leave out everything git ignores — build output such as `target/` or `node_modules/`, logs, and whatever your `.gitignore` files, `.git/info/exclude` and global excludes file list. Tracked files always stay. It works in the list, the tree view and flat listings of local folders, and the status line says `gitignored hidden` while it is on. Set `hide_gitignored = true` to start that way.
+
+strata asks git itself (`git check-ignore`, once per repository and listing, off the UI thread), so the answer always matches what git does.
+
 ## Tabs
 
 Tabs keep whole workspaces apart: every tab has its own panels.

@@ -8,6 +8,7 @@ mod actions;
 mod archives;
 mod clipboard;
 pub use actions::short_path;
+pub use archives::ArchiveUse;
 mod commands;
 mod dirsize;
 mod drives;
@@ -21,17 +22,22 @@ mod find;
 pub mod grep;
 mod highlight;
 mod input;
+mod jump;
 pub mod overlay;
 pub mod panel;
 mod plugins;
 pub mod preview;
+mod preview_data;
 mod preview_docs;
 mod preview_hex;
 mod preview_markdown;
 mod preview_media;
 mod preview_nav;
+#[cfg(feature = "sqlite")]
+mod preview_sqlite;
 mod remote_edit;
 mod rename_pattern;
+mod selections;
 mod session;
 pub mod sidebar;
 pub mod sync;
@@ -186,11 +192,16 @@ pub struct App {
     pub tabs: Vec<tabs::Tab>,
     pub tab: usize,
     git: vcs::GitCache,
+    /// Visited folders for `jump` and `:z`.
+    jumps: jump::Jumps,
     watch: watch::FsWatch,
     undo: undo::UndoHistory,
     remote_edits: remote_edit::RemoteEdits,
     /// Password typed for an SFTP login, offered for the keychain on success.
     pending_password: Option<(String, String)>,
+    /// Password typed for an encrypted archive, offered for the keychain
+    /// once it opens the archive.
+    pending_archive_password: Option<(PathBuf, String)>,
     pub view: View,
     pub focus: Focus,
     pub sidebar: Sidebar,
@@ -229,6 +240,8 @@ pub struct App {
     pub plugin_status: Vec<String>,
     pub open_plugin_panels: Vec<String>,
     pub plugin_panel_lines: HashMap<String, Vec<String>>,
+    /// Columns and sort orders plugins added to the file list.
+    pub plugin_list: plugins::ListExtras,
     plugin_refreshed: Instant,
     last_location: Option<(String, PathBuf)>,
 
@@ -310,7 +323,10 @@ impl App {
         let start_dirs = start_directories(&opts.paths, start_dir, config.general.panels.clamp(1, 6));
         let panels = start_dirs
             .into_iter()
-            .map(|dir| Panel::new(local.clone(), dir, sort, config.general.show_hidden, Some(listing_tx.clone())))
+            .map(|dir| {
+                Panel::new(local.clone(), dir, sort, config.general.show_hidden, Some(listing_tx.clone()))
+                    .with_gitignored_hidden(config.general.hide_gitignored)
+            })
             .collect();
 
         let pinned = load_pins(&config);
@@ -330,10 +346,12 @@ impl App {
             tabs: vec![tabs::Tab::default()],
             tab: 0,
             git: vcs::GitCache::default(),
+            jumps: jump::Jumps::default(),
             watch: watch::FsWatch::default(),
             undo: undo::UndoHistory::default(),
             remote_edits: remote_edit::RemoteEdits::default(),
             pending_password: None,
+            pending_archive_password: None,
             view: View::Files,
             focus: Focus::Panels,
             sidebar: Sidebar::default(),
@@ -377,6 +395,7 @@ impl App {
             plugin_status: Vec::new(),
             open_plugin_panels: Vec::new(),
             plugin_panel_lines: HashMap::new(),
+            plugin_list: plugins::ListExtras::default(),
             plugin_refreshed: Instant::now(),
             last_location: None,
             layout: LayoutCache::default(),
@@ -534,6 +553,7 @@ impl App {
     /// A panel that lists remote locations in the background.
     pub(super) fn make_panel(&self, vfs: VfsRef, cwd: PathBuf, sort: SortOptions, show_hidden: bool) -> Panel {
         Panel::new(vfs, cwd, sort, show_hidden, Some(self.listing_tx.clone()))
+            .with_gitignored_hidden(self.config.general.hide_gitignored)
     }
 
     fn drain_events(&mut self) {
@@ -677,6 +697,7 @@ impl App {
             }
             AppEvent::ArchiveOpened { panel, file, result } => self.on_archive_opened(panel, file, result),
             AppEvent::ArchiveToExtract { file, dest, result } => self.on_archive_to_extract(file, dest, result),
+            AppEvent::ArchiveLocked { file, purpose, reason } => self.on_archive_locked(file, purpose, reason),
         }
     }
 
@@ -689,6 +710,7 @@ impl App {
         if !self.pending_keys.is_empty() && self.pending_since.elapsed() > Duration::from_millis(900) {
             self.flush_pending_keys();
         }
+        self.record_visits();
         self.track_location();
         self.track_view();
         self.track_hover();
@@ -805,6 +827,7 @@ impl App {
                 options: preview::PreviewOptions {
                     markdown: self.config.general.markdown_preview,
                     hex: self.config.general.hex_preview,
+                    data: self.config.general.data_preview,
                     media: self.config.general.media_preview,
                 },
             }

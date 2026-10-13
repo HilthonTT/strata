@@ -7,9 +7,10 @@ use std::sync::Arc;
 use strata_config::Action;
 use strata_core::elevate::Privileged;
 use strata_core::jobs::JobState;
-use strata_core::ops::{self, Conflict, Transfer, TransferLog, TransferMode};
+use strata_core::ops::{self, Conflict, CopyOptions, Transfer, TransferLog, TransferMode};
 use strata_core::sort::SortKey;
-use strata_core::util::posix;
+use strata_core::throttle;
+use strata_core::util::{human_size, posix};
 use strata_core::VfsRef;
 use strata_plugin::{Level, PluginValue};
 
@@ -248,9 +249,11 @@ impl App {
             CopyPath => self.copy_path(),
             Filter => {
                 let current = self.panel().filter.clone();
-                self.overlay = Some(Overlay::Input(InputState::new("Filter", current, InputPurpose::Filter)));
+                let prompt = "Filter (fuzzy · *.{jpg,png} glob · re: regex)";
+                self.overlay = Some(Overlay::Input(InputState::new(prompt, current, InputPurpose::Filter)));
             }
             FuzzyFind => self.start_find(),
+            Jump => self.open_jump_picker(),
             ToggleHidden => {
                 let show = !self.panel().show_hidden;
                 self.config.general.show_hidden = show;
@@ -260,7 +263,20 @@ impl App {
                 }
                 self.info(if show { "showing hidden files" } else { "hiding hidden files" });
             }
+            ToggleGitignored => {
+                let hide = !self.config.general.hide_gitignored;
+                self.config.general.hide_gitignored = hide;
+                for p in &mut self.panels {
+                    p.set_hide_gitignored(hide);
+                }
+                if hide && !strata_core::nas::which("git") {
+                    self.notify("git is not installed: nothing can be hidden", Level::Warn);
+                } else {
+                    self.info(if hide { "hiding files ignored by git" } else { "showing files ignored by git" });
+                }
+            }
             CycleSort => {
+                self.set_plugin_sort(None);
                 let p = self.panel_mut();
                 p.sort.key = p.sort.key.next();
                 p.resort();
@@ -516,6 +532,11 @@ impl App {
     }
 
     fn paste(&mut self) {
+        self.paste_with(CopyOptions::default());
+    }
+
+    /// Pastes the clipboard here, copying with `options`.
+    pub(super) fn paste_with(&mut self, options: CopyOptions) {
         let Some(clip) = self.clipboard.as_ref() else {
             return self.notify("clipboard is empty — mark items and press y y or x", Level::Warn);
         };
@@ -526,7 +547,9 @@ impl App {
             dst: self.panel().vfs.clone(),
             dest_dir: self.panel().target_dir(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
+            options,
         };
         if clip.mode == TransferMode::Move {
             self.clipboard = None;
@@ -554,22 +577,30 @@ impl App {
             dst: other.vfs.clone(),
             dest_dir: other.cwd.clone(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         self.panel_mut().clear_marks();
         self.begin_transfer(transfer);
     }
 
-    /// Starts a transfer, first asking what to do about existing names.
+    /// Starts a transfer, first asking about each name that already exists
+    /// in the destination.
     fn begin_transfer(&mut self, transfer: Transfer) {
-        let names = transfer.conflicts();
-        if names.is_empty() {
+        let clashes = transfer.clashes();
+        if clashes.is_empty() {
             return self.start_transfer(transfer);
         }
-        self.overlay = Some(Overlay::Conflict(super::overlay::ConflictState { transfer, names }));
+        self.overlay = Some(Overlay::Conflict(super::overlay::ConflictState::new(transfer, clashes)));
     }
 
-    pub(super) fn start_transfer(&mut self, transfer: Transfer) {
+    pub(super) fn start_transfer(&mut self, mut transfer: Transfer) {
+        if self.plugins_veto_transfer(&transfer) {
+            return;
+        }
+        transfer.options.verify |= self.config.general.verify_copies;
+        transfer.options.bandwidth_limit = self.bandwidth_limit();
         let verb = if transfer.mode == TransferMode::Copy { "Copy" } else { "Move" };
         let what = match transfer.sources.as_slice() {
             [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
@@ -582,12 +613,40 @@ impl App {
             src: transfer.src.clone(),
             dst: transfer.dst.clone(),
             log: log.clone(),
+            replaced: transfer.resolutions.replaced.clone(),
+            since: std::time::SystemTime::now(),
         };
         let undo_label = format!("{} {what}", verb.to_lowercase());
         let retry = (transfer.clone(), log.clone());
         let job = self.jobs.spawn(label, move |progress| transfer.run_logged(progress, &log));
         self.track_job(job, undo_label, pending);
         self.retryable.insert(job, retry);
+    }
+
+    /// The bandwidth limit for new jobs: `bandwidth_limit` from the config,
+    /// or what `:limit` set since.
+    pub(super) fn bandwidth_limit(&mut self) -> Option<u64> {
+        match throttle::parse_rate(&self.config.general.bandwidth_limit) {
+            Ok(limit) => limit,
+            Err(e) => {
+                self.error(format!("bandwidth_limit: {e:#}; copying without a limit"));
+                None
+            }
+        }
+    }
+
+    /// `:limit [rate|off]`
+    pub(super) fn limit_command(&mut self, args: &str) {
+        if !args.is_empty() {
+            if let Err(e) = throttle::parse_rate(args) {
+                return self.error(format!("{e:#}"));
+            }
+            self.config.general.bandwidth_limit = args.to_string();
+        }
+        match self.bandwidth_limit() {
+            Some(rate) => self.info(format!("new copies are limited to {}/s", human_size(rate))),
+            None => self.info("new copies run at full speed"),
+        }
     }
 
     /// Runs the latest failed or cancelled copy or move again, without the
@@ -649,6 +708,9 @@ impl App {
     }
 
     pub(super) fn start_delete(&mut self, vfs: VfsRef, paths: Vec<PathBuf>, permanent: bool) {
+        if self.plugin_vetoes("before_delete", &paths, [("permanent", PluginValue::Bool(permanent))]) {
+            return;
+        }
         let label = format!("{} {} item(s)", if permanent { "Delete" } else { "Trash" }, paths.len());
         self.panel_mut().clear_marks();
         let undo =
@@ -738,25 +800,49 @@ impl App {
         (SortKey::Extension, "Type (extension)"),
     ];
 
+    /// The sort menu: built-in keys, then plugin sort orders, then the
+    /// reverse and folders-first switches.
     fn open_sort_menu(&mut self) {
         let sort = self.panel().sort;
+        let plugin_sort = self.plugin_list.sort_of(self.panel().id);
         let check = |on: bool| if on { "●" } else { "○" };
-        let mut items: Vec<String> =
-            Self::SORT_KEYS.iter().map(|(key, label)| format!("{} {label}", check(sort.key == *key))).collect();
+        let mut items: Vec<String> = Self::SORT_KEYS
+            .iter()
+            .map(|(key, label)| format!("{} {label}", check(plugin_sort.is_none() && sort.key == *key)))
+            .collect();
+        items.extend(
+            self.plugin_list
+                .sorts
+                .iter()
+                .map(|s| format!("{} {}", check(plugin_sort == Some(s.name.as_str())), s.title)),
+        );
         items.push(format!("{} Reverse order", check(sort.reverse)));
         items.push(format!("{} Directories first", check(sort.dirs_first)));
+        let current = match plugin_sort {
+            Some(name) => self.plugin_list.sorts.iter().position(|s| s.name == name).map(|i| Self::SORT_KEYS.len() + i),
+            None => Self::SORT_KEYS.iter().position(|(k, _)| *k == sort.key),
+        };
         let mut picker = PickerState::new("Sort by", items, PickerPurpose::Sort);
-        if let Some(i) = Self::SORT_KEYS.iter().position(|(k, _)| *k == sort.key) {
+        if let Some(i) = current {
             picker.cursor = i;
         }
         self.overlay = Some(Overlay::Picker(picker));
     }
 
     pub(super) fn apply_sort_choice(&mut self, index: usize) {
+        let keys = Self::SORT_KEYS.len();
+        let plugin_sorts = self.plugin_list.sorts.len();
+        if (keys..keys + plugin_sorts).contains(&index) {
+            let name = self.plugin_list.sorts[index - keys].name.clone();
+            return self.set_plugin_sort(Some(name));
+        }
+        if index < keys {
+            self.set_plugin_sort(None);
+        }
         let p = self.panel_mut();
         match index {
-            i if i < Self::SORT_KEYS.len() => p.sort.key = Self::SORT_KEYS[i].0,
-            4 => p.sort.reverse = !p.sort.reverse,
+            i if i < keys => p.sort.key = Self::SORT_KEYS[i].0,
+            i if i == keys + plugin_sorts => p.sort.reverse = !p.sort.reverse,
             _ => p.sort.dirs_first = !p.sort.dirs_first,
         }
         p.resort();

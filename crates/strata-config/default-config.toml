@@ -9,6 +9,7 @@ theme = "strata"   # `strata --list-themes`, or press T inside strata
 keymap = "vim"               # vim (y y, d d, g g…) | default (ctrl+c, ctrl+x, ctrl+v… like superfile)
 transparent = false          # use the terminal background
 show_hidden = false
+hide_gitignored = false      # leave out what git ignores (toggle with `z i` / alt+i)
 panels = 2                   # file panels opened at start
 preview = true
 image_preview = true
@@ -43,12 +44,15 @@ page_size = 0                # rows moved by page up/down; 0 = a full page
 si_units = false             # sizes in kB/MB (1000) instead of KiB/MiB (1024)
 shell_close_on_success = false  # skip "press enter" after a `!` command that succeeds
 elevate = ""                 # runs operations refused for lack of permission as root (:sudo); empty = sudo
+verify_copies = false        # read copies back and compare checksums (local destinations; slower)
+bandwidth_limit = ""          # cap each copy job, e.g. "10M" or "512K" (per second); empty = unlimited; :limit changes it
 clipboard = ""               # program fed copied text, e.g. "wl-copy"; empty = detect, then OSC 52; "osc52" = terminal only
 check_updates = false        # look for a newer release on GitHub, at most once a day
 md5_checksum = false         # show the MD5 of the hovered file (reads the whole file)
 sha256_checksum = false      # show the SHA-256 of the hovered file (reads the whole file)
 markdown_preview = true      # render Markdown in the preview (false = highlighted source)
 hex_preview = true           # hex dump of binary files in the preview
+data_preview = true          # CSV tables, JSON/YAML/TOML outlines, SQLite tables
 media_preview = true         # PDF pages, video frames and media details (needs poppler-utils / ffmpeg)
 browse_archives = true       # enter zip and tar archives like directories (read-only)
 diff_tool = ""               # program for `compare` (C) on two local files, e.g. "nvim -d"; empty = built-in diff

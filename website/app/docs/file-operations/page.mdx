@@ -13,11 +13,15 @@ Most actions apply to the **marked** items, or to the item under the cursor when
 | <Kbd>y y</Kbd> / <Kbd>x</Kbd> then <Kbd>p</Kbd> | Copy / cut, then paste in another directory |
 | <Kbd>c</Kbd> / <Kbd>m</Kbd> | Copy / move straight into the next panel |
 
-If some names already exist in the destination, strata asks once for the whole paste: **keep both** (the new item becomes `name (1).ext`), **overwrite** (replaced items go to the trash on local disks), **skip** those items, or cancel.
+If some names already exist in the destination, strata asks about each one in turn, showing the size and modification time of both and which is newer: <Kbd>o</Kbd> **overwrite** (replaced items go to the trash on local disks), <Kbd>s</Kbd> **skip**, <Kbd>k</Kbd> **keep both** (the new item becomes `name (1).ext`), or <Kbd>n</Kbd> **overwrite if newer**. <Kbd>a</Kbd> ticks *apply to all remaining*, so the next answer settles the rest at once; <Kbd>esc</Kbd> cancels the whole paste. Nothing is copied until every name has an answer. The same dialog appears for <Kbd>c</Kbd> / <Kbd>m</Kbd>.
 
-Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer; <Kbd>alt+p</Kbd> pauses or resumes the latest one and <Kbd>ctrl+x</Kbd> cancels it. If a copy or move fails or is cancelled, <Kbd>alt+R</Kbd> (or `:retry`) picks it up where it stopped: items that finished are left alone, files that already arrived complete are kept, and the rest go into the same destinations as before. Copies work between any locations — local disk, SFTP servers and Docker containers.
+Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer, with the current speed and, once it has settled, the time left (time spent paused does not count); <Kbd>alt+p</Kbd> pauses or resumes the latest one and <Kbd>ctrl+x</Kbd> cancels it. If a copy or move fails or is cancelled, <Kbd>alt+R</Kbd> (or `:retry`) picks it up where it stopped: items that finished are left alone, files that already arrived complete are kept, and the rest go into the same destinations as before. Copies work between any locations — local disk, SFTP servers and Docker containers.
+
+To keep a copy from saturating a link, `:limit 10M` caps each new copy, move or sync job at 10 MiB/s for the rest of the session (`:limit off` lifts it, `:limit` alone shows it); set `bandwidth_limit` in the config to start with one. Rates are written like rclone's `--bwlimit`: `512K`, `10M`, `1G`, with a bare number meaning KiB/s. The limit applies to local copies, SFTP and rclone remotes alike.
 
 When a local copy, move, delete, `chmod` or `chown` fails with *permission denied*, the error says so, and <Kbd>alt+s</Kbd> (or `:sudo`) runs the rest of it again as root. strata asks first, then hands the matching `cp`, `mv`, `rm`, `chmod` or `chown` to `sudo` in the terminal, where it can ask for your password. Items that already finished are left alone. A delete done as root is permanent, since root's trash is not yours, and undo does not cover anything done as root. To use `doas`, `run0` or another program, set `elevate` in the config.
+
+To check that copies arrived intact, paste with `:paste --verify` (or set `verify_copies = true` to check every copy and move). Each file is hashed (SHA-256) as it is read, then the copy is read back and hashed; if they differ, the bad copy is removed and the job fails before a move deletes the original. Reading copies back shows in the progress, so a verified copy takes about twice as long. Only copies onto the local disk are checked: copies to remote locations would have to be downloaded again, so they go through unchecked.
 
 ## Create, rename, delete
 
@@ -55,6 +59,20 @@ s/ +/_/g                      my file.txt   → my_file.txt
 | `$1`, `{1}`… | Regex groups, in substitutions |
 
 Add `|upper`, `|lower` or `|title` to any token: `{name|title}`. Substitutions take the flags `g` (every match) and `i` (ignore case). strata refuses a pattern that gives two items the same name or would overwrite another file.
+
+## Saved selections
+
+Marks can be kept under a name and brought back later, in another folder or another session:
+
+| Command | Action |
+| --- | --- |
+| `:select save <name>` | Save the marked items (or the hovered one) under a name, replacing what it held |
+| `:select add <name>` | Add the marked items to a selection, creating it if needed |
+| `:select load <name>` | Mark the saved items again |
+| `:select list` | Show the saved selections and how many of their items are missing |
+| `:select delete <name>` | Forget a selection |
+
+Selections hold local paths, so one can gather items from several folders. Loading marks them in place when the panel already lists them all; otherwise they open as a flat listing, like `:find` results, with every item marked, ready for a copy, `:each` or `:!`. Items that no longer exist are reported and left out. Selections are kept in `~/.local/share/strata/selections.json`.
 
 ## Tags
 
@@ -111,6 +129,7 @@ diff_tool = "nvim -d"   # or "meld", "code --diff --wait", "delta"…
 | --- | --- |
 | `--mirror` | Also delete what only the destination has |
 | `--newer` | Replace a differing file only when the source copy is newer |
+| `--verify` | Check each copied file against the original, as with `:paste --verify` |
 | `--dry-run` | Only list what would happen: `+` copy, `~` replace, `-` delete |
 
 Files are compared by content, like <Kbd>C</Kbd>, so a sync works across local, SFTP and Docker locations. Replaced and deleted items go to the trash on local folders, and the whole sync can be undone; on remote folders they are removed for good, and only the copies can be undone. One failing item does not stop the others.
@@ -153,7 +172,7 @@ To verify a download:
 | <Kbd>ctrl+d</Kbd> | Delete the item for good |
 | <Kbd>ctrl+e</Kbd> | Empty the trash |
 
-Restoring refuses to replace something that has taken the item's place. Restores can be undone like other operations. `:empty-trash` empties the trash after asking. Browsing the trash works on Linux, the BSDs and Windows; macOS has no API to list it.
+Restoring refuses to replace something that has taken the item's place. Restores can be undone like other operations. `:empty-trash` empties the trash after asking. Browsing the trash works on Linux, the BSDs, Windows and macOS. On macOS strata reads `~/.Trash` directly (the terminal needs Full Disk Access) and takes original locations from Finder's put-back records; an item trashed without Finder has none and is restored into the current folder.
 
 ## Archives
 
@@ -165,6 +184,12 @@ The archive is indexed once when you open it, and files are read in archive orde
 
 `:compress [name]` packs the marked items, or the hovered one, into an archive; without a name it asks, suggesting `.zip`. strata writes `.zip`, `.tar`, `.tar.gz` and `.tar.bz2` itself, and uses the system `tar` for `.tar.xz` and `.tar.zst`.
 
+### Password-protected zips
+
+`:compress --password [name]` (or `-p`) encrypts a zip's contents with AES-256, asking for the password twice. File names stay readable, as the zip format stores them in the clear. 7-Zip, WinZip and `bsdtar` open AES zips; the old Info-ZIP `unzip` and macOS Archive Utility do not.
+
+Opening or extracting an encrypted zip (AES or legacy ZipCrypto) asks for its password, with the input masked. The password is checked before anything is shown or extracted: a wrong one says so and asks again, never producing garbage files. Once a password works, strata offers to remember it for that archive in the system keychain (the same one as [NAS passwords](/docs/nas/)); remembered passwords are used without asking, and `:forget` with the archive hovered removes it. Encrypted `.7z` archives are left to 7-Zip.
+
 ## Undo and redo
 
 Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the last operation, and <Kbd>ctrl+r</Kbd> (<Kbd>ctrl+y</Kbd>) to redo it. Doing something new clears what can be redone. Undo covers:
@@ -173,7 +198,8 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 - new files and directories (they go to the trash),
 - copies (the copies go to the trash),
 - moves (items go back where they came from, even across filesystems),
-- trashing (items are restored from the trash — Linux and Windows),
+- overwrites on a local disk (the replaced items come back from the trash),
+- trashing (items are restored from the trash — Linux, Windows and macOS),
 - restores from the trash browser (they go back to the trash),
 - links and duplicates (they go to the trash),
 - permission and owner changes (the old ones are set again),

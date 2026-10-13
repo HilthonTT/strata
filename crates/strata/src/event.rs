@@ -103,6 +103,12 @@ pub enum AppEvent {
         dest: PathBuf,
         result: Result<VfsRef, String>,
     },
+    /// An encrypted archive needs a password, or a different one.
+    ArchiveLocked {
+        file: PathBuf,
+        purpose: crate::app::ArchiveUse,
+        reason: strata_core::vfs::Locked,
+    },
     GitDone(Result<crate::app::GitReply, String>),
     Git {
         dir: PathBuf,

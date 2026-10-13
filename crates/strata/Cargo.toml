@@ -7,14 +7,20 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["file-manager", "file-explorer", "tui", "terminal", "cli"]
+categories = ["command-line-utilities", "filesystem"]
 
 [[bin]]
 name = "strata"
 path = "src/main.rs"
 
 [features]
-default = ["sftp"]
+default = ["sftp", "sqlite"]
 sftp = ["strata-core/sftp"]
+# Tables of SQLite databases in the preview (builds SQLite from source).
+sqlite = ["dep:rusqlite"]
 
 [dependencies]
 strata-core.workspace = true
@@ -35,3 +41,6 @@ zip.workspace = true
 dirs.workspace = true
 syntect.workspace = true
 notify.workspace = true
+rusqlite = { workspace = true, optional = true }
+yaml-rust2.workspace = true
+toml.workspace = true

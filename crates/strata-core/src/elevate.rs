@@ -183,7 +183,9 @@ mod tests {
             dst: vfs.clone(),
             dest_dir: locked.clone(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
+            options: Default::default(),
         };
         let err = format!("{:#}", copy.run(&Progress::default()).unwrap_err());
         assert!(is_permission_error(&err), "{err}");

@@ -70,6 +70,19 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: sha256sum strata-* > SHA256SUMS
+      # The source tarball's checksum is what packaging/homebrew/strata.rb,
+      # packaging/aur/PKGBUILD and .SRCINFO need; print it with the others.
+      - name: Print checksums for packaging
+        continue-on-error: true
+        run: |
+          {
+            echo '## Checksums'
+            echo '```'
+            cat SHA256SUMS
+            curl -sSfL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" \
+              | sha256sum | sed "s|-\$|source ${GITHUB_REF_NAME}.tar.gz|"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true

@@ -10,28 +10,31 @@
 
 Everything you need, nothing you don't.
 
-- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR` or with a pattern (`photo-{n:3}{.ext}`, `s/old/new/`) and a live preview, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them
+- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR` or with a pattern (`photo-{n:3}{.ext}`, `s/old/new/`) and a live preview, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them; name clashes are settled one by one (overwrite, skip, keep both or overwrite if newer, optionally for all the rest)
 - **Trash browser**: restore, delete or empty, newest first
 - **Sync and dedupe**: make one folder match another (`:sync`, with a dry run and undo) and find duplicate files (`:dupes`)
-- **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`
-- **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`
+- **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512), check downloads against a hash or `SHA256SUMS`, and verify copies against the original (`:paste --verify`, `:sync --verify` or `verify_copies = true`)
+- **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`; password-protected zips (AES-256 or legacy ZipCrypto) open with a masked prompt and the password can be kept in the system keychain, and `:compress --password` writes AES-256 zips
 - **Folder sizes** in the file list (`d c`), measured in the background
-- **Jobs you control**: pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
+- **Jobs you control**: see each transfer's speed and time left, cap it (`:limit 10M` or `bandwidth_limit`), pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
 - **Shell commands on your selection**: `:!tar czf out.tgz {s}` fills in the marked items, and `:each gzip -k` runs once per item
+- **Saved selections**: keep marked items from any folders under a name and mark them again later (`:select save|load|add|list|delete`)
 - **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
-- **Search**: filter, fuzzy find, content search with ripgrep, and `:find` by name, size, age, type or tag with the results listed in the panel; `:flatten` lists every file below a folder
+- **Search**: filter (fuzzy, glob `*.{jpg,png}` or regex `re:^v\d+`), fuzzy find, content search with ripgrep, and `:find` by name, size, age, type or tag with the results listed in the panel; `:flatten` lists every file below a folder
 - **Tags and colour labels** (`,`): coloured dots in the list, a sidebar section, `:find --tag`; mirrored to `user.xdg.tags` on Linux
 - **Removable drives**: `:drives` mounts and opens USB sticks and SD cards, `:eject` powers them off safely
 - **Git**: status markers next to every file, and a git menu (`;`) to diff, stage, unstage, discard, commit, and show the log or blame of the marked files
 - **Tree view** (`z t`): expand folders in place instead of entering them, and **tabs** on top of multiple panels
-- **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
+- **Jump to frequent folders** (`g j`, `:z proj`): folders you visit are ranked by frequency and recency, zoxide-style, with no extra tool needed
+- **Hide git-ignored files** (`z i`): leave build output, logs and anything else your `.gitignore` lists out of the listing
+- **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, CSV/TSV tables, JSON/YAML/TOML outlines, SQLite tables and columns, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
-- **Remote connections**: SMB, NFS and SFTP, plus S3 (AWS, MinIO, R2…), WebDAV, FTP and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox…) browsed in-app, with live reachability checks, a step-by-step connection test and passwords in your system keychain
+- **Remote connections**: SMB, NFS and SFTP, plus S3 (AWS, MinIO, R2…), WebDAV, FTP and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox…) browsed in-app (copies between two of them go remote to remote, server-side where possible), with live reachability checks, a step-by-step connection test and passwords in your system keychain
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
-- **Lua plugins**: add keys, commands, panels, status-line segments and previewers, and react to events such as `rename`, `open`, `tag`, `delete` and `job_done`
+- **Lua plugins**: add keys, commands, panels, status-line segments, previewers, file-list columns and sort orders, react to events such as `rename`, `open`, `tag`, `delete` and `job_done`, and refuse deletes, moves and renames with `before_*` events
 - **Vim-style keys**, all remappable
 
 ## Install
@@ -40,6 +43,10 @@ Everything you need, nothing you don't.
 git clone https://github.com/HilthonTT/strata && cd strata
 make install            # installs to ~/.local/bin
 ```
+
+Or install with Cargo: `cargo install --locked --git https://github.com/HilthonTT/strata strata`. Prebuilt binaries for Linux, macOS and Windows are on the [releases page](https://github.com/HilthonTT/strata/releases).
+
+Coming with the first tagged release (not available yet): a Homebrew formula, an AUR package, a Nix flake (`nix run github:HilthonTT/strata` once released) and crates.io. The recipes are in [`packaging/`](packaging) and [`flake.nix`](flake.nix).
 
 You need Rust 1.95 or newer. On Linux and macOS you also need OpenSSL headers for SFTP (`libssl-dev` on Debian/Ubuntu). S3, WebDAV, FTP and rclone connections need the [`rclone`](https://rclone.org/install/) command. Icons need a [Nerd Font](https://www.nerdfonts.com); set `icons = false` if you don't use one.
 
@@ -70,6 +77,8 @@ strata [DIR...]           # one panel per directory
 | `g r` | rename with a pattern | `,` | tag menu |
 | `g s` | find by size, age, type, tag | `g a` | flatten / back |
 | `z t` | tree view / back | `;` | git menu |
+| `z i` | hide / show git-ignored files | `.` | hide / show dotfiles |
+| `g j` | jump to a frequent folder | `:z <words>` | jump to the best match |
 | `?` | all keys | `q` | quit |
 
 Prefer superfile's keys (`ctrl+c`, `ctrl+x`, `ctrl+v`, `ctrl+d`…)? Set `keymap = "default"` under `[general]`.
@@ -88,7 +97,7 @@ Run `strata --dump-config > ~/.config/strata/config.toml` to start from a docume
 
 ## Plugins
 
-Plugins are Lua files in `~/.config/strata/plugins/`. strata ships four official ones: `git`, `bookmarks`, `archive` (previews of `.7z` and `.rar` archives) and `zoxide`. See [docs/plugins.md](docs/plugins.md) for the API.
+Plugins are Lua files in `~/.config/strata/plugins/`. strata ships official ones: `git`, `bookmarks`, `archive` (previews of `.7z` and `.rar` archives), `zoxide` and `protect` (refuses to delete items tagged `keep`; off by default). See [docs/plugins.md](docs/plugins.md) for the API.
 
 ## Documentation
 

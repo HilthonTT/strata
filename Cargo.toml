@@ -9,13 +9,16 @@ edition = "2021"
 rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/HilthonTT/strata"
+homepage = "https://github.com/HilthonTT/strata"
 authors = ["HilthonTT"]
 
 [workspace.dependencies]
-strata-core = { path = "crates/strata-core" }
-strata-config = { path = "crates/strata-config" }
-strata-plugin = { path = "crates/strata-plugin" }
-strata-sys = { path = "crates/strata-sys" }
+# Path crates carry a version so they can be published; keep it in step
+# with workspace.package.version.
+strata-core = { path = "crates/strata-core", version = "0.1.0" }
+strata-config = { path = "crates/strata-config", version = "0.1.0" }
+strata-plugin = { path = "crates/strata-plugin", version = "0.1.0" }
+strata-sys = { path = "crates/strata-sys", version = "0.1.0" }
 
 anyhow = "1"
 thiserror = "2"
@@ -40,7 +43,7 @@ md-5 = "0.11"
 sha1 = "0.11"
 sha2 = "0.11"
 similar = "3"
-zip = { version = "2", default-features = false, features = ["deflate-flate2", "flate2", "lzma"] }
+zip = { version = "2", default-features = false, features = ["deflate-flate2", "flate2", "lzma", "aes-crypto"] }
 tar = "0.4"
 flate2 = "1"
 bzip2 = "0.6"
@@ -50,6 +53,8 @@ keyring = "4"
 notify = "8"
 regex = "1"
 xattr = "1"
+rusqlite = { version = "0.40", default-features = false, features = ["bundled", "hooks"] }
+yaml-rust2 = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy"] }
 
 [profile.release]

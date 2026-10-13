@@ -26,6 +26,17 @@ Run `make help` to see the other tasks (`make check` runs everything CI runs).
 
 Every tagged release has binaries for Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel) and Windows on the [releases page](https://github.com/HilthonTT/strata/releases), with SHA-256 checksums.
 
+## Package managers (coming soon)
+
+These arrive with the first tagged release; they are not published yet.
+
+| Source | Command |
+| --- | --- |
+| Homebrew | `brew install --build-from-source ./packaging/homebrew/strata.rb` from a checkout, until a tap exists |
+| Arch Linux (AUR) | `makepkg -si` in `packaging/aur/` |
+| Nix | `nix run github:HilthonTT/strata`, or `nix develop` for a development shell |
+| crates.io | `cargo install strata` (the crate name may change if it is taken) |
+
 ## Recommended extras
 
 | Tool | Why |

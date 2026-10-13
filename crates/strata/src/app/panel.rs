@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::time::Duration;
 
+use strata_core::filter::Matcher;
 use strata_core::find::{self, Query};
 use strata_core::search::Fuzzy;
 use strata_core::sort::{sort_entries, SortKey, SortOptions};
@@ -34,6 +35,8 @@ pub struct Listing {
     depths: Vec<u16>,
     /// A flat or tree listing stopped at its limit.
     truncated: bool,
+    /// Entries ignored by git, when they are being hidden.
+    ignored: HashSet<PathBuf>,
 }
 
 /// What a flat listing shows instead of the directory's own entries.
@@ -75,8 +78,18 @@ pub struct Panel {
     pub offset: usize,
     pub marked: HashSet<PathBuf>,
     pub filter: String,
+    /// Why `filter` is not a valid regex or glob; the last valid query
+    /// keeps filtering meanwhile.
+    pub filter_error: Option<String>,
+    /// The last valid parse of `filter`.
+    matcher: Option<Matcher>,
     pub sort: SortOptions,
     pub show_hidden: bool,
+    /// Leave out what git ignores (local folders in a repository).
+    pub hide_gitignored: bool,
+    /// Entries of the listing that git ignores; filled only while
+    /// `hide_gitignored` is on.
+    ignored: HashSet<PathBuf>,
     pub visual_anchor: Option<usize>,
     pub error: Option<String>,
     back: Vec<PathBuf>,
@@ -110,6 +123,8 @@ pub struct Panel {
     depths: Vec<u16>,
     /// The tree listing stopped at [`TREE_LIMIT`] entries.
     pub tree_truncated: bool,
+    /// Local folders changed to since last asked, for the jump list.
+    visits: Vec<PathBuf>,
 }
 
 impl Panel {
@@ -124,8 +139,12 @@ impl Panel {
             offset: 0,
             marked: HashSet::new(),
             filter: String::new(),
+            filter_error: None,
+            matcher: None,
             sort,
             show_hidden,
+            hide_gitignored: false,
+            ignored: HashSet::new(),
             visual_anchor: None,
             error: None,
             back: Vec::new(),
@@ -144,9 +163,31 @@ impl Panel {
             expanded: HashSet::new(),
             depths: Vec::new(),
             tree_truncated: false,
+            visits: Vec::new(),
         };
         panel.reload();
         panel
+    }
+
+    /// Hides what git ignores from the start (lists the folder again).
+    pub fn with_gitignored_hidden(mut self, hide: bool) -> Self {
+        self.set_hide_gitignored(hide);
+        self
+    }
+
+    /// Hides or shows what git ignores. Ignored items are only looked up
+    /// while hidden, so turning it on lists the folder again.
+    pub fn set_hide_gitignored(&mut self, hide: bool) {
+        if self.hide_gitignored == hide {
+            return;
+        }
+        self.hide_gitignored = hide;
+        if hide {
+            self.reload();
+        } else {
+            self.ignored.clear();
+            self.refilter();
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -231,9 +272,15 @@ impl Panel {
         self.generation += 1;
         self.inflight = None;
         let (panel, generation, path) = (self.id, self.generation, self.cwd.clone());
+        let gitignored = self.hide_gitignored && self.vfs.is_local();
         let run = move || {
             let (result, depths, truncated) = build();
-            Listing { panel, generation, path, result, depths, truncated }
+            // Asked of git here, on the worker, so a big repository never stalls the UI.
+            let ignored = match &result {
+                Ok(entries) if gitignored => strata_core::git::ignored(entries.iter().map(|e| e.path.as_path())),
+                _ => HashSet::new(),
+            };
+            Listing { panel, generation, path, result, depths, truncated, ignored }
         };
         if let Some(tx) = self.lister.clone().filter(|_| background) {
             self.loading = true;
@@ -404,6 +451,7 @@ impl Panel {
             Some(flat) => flat.truncated = listing.truncated,
             None => self.tree_truncated = listing.truncated,
         }
+        self.ignored = listing.ignored;
         self.apply_entries(listing.result, listing.depths);
         true
     }
@@ -476,7 +524,8 @@ impl Panel {
     }
 
     pub fn refilter(&mut self) {
-        // Hidden entries are left out, and in a tree everything inside them.
+        // Hidden and git-ignored entries are left out, and in a tree
+        // everything inside them.
         let mut candidates = Vec::with_capacity(self.entries.len());
         let mut hidden_depth: Option<u16> = None;
         for (i, entry) in self.entries.iter().enumerate() {
@@ -485,19 +534,30 @@ impl Panel {
                 continue;
             }
             hidden_depth = None;
-            if !self.show_hidden && entry.is_hidden() {
+            let ignored = self.hide_gitignored && self.ignored.contains(&entry.path);
+            if ignored || (!self.show_hidden && entry.is_hidden()) {
                 hidden_depth = Some(depth);
                 continue;
             }
             candidates.push(i);
         }
-        self.visible = if self.filter.is_empty() {
-            candidates.into_iter().map(|i| (i, Vec::new())).collect()
+        self.filter_error = None;
+        if self.filter.is_empty() {
+            self.matcher = None;
         } else {
-            let mut fuzzy = Fuzzy::default();
-            let labels: Vec<Cow<str>> = candidates.iter().map(|&i| self.label(&self.entries[i])).collect();
-            let matches = fuzzy.filter(&self.filter, labels.iter().map(|l| l.as_ref()));
-            matches.into_iter().map(|m| (candidates[m.index], m.positions)).collect()
+            match Matcher::parse(&self.filter) {
+                Ok(m) => self.matcher = Some(m),
+                // Half-typed regexes keep the last valid one's matches.
+                Err(e) => self.filter_error = Some(e),
+            }
+        }
+        self.visible = match &self.matcher {
+            None => candidates.into_iter().map(|i| (i, Vec::new())).collect(),
+            Some(matcher) => {
+                let labels: Vec<Cow<str>> = candidates.iter().map(|&i| self.label(&self.entries[i])).collect();
+                let matches = matcher.filter(&mut Fuzzy::default(), labels.iter().map(|l| l.as_ref()));
+                matches.into_iter().map(|m| (candidates[m.index], m.positions)).collect()
+            }
         };
         self.clamp();
     }
@@ -558,12 +618,20 @@ impl Panel {
         self.entries.clear();
         self.visible.clear();
         self.error = None;
+        if self.vfs.is_local() {
+            self.visits.push(self.cwd.clone());
+        }
         // Coming back up from a child: put the cursor on that child.
         self.pending_focus = previous
             .filter(|prev| prev.parent() == Some(self.cwd.as_path()))
             .and_then(|prev| prev.file_name())
             .map(|name| name.to_string_lossy().into_owned());
         self.reload();
+    }
+
+    /// Local folders this panel changed to since the last call.
+    pub fn take_visits(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.visits)
     }
 
     pub fn parent(&mut self) -> bool {
@@ -672,16 +740,17 @@ impl Panel {
         }
     }
 
-    /// Marks entries whose names match a `*`/`?` glob. Returns the count.
-    pub fn mark_glob(&mut self, pattern: &str) -> usize {
-        let paths: Vec<PathBuf> = (0..self.len())
-            .filter_map(|r| self.entry_at(r))
-            .filter(|e| glob_match(pattern, &e.name))
-            .map(|e| e.path.clone())
-            .collect();
+    /// Marks the shown entries matching a `:select` pattern: a glob such as
+    /// `*.{jpg,png}`, or `re:<regex>` (see [`Matcher`]). Returns the count.
+    pub fn mark_matching(&mut self, pattern: &str) -> Result<usize, String> {
+        let matcher = Matcher::parse_selection(pattern)?;
+        let entries: Vec<&Entry> = (0..self.len()).filter_map(|r| self.entry_at(r)).collect();
+        let labels: Vec<Cow<str>> = entries.iter().map(|e| self.label(e)).collect();
+        let found = matcher.filter(&mut Fuzzy::default(), labels.iter().map(|l| l.as_ref()));
+        let paths: Vec<PathBuf> = found.into_iter().map(|m| entries[m.index].path.clone()).collect();
         let n = paths.len();
         self.marked.extend(paths);
-        n
+        Ok(n)
     }
 
     pub fn toggle_visual(&mut self) {
@@ -756,9 +825,38 @@ impl Panel {
         self.visual_anchor = None;
         had
     }
-}
 
-pub use strata_core::util::glob_match;
+    /// Every entry in the listing, hidden and filtered-out ones included.
+    pub fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    /// Orders a flat listing by `cmp` instead of the sort key (for plugin
+    /// sort orders), still putting folders first and reversing as the
+    /// sort options say. A tree keeps its order.
+    pub fn sort_with(&mut self, mut cmp: impl FnMut(&Entry, &Entry) -> std::cmp::Ordering) {
+        if !self.depths.is_empty() {
+            return;
+        }
+        let keep = self.hovered().map(|e| e.path.clone());
+        let sort = self.sort;
+        self.entries.sort_by(|a, b| {
+            if sort.dirs_first && a.is_dir() != b.is_dir() {
+                return b.is_dir().cmp(&a.is_dir());
+            }
+            let ord = cmp(a, b);
+            if sort.reverse {
+                ord.reverse()
+            } else {
+                ord
+            }
+        });
+        self.refilter();
+        if let Some(path) = keep {
+            self.focus_path(&path);
+        }
+    }
+}
 
 /// Whether a local folder can be opened, without listing it. `None` when
 /// the check takes longer than [`LOCAL_WAIT`] (a slow or stale mount): the
@@ -860,9 +958,9 @@ mod tests {
 
     #[test]
     fn globs() {
-        assert!(glob_match("*.rs", "main.RS"));
-        assert!(glob_match("a?c", "abc"));
-        assert!(!glob_match("*.rs", "main.rsx"));
+        assert!(strata_core::util::glob_match("*.rs", "main.RS"));
+        assert!(strata_core::util::glob_match("a?c", "abc"));
+        assert!(!strata_core::util::glob_match("*.rs", "main.rsx"));
     }
 
     #[test]
@@ -887,6 +985,51 @@ mod tests {
         p.set_filter("");
         assert_eq!(p.hovered().unwrap().name, "b.txt", "clearing the filter keeps the cursor");
         assert!(p.go_back());
+    }
+
+    #[test]
+    fn filters_take_globs_and_regexes_and_survive_bad_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in ["a.jpg", "b.png", "c.txt", "v1.md", "v22.md"] {
+            std::fs::write(dir.path().join(n), "").unwrap();
+        }
+        let mut p = panel_in(dir.path());
+        let names = |p: &Panel| (0..p.len()).map(|r| p.entry_at(r).unwrap().name.clone()).collect::<Vec<_>>();
+        p.set_filter("*.{jpg,png}");
+        assert_eq!(names(&p), ["a.jpg", "b.png"]);
+        p.set_filter(r"re:^v\d{2}");
+        assert_eq!(names(&p), ["v22.md"]);
+        assert_eq!(p.visible[0].1, [0, 1, 2], "the regex match is highlighted");
+        p.set_filter(r"re:^v\d{2}(");
+        assert!(p.filter_error.as_deref().is_some_and(|e| e.starts_with("bad regex")));
+        assert_eq!(names(&p), ["v22.md"], "a bad regex keeps the last good matches");
+        p.set_filter("");
+        assert!(p.filter_error.is_none());
+        p.set_filter("re:(");
+        assert_eq!(p.len(), 5, "nothing valid typed yet: everything stays listed");
+
+        p.set_filter("");
+        assert_eq!(p.mark_matching("*.md"), Ok(2));
+        assert_eq!(p.mark_matching("re:^[ab]\\."), Ok(2));
+        assert_eq!(p.mark_matching("c.txt"), Ok(1));
+        assert_eq!(p.marked.len(), 5);
+        assert!(p.mark_matching("re:(").is_err());
+    }
+
+    #[test]
+    fn changing_folder_is_recorded_for_the_jump_list() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let mut p = panel_in(dir.path());
+        assert!(p.take_visits().is_empty(), "opening a panel is not a visit");
+        p.cd(dir.path().join("sub"));
+        p.cd(dir.path().join("sub"));
+        p.parent();
+        p.go_back();
+        assert!(!p.cd(dir.path().join("missing")));
+        let sub = dir.path().join("sub");
+        assert_eq!(p.take_visits(), [sub.clone(), dir.path().to_path_buf(), sub]);
+        assert!(p.take_visits().is_empty());
     }
 
     #[test]
@@ -1032,6 +1175,41 @@ mod tests {
         assert!(p.cd(dir.path().join("sub")));
         assert!(p.tree && p.expanded.is_empty(), "a new root starts collapsed");
         assert_eq!(rows(&p), [(0, "x".into())]);
+    }
+
+    #[test]
+    fn gitignored_items_hide_in_lists_trees_and_flat_listings() {
+        if !strata_core::nas::which("git") {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::process::Command::new("git").arg("-C").arg(root).args(["init", "-q"]).output().unwrap();
+        std::fs::write(root.join(".gitignore"), "target/\n*.log\n").unwrap();
+        std::fs::create_dir_all(root.join("target/debug")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        for f in ["target/debug/out", "src/main.rs", "src/build.log", "notes.log", "readme.md"] {
+            std::fs::write(root.join(f), "").unwrap();
+        }
+        let names = |p: &Panel| (0..p.len()).map(|r| p.label(p.entry_at(r).unwrap()).into_owned()).collect::<Vec<_>>();
+        let mut p = panel_in(root).with_gitignored_hidden(true);
+        assert_eq!(names(&p), ["src", "readme.md"]);
+        p.set_hide_gitignored(false);
+        assert_eq!(names(&p), ["src", "target", "notes.log", "readme.md"]);
+
+        p.set_hide_gitignored(true);
+        p.set_tree(true);
+        p.toggle_expand();
+        assert_eq!(names(&p), ["src", "src/main.rs", "readme.md"], "ignored children of expanded folders too");
+
+        p.set_tree(false);
+        p.set_flat(Some(Flat {
+            title: "flatten".into(),
+            source: FlatSource::Walk(Query::files()),
+            truncated: false,
+            announced: false,
+        }));
+        assert!(!names(&p).iter().any(|n| n.ends_with(".log") || n.starts_with("target")), "{:?}", names(&p));
     }
 
     /// Pretends to be remote so listings go through the background path.

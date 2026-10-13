@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use strata_core::nas::Connection;
+use strata_core::ops::{Clash, Conflict, Transfer};
 use strata_core::search::{Fuzzy, Match};
 use strata_core::trash::TrashedItem;
 use strata_core::VfsRef;
@@ -24,8 +25,22 @@ pub enum InputPurpose {
     PreviewFind,
     /// Save a password for this connection in the keychain.
     SavePassword(String),
-    /// Name of an archive to pack these items into.
-    Compress(Vec<PathBuf>),
+    /// Name of an archive to pack these items into, encrypted or not.
+    Compress {
+        items: Vec<PathBuf>,
+        encrypt: bool,
+    },
+    /// Password for a new encrypted zip; `first` is set when repeating it.
+    CompressPassword {
+        items: Vec<PathBuf>,
+        name: String,
+        first: Option<String>,
+    },
+    /// Password to open an encrypted archive.
+    ArchivePassword {
+        file: PathBuf,
+        purpose: super::ArchiveUse,
+    },
     /// New permissions for these items.
     Chmod {
         vfs: VfsRef,
@@ -176,6 +191,10 @@ pub enum PickerPurpose {
     Drives {
         drives: Vec<strata_sys::drives::Drive>,
     },
+    /// Frequently visited folders, best first; `dirs[i]` is row `i`.
+    Jump {
+        dirs: Vec<PathBuf>,
+    },
     /// The git menu; `ops[i]` is row `i`.
     Git {
         target: super::vcs::GitTarget,
@@ -260,6 +279,11 @@ pub enum Confirm {
         name: String,
         password: String,
     },
+    /// Store the password that just opened this archive in the keychain.
+    SaveArchivePassword {
+        file: PathBuf,
+        password: String,
+    },
     /// Delete items from the trash for good.
     PurgeTrash(Vec<TrashedItem>),
     EmptyTrash,
@@ -288,7 +312,10 @@ impl Confirm {
             | Confirm::Sync(_)
             | Confirm::GitDiscard { .. }
             | Confirm::Elevate(_) => true,
-            Confirm::SavePassword { .. } | Confirm::TrashDupe(_) | Confirm::Quit => false,
+            Confirm::SavePassword { .. }
+            | Confirm::SaveArchivePassword { .. }
+            | Confirm::TrashDupe(_)
+            | Confirm::Quit => false,
         }
     }
 }
@@ -298,10 +325,32 @@ pub struct ConfirmState {
     pub action: Confirm,
 }
 
-/// A paste whose destination already has some of the names.
+/// A paste whose destination already has some of the names, asked about
+/// one clash at a time.
 pub struct ConflictState {
-    pub transfer: strata_core::ops::Transfer,
-    pub names: Vec<String>,
+    pub transfer: Transfer,
+    pub clashes: Vec<Clash>,
+    /// The clash being asked about.
+    pub current: usize,
+    /// Whether the next answer also settles every clash after it.
+    pub apply_all: bool,
+}
+
+impl ConflictState {
+    pub fn new(transfer: Transfer, clashes: Vec<Clash>) -> Self {
+        ConflictState { transfer, clashes, current: 0, apply_all: false }
+    }
+
+    /// Records `choice` for the current clash, or with `apply_all` for it
+    /// and every one after it. True once every clash has an answer.
+    pub fn answer(&mut self, choice: Conflict) -> bool {
+        let end = if self.apply_all { self.clashes.len() } else { self.current + 1 };
+        for clash in &self.clashes[self.current.min(end)..end] {
+            self.transfer.resolutions.per_source.insert(clash.source.path.clone(), choice);
+        }
+        self.current = end;
+        self.current >= self.clashes.len()
+    }
 }
 
 pub struct TextPopup {
@@ -338,6 +387,41 @@ mod tests {
         i.end();
         i.delete_word();
         assert_eq!(i.value, "");
+    }
+
+    #[test]
+    fn conflict_answers_one_clash_or_all_remaining() {
+        use strata_core::{Entry, EntryKind};
+        let entry = |p: &str| Entry {
+            name: p.trim_start_matches('/').into(),
+            path: p.into(),
+            kind: EntryKind::File,
+            size: 1,
+            modified: None,
+            mode: None,
+        };
+        let vfs: VfsRef = std::sync::Arc::new(strata_core::vfs::LocalVfs);
+        let transfer = Transfer {
+            mode: strata_core::ops::TransferMode::Copy,
+            src: vfs.clone(),
+            sources: vec![],
+            dst: vfs,
+            dest_dir: "/d".into(),
+            conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
+            targets: Default::default(),
+            options: Default::default(),
+        };
+        let clashes = ["/a", "/b", "/c"].map(|p| Clash { source: entry(p), existing: entry(p) }).to_vec();
+        let mut state = ConflictState::new(transfer, clashes);
+        assert!(!state.answer(Conflict::Skip));
+        assert_eq!(state.current, 1);
+        state.apply_all = true;
+        assert!(state.answer(Conflict::OverwriteIfNewer), "the rest are settled at once");
+        let answers = &state.transfer.resolutions.per_source;
+        assert_eq!(answers[&PathBuf::from("/a")], Conflict::Skip);
+        assert_eq!(answers[&PathBuf::from("/b")], Conflict::OverwriteIfNewer);
+        assert_eq!(answers[&PathBuf::from("/c")], Conflict::OverwriteIfNewer);
     }
 
     #[test]

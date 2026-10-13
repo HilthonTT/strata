@@ -1,0 +1,55 @@
+# Maintainer: HilthonTT
+#
+# At release time: bump pkgver, replace the sha256sums entry with the output
+# of `updpkgsums` (or `makepkg -g`), then regenerate .SRCINFO with
+# `makepkg --printsrcinfo > .SRCINFO`.
+
+pkgname=strata
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='A fast, extensible terminal file explorer'
+arch=('x86_64' 'aarch64')
+url='https://github.com/HilthonTT/strata'
+license=('MIT')
+depends=('gcc-libs' 'glibc' 'openssl' 'zlib')
+makedepends=('cargo' 'pkgconf')
+optdepends=(
+  'git: status markers in the panels'
+  'ripgrep: faster content search'
+  'zoxide: the zoxide plugin'
+  'rclone: S3, WebDAV, FTP and rclone connections'
+  'docker: the Docker view'
+)
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+# FILL IN AT RELEASE TIME
+sha256sums=('0000000000000000000000000000000000000000000000000000000000000000')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  export OPENSSL_NO_VENDOR=1
+  cargo build --frozen --release -p strata
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export OPENSSL_NO_VENDOR=1
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/strata "$pkgdir/usr/bin/strata"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 docs/plugins.md "$pkgdir/usr/share/doc/$pkgname/plugins.md"
+}
