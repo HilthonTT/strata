@@ -66,16 +66,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             ];
             frame.render_widget(Paragraph::new(lines), inner);
         }
-        PreviewContent::Text(_) | PreviewContent::Code(_) => {
+        PreviewContent::Text(_) | PreviewContent::Code(_) | PreviewContent::Data { .. } => {
             let total = match &app.preview {
                 PreviewContent::Text(l) => l.len(),
-                PreviewContent::Code(l) => l.len(),
+                PreviewContent::Code(l) | PreviewContent::Data { body: l, .. } => l.len(),
                 _ => 0,
             };
             let line_at = |i: usize| -> Line<'static> {
                 match &app.preview {
                     PreviewContent::Text(l) => Line::raw(l[i].clone()),
-                    PreviewContent::Code(l) => l[i].clone(),
+                    PreviewContent::Code(l) | PreviewContent::Data { body: l, .. } => l[i].clone(),
                     _ => Line::default(),
                 }
             };
@@ -85,6 +85,20 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             let num_w = if numbers { total.to_string().len().max(2) } else { 0 };
             let gutter_w = if numbers { num_w + 1 } else { 0 } + usize::from(searching);
             let room = (inner.width as usize).saturating_sub(gutter_w);
+            // A summary or table header stays put above what scrolls.
+            let mut inner = inner;
+            if let PreviewContent::Data { head, .. } = &app.preview {
+                let h = (head.len() as u16).min(inner.height);
+                let pad = Span::raw(" ".repeat(gutter_w));
+                let lines: Vec<Line> = head
+                    .iter()
+                    .map(|l| {
+                        Line::from([pad.clone()].into_iter().chain(clip_spans(l, room, theme.fg)).collect::<Vec<_>>())
+                    })
+                    .collect();
+                frame.render_widget(Paragraph::new(lines), Rect { height: h, ..inner });
+                inner = Rect { y: inner.y + h, height: inner.height - h, ..inner };
+            }
             let text: Vec<Line> = (scroll..(scroll + inner.height as usize).min(total))
                 .map(|i| {
                     let hit = matches.contains(&i);

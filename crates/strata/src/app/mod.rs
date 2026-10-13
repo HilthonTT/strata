@@ -25,11 +25,14 @@ pub mod overlay;
 pub mod panel;
 mod plugins;
 pub mod preview;
+mod preview_data;
 mod preview_docs;
 mod preview_hex;
 mod preview_markdown;
 mod preview_media;
 mod preview_nav;
+#[cfg(feature = "sqlite")]
+mod preview_sqlite;
 mod remote_edit;
 mod rename_pattern;
 mod session;
@@ -809,6 +812,7 @@ impl App {
                 options: preview::PreviewOptions {
                     markdown: self.config.general.markdown_preview,
                     hex: self.config.general.hex_preview,
+                    data: self.config.general.data_preview,
                     media: self.config.general.media_preview,
                 },
             }

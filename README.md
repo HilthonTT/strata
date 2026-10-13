@@ -26,7 +26,7 @@ Everything you need, nothing you don't.
 - **Git**: status markers next to every file, and a git menu (`;`) to diff, stage, unstage, discard, commit, and show the log or blame of the marked files
 - **Tree view** (`z t`): expand folders in place instead of entering them, and **tabs** on top of multiple panels
 - **Hide git-ignored files** (`z i`): leave build output, logs and anything else your `.gitignore` lists out of the listing
-- **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
+- **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, CSV/TSV tables, JSON/YAML/TOML outlines, SQLite tables and columns, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
 - **Remote connections**: SMB, NFS and SFTP, plus S3 (AWS, MinIO, R2…), WebDAV, FTP and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox…) browsed in-app, with live reachability checks, a step-by-step connection test and passwords in your system keychain
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems

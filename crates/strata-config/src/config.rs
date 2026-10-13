@@ -183,6 +183,9 @@ pub struct General {
     pub markdown_preview: bool,
     /// Hex dump of binary files in the preview.
     pub hex_preview: bool,
+    /// CSV files as tables, JSON, YAML and TOML as outlines and SQLite
+    /// databases as their tables in the preview.
+    pub data_preview: bool,
     /// PDF pages, video frames, cover art and media details in the preview
     /// (with poppler-utils, ffmpeg or mediainfo installed).
     pub media_preview: bool,
@@ -243,6 +246,7 @@ impl Default for General {
             sha256_checksum: false,
             markdown_preview: true,
             hex_preview: true,
+            data_preview: true,
             media_preview: true,
             browse_archives: true,
             diff_tool: String::new(),
