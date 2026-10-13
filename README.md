@@ -10,7 +10,7 @@
 
 Everything you need, nothing you don't.
 
-- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR` or with a pattern (`photo-{n:3}{.ext}`, `s/old/new/`) and a live preview, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them
+- **File operations**: copy, move, delete (to trash), rename, bulk rename in `$EDITOR` or with a pattern (`photo-{n:3}{.ext}`, `s/old/new/`) and a live preview, duplicate, symlinks and hard links, `chmod`/`chown`, and undo for all of them; name clashes are settled one by one (overwrite, skip, keep both or overwrite if newer, optionally for all the rest)
 - **Trash browser**: restore, delete or empty, newest first
 - **Sync and dedupe**: make one folder match another (`:sync`, with a dry run and undo) and find duplicate files (`:dupes`)
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512) and check downloads against a hash or `SHA256SUMS`

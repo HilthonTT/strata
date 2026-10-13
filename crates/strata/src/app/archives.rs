@@ -140,6 +140,7 @@ impl App {
             dst: self.local.clone(),
             dest_dir,
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
         };
         self.start_transfer(transfer);

@@ -1,5 +1,6 @@
 //! File transfers and deletion that work across any pair of [`Vfs`] backends.
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -29,6 +30,49 @@ pub enum Conflict {
     KeepBoth,
     Overwrite,
     Skip,
+    /// Overwrite when the source was modified after the existing item,
+    /// otherwise skip.
+    OverwriteIfNewer,
+}
+
+/// How a transfer settles name clashes beyond its batch policy.
+#[derive(Debug, Clone, Default)]
+pub struct Resolutions {
+    /// Answers for single sources, decided before the transfer starts;
+    /// sources not listed follow [`Transfer::conflict`].
+    pub per_source: HashMap<PathBuf, Conflict>,
+    /// Existing destinations replaced so far (trashed on local disks,
+    /// deleted elsewhere), so undo can bring them back.
+    pub replaced: Arc<Mutex<Vec<PathBuf>>>,
+}
+
+/// A top-level source whose name is already taken in the destination.
+#[derive(Debug, Clone)]
+pub struct Clash {
+    pub source: Entry,
+    pub existing: Entry,
+}
+
+impl Clash {
+    /// Whether the source was modified after the existing item. Unknown
+    /// times never count as newer.
+    pub fn source_is_newer(&self) -> bool {
+        is_newer(&self.source, &self.existing)
+    }
+}
+
+fn is_newer(source: &Entry, existing: &Entry) -> bool {
+    matches!((source.modified, existing.modified), (Some(s), Some(e)) if s > e)
+}
+
+/// What `policy` does about `source` landing on `existing`: always one of
+/// [`Conflict::KeepBoth`], [`Conflict::Overwrite`] or [`Conflict::Skip`].
+pub fn resolve(policy: Conflict, source: &Entry, existing: &Entry) -> Conflict {
+    match policy {
+        Conflict::OverwriteIfNewer if is_newer(source, existing) => Conflict::Overwrite,
+        Conflict::OverwriteIfNewer => Conflict::Skip,
+        other => other,
+    }
 }
 
 /// Copies or moves `sources` from `src` into `dest_dir` on `dst`.
@@ -40,6 +84,7 @@ pub struct Transfer {
     pub dst: VfsRef,
     pub dest_dir: PathBuf,
     pub conflict: Conflict,
+    pub resolutions: Resolutions,
     /// `(source, destination)` of each top-level item, filled as items
     /// start. Items already listed go to the same destination, keeping
     /// files that arrived complete: that's how an interrupted transfer is
@@ -120,16 +165,36 @@ impl Transfer {
     /// Names of top-level sources that already exist in the destination
     /// (a move onto itself does not count).
     pub fn conflicts(&self) -> Vec<String> {
+        self.clashes().into_iter().map(|c| c.source.name).collect()
+    }
+
+    /// The top-level sources that already exist in the destination, with
+    /// both sides' details (a move onto itself does not count).
+    pub fn clashes(&self) -> Vec<Clash> {
         self.sources
             .iter()
             .filter_map(|source| {
                 let name = source.file_name()?.to_string_lossy().into_owned();
                 let target = self.dst.join(&self.dest_dir, &name);
-                let onto_itself =
-                    same_vfs(&self.src, &self.dst) && target == *source && self.mode == TransferMode::Move;
-                (!onto_itself && self.dst.exists(&target)).then_some(name)
+                if self.onto_itself(source, &target) {
+                    return None;
+                }
+                let existing = self.dst.stat(&target).ok()?;
+                let source = self.src.stat(source).ok()?;
+                Some(Clash { source, existing })
             })
             .collect()
+    }
+
+    fn onto_itself(&self, source: &Path, target: &Path) -> bool {
+        same_vfs(&self.src, &self.dst) && target == source && self.mode == TransferMode::Move
+    }
+
+    /// What to do about `source` clashing with `existing`: its own answer
+    /// if it has one, else the batch policy.
+    pub fn decision(&self, source: &Entry, existing: &Entry) -> Conflict {
+        let policy = self.resolutions.per_source.get(&source.path).copied().unwrap_or(self.conflict);
+        resolve(policy, source, existing)
     }
 
     /// `(source, destination)` of the top-level items not in `finished`,
@@ -148,14 +213,15 @@ impl Transfer {
                 }
                 let name = source.file_name()?.to_string_lossy().into_owned();
                 let target = self.dst.join(&self.dest_dir, &name);
-                if !self.dst.exists(&target) {
+                let Ok(existing) = self.dst.stat(&target) else {
                     return Some((source.clone(), target));
-                }
-                if same_vfs(&self.src, &self.dst) && target == *source && self.mode == TransferMode::Move {
+                };
+                if self.onto_itself(source, &target) {
                     return None;
                 }
-                match self.conflict {
-                    Conflict::Skip => None,
+                let entry = self.src.stat(source).ok()?;
+                match self.decision(&entry, &existing) {
+                    Conflict::Skip | Conflict::OverwriteIfNewer => None,
                     Conflict::Overwrite => Some((source.clone(), target)),
                     Conflict::KeepBoth => {
                         let name = unique_name(&name, |n| self.dst.exists(&self.dst.join(&self.dest_dir, n)));
@@ -170,14 +236,14 @@ impl Transfer {
     /// conflict policy. `None` means skip.
     fn target_for(&self, entry: &Entry) -> Result<Option<PathBuf>> {
         let target = self.dst.join(&self.dest_dir, &entry.name);
-        if !self.dst.exists(&target) {
+        let Ok(existing) = self.dst.stat(&target) else {
             return Ok(Some(target));
-        }
-        if same_vfs(&self.src, &self.dst) && target == entry.path && self.mode == TransferMode::Move {
+        };
+        if self.onto_itself(&entry.path, &target) {
             return Ok(None);
         }
-        match self.conflict {
-            Conflict::Skip => Ok(None),
+        match self.decision(entry, &existing) {
+            Conflict::Skip | Conflict::OverwriteIfNewer => Ok(None),
             // Replaced items go to the trash where there is one.
             Conflict::Overwrite => {
                 if self.dst.is_local() {
@@ -185,6 +251,7 @@ impl Transfer {
                 } else {
                     self.dst.remove_all(&target)?;
                 }
+                self.resolutions.replaced.lock().unwrap_or_else(|e| e.into_inner()).push(target.clone());
                 Ok(Some(target))
             }
             Conflict::KeepBoth => {
@@ -417,6 +484,7 @@ mod tests {
             dst: vfs.clone(),
             dest_dir: dest.clone(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
         };
         let p = Progress::default();
@@ -444,6 +512,7 @@ mod tests {
             dst: vfs,
             dest_dir: dest.clone(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
         };
         let finished: TransferLog = Mutex::new(vec![(a.clone(), dest.join("a.txt"))]);
@@ -466,6 +535,7 @@ mod tests {
             dst: vfs,
             dest_dir: dest.clone(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
         }
         .run(&Progress::default())
@@ -487,6 +557,7 @@ mod tests {
             dst: vfs,
             dest_dir: src.join("b"),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
         }
         .run(&Progress::default());
@@ -509,6 +580,7 @@ mod tests {
             dst: vfs.clone(),
             dest_dir: dest.clone(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
         }
         .run_logged(&Progress::default(), &log)
@@ -537,6 +609,7 @@ mod tests {
             dst: vfs,
             dest_dir: dest.clone(),
             conflict: Conflict::Skip,
+            resolutions: Default::default(),
             targets: Default::default(),
         };
         assert_eq!(t.conflicts(), vec!["a.txt".to_string()]);
@@ -572,6 +645,7 @@ mod tests {
             dst: vfs,
             dest_dir: dest.clone(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Arc::new(Mutex::new(vec![(src.clone(), earlier.clone())])),
         };
         let p = Progress::default();
@@ -581,6 +655,83 @@ mod tests {
         assert!(!dest.join("src (2)").exists(), "no new copy");
         assert_eq!(fs::read_dir(dest.join("src")).unwrap().count(), 0, "the other folder is untouched");
         assert_eq!(p.done_bytes.load(Ordering::Relaxed), 22);
+    }
+
+    fn set_age(path: &Path, secs_ago: u64) {
+        let when = std::time::SystemTime::now() - std::time::Duration::from_secs(secs_ago);
+        fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap();
+    }
+
+    #[test]
+    fn overwrite_if_newer_compares_modification_times() {
+        let dir = tempfile::tempdir().unwrap();
+        let (new, old) = (dir.path().join("new"), dir.path().join("old"));
+        fs::write(&new, "n").unwrap();
+        fs::write(&old, "o").unwrap();
+        set_age(&new, 10);
+        set_age(&old, 1000);
+        let (new, mut old) = (LocalVfs::entry_for(&new).unwrap(), LocalVfs::entry_for(&old).unwrap());
+        assert_eq!(resolve(Conflict::OverwriteIfNewer, &new, &old), Conflict::Overwrite);
+        assert_eq!(resolve(Conflict::OverwriteIfNewer, &old, &new), Conflict::Skip);
+        assert_eq!(resolve(Conflict::KeepBoth, &old, &new), Conflict::KeepBoth);
+        old.modified = None;
+        assert_eq!(resolve(Conflict::OverwriteIfNewer, &new, &old), Conflict::Skip, "unknown times are not newer");
+    }
+
+    #[test]
+    fn per_source_answers_override_the_batch_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let (src, dest) = (dir.path().join("src"), dir.path().join("dest"));
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&dest).unwrap();
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+            fs::write(src.join(name), "new").unwrap();
+            fs::write(dest.join(name), "old").unwrap();
+        }
+        fs::write(dest.join("b (1).txt"), "taken").unwrap();
+        fs::write(src.join("fresh.txt"), "new").unwrap();
+        set_age(&src.join("c.txt"), 1000);
+        set_age(&src.join("d.txt"), 0);
+        set_age(&dest.join("d.txt"), 1000);
+        let vfs = local();
+        let names = ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "fresh.txt"];
+        let mut transfer = Transfer {
+            mode: TransferMode::Copy,
+            src: vfs.clone(),
+            sources: names.iter().map(|n| src.join(n)).collect(),
+            dst: vfs,
+            dest_dir: dest.clone(),
+            conflict: Conflict::Skip,
+            resolutions: Default::default(),
+            targets: Default::default(),
+        };
+        assert_eq!(transfer.clashes().len(), 5);
+        let answers = &mut transfer.resolutions.per_source;
+        answers.insert(src.join("a.txt"), Conflict::Overwrite);
+        answers.insert(src.join("b.txt"), Conflict::KeepBoth);
+        answers.insert(src.join("c.txt"), Conflict::OverwriteIfNewer);
+        answers.insert(src.join("d.txt"), Conflict::OverwriteIfNewer);
+        // e.txt follows the batch policy (skip); fresh.txt has no clash.
+        assert_eq!(
+            transfer.remaining(&TransferLog::default()),
+            vec![
+                (src.join("a.txt"), dest.join("a.txt")),
+                (src.join("b.txt"), dest.join("b (2).txt")),
+                (src.join("d.txt"), dest.join("d.txt")),
+                (src.join("fresh.txt"), dest.join("fresh.txt")),
+            ]
+        );
+
+        // Running it without overwrites keeps both, skips and copies.
+        transfer.resolutions.per_source.remove(&src.join("a.txt"));
+        transfer.resolutions.per_source.remove(&src.join("d.txt"));
+        transfer.run(&Progress::default()).unwrap();
+        assert_eq!(fs::read_to_string(dest.join("b (2).txt")).unwrap(), "new");
+        for name in ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"] {
+            assert_eq!(fs::read_to_string(dest.join(name)).unwrap(), "old", "{name}");
+        }
+        assert!(dest.join("fresh.txt").exists());
+        assert!(transfer.resolutions.replaced.lock().unwrap().is_empty());
     }
 
     #[test]

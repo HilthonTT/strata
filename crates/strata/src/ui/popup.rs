@@ -1,14 +1,17 @@
 //! Overlays: prompts, pickers, confirmations, help, text and which-key.
 
+use chrono::{DateTime, Local};
 use ratatui::layout::{Constraint, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Wrap};
 use ratatui::Frame;
+use strata_core::util::human_size;
+use strata_core::Entry;
 use unicode_width::UnicodeWidthStr;
 
 use super::{block, centered, fit, truncate};
-use crate::app::overlay::{Overlay, PickerState, RenamePreview};
+use crate::app::overlay::{ConflictState, Overlay, PickerState, RenamePreview};
 use crate::app::{App, View};
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
@@ -68,55 +71,85 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             let text = inner.inner(ratatui::layout::Margin { horizontal: 1, vertical: 0 });
             frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), text);
         }
-        Overlay::Conflict(c) => {
-            let theme = &app.theme;
-            let dest = crate::app::short_path(&c.transfer.dest_dir);
-            let shown = c.names.len().min(6);
-            let rect = centered(area, 70, shown as u16 + 7 + u16::from(c.names.len() > shown));
-            frame.render_widget(Clear, rect);
-            let b = block(theme, app.border, "Already exists", true);
-            let inner = b.inner(rect);
-            frame.render_widget(b, rect);
-            let width = inner.width as usize;
-            // Cut the folder from the left: its own name is the useful end.
-            let lead = format!(" {} item(s) already exist in ", c.names.len());
-            let dest = super::truncate_left(&format!("{dest}:"), width.saturating_sub(lead.width()).max(8));
-            let mut lines =
-                vec![Line::styled(truncate(&format!("{lead}{dest}"), width), Style::default().fg(theme.fg))];
-            for name in c.names.iter().take(shown) {
-                lines.push(Line::styled(truncate(&format!("   • {name}"), width), Style::default().fg(theme.warning)));
-            }
-            if c.names.len() > shown {
-                lines.push(Line::styled(
-                    format!("   … and {} more", c.names.len() - shown),
-                    Style::default().fg(theme.muted),
-                ));
-            }
-            lines.push(Line::raw(""));
-            let key = |k: &'static str| {
-                Span::styled(k, Style::default().fg(theme.palette.accent).add_modifier(Modifier::BOLD))
-            };
-            let text = |t: &'static str| Span::styled(t, Style::default().fg(theme.muted));
-            lines.push(Line::from(vec![
-                text(" "),
-                key("[k]"),
-                text("eep both  "),
-                key("[o]"),
-                text("verwrite  "),
-                key("[s]"),
-                text("kip  "),
-                key("[esc]"),
-                text(" cancel"),
-            ]));
-            lines.push(Line::styled(
-                " Overwritten items go to the trash on local disks.",
-                Style::default().fg(theme.muted),
-            ));
-            frame.render_widget(Paragraph::new(lines), inner);
-        }
+        Overlay::Conflict(c) => draw_conflict(frame, app, c, area),
         Overlay::Help { scroll } => draw_help(frame, app, area, *scroll),
         Overlay::Text(t) => draw_text(frame, app, area, &t.title, &t.lines, t.scroll, t.colored),
     }
+}
+
+/// One name clash of a paste at a time, Midnight Commander style: both
+/// sides with their size and modification time, and the answers.
+fn draw_conflict(frame: &mut Frame, app: &App, c: &ConflictState, area: Rect) {
+    let theme = &app.theme;
+    let Some(clash) = c.clashes.get(c.current) else { return };
+    let rect = centered(area, 72, 11);
+    frame.render_widget(Clear, rect);
+    let title = format!("Already exists ({}/{})", c.current + 1, c.clashes.len());
+    let b = block(theme, app.border, &title, true);
+    let inner = b.inner(rect);
+    frame.render_widget(b, rect);
+    let width = inner.width as usize;
+    let dest = crate::app::short_path(&c.transfer.dest_dir);
+    let lead = format!(" '{}' is already in ", clash.source.name);
+    let lead = truncate(&lead, width.saturating_sub(12));
+    let dest = super::truncate_left(&dest, width.saturating_sub(lead.width()).max(8));
+    let newer = clash.source_is_newer();
+    let older = clash.existing.modified.is_some_and(|e| clash.source.modified.is_some_and(|s| s < e));
+    let side = |label: &str, e: &Entry, is_newer: bool| {
+        let size = if e.is_dir() { "folder".to_string() } else { human_size(e.size) };
+        let when = e
+            .modified
+            .map(|t| DateTime::<Local>::from(t).format(&app.config.general.date_format).to_string())
+            .unwrap_or_else(|| "—".into());
+        let mut spans = vec![
+            Span::styled(format!(" {}", fit(label, 10)), Style::default().fg(theme.muted)),
+            Span::styled(format!("{} ", fit(&size, 10)), Style::default().fg(theme.fg)),
+            Span::styled(when, Style::default().fg(theme.fg)),
+        ];
+        if is_newer {
+            spans.push(Span::styled("  newer", Style::default().fg(theme.success).add_modifier(Modifier::BOLD)));
+        }
+        Line::from(spans)
+    };
+    let key = |k: &'static str| Span::styled(k, Style::default().fg(theme.palette.accent).add_modifier(Modifier::BOLD));
+    let text = |t: &'static str| Span::styled(t, Style::default().fg(theme.muted));
+    let remaining = c.clashes.len() - c.current - 1;
+    let all = if c.apply_all { "[x]" } else { "[ ]" };
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(lead, Style::default().fg(theme.fg)),
+            Span::styled(dest, Style::default().fg(theme.warning)),
+        ]),
+        Line::raw(""),
+        side("New", &clash.source, newer),
+        side("Existing", &clash.existing, older),
+        Line::raw(""),
+        Line::from(vec![
+            text(" "),
+            key("[o]"),
+            text("verwrite  "),
+            key("[s]"),
+            text("kip  "),
+            key("[k]"),
+            text("eep both  "),
+            key("[n]"),
+            text(" overwrite if newer"),
+        ]),
+        Line::from(vec![
+            text(" "),
+            key("[a]"),
+            Span::styled(format!(" {all} "), Style::default().fg(theme.fg)),
+            Span::styled(
+                format!("apply to this and the {remaining} remaining  "),
+                Style::default().fg(if remaining > 0 { theme.fg } else { theme.muted }),
+            ),
+            key("[esc]"),
+            text(" cancel"),
+        ]),
+        Line::raw(""),
+        Line::styled(" Overwritten items go to the trash on local disks.", Style::default().fg(theme.muted)),
+    ];
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// New names under the pattern-rename prompt, `old → new`.

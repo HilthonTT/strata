@@ -67,6 +67,7 @@ impl App {
                 dst: vfs.clone(),
                 dest_dir,
                 conflict: Conflict::KeepBoth,
+                resolutions: Default::default(),
                 targets: Default::default(),
             });
         }

@@ -13,7 +13,7 @@ Most actions apply to the **marked** items, or to the item under the cursor when
 | <Kbd>y y</Kbd> / <Kbd>x</Kbd> then <Kbd>p</Kbd> | Copy / cut, then paste in another directory |
 | <Kbd>c</Kbd> / <Kbd>m</Kbd> | Copy / move straight into the next panel |
 
-If some names already exist in the destination, strata asks once for the whole paste: **keep both** (the new item becomes `name (1).ext`), **overwrite** (replaced items go to the trash on local disks), **skip** those items, or cancel.
+If some names already exist in the destination, strata asks about each one in turn, showing the size and modification time of both and which is newer: <Kbd>o</Kbd> **overwrite** (replaced items go to the trash on local disks), <Kbd>s</Kbd> **skip**, <Kbd>k</Kbd> **keep both** (the new item becomes `name (1).ext`), or <Kbd>n</Kbd> **overwrite if newer**. <Kbd>a</Kbd> ticks *apply to all remaining*, so the next answer settles the rest at once; <Kbd>esc</Kbd> cancels the whole paste. Nothing is copied until every name has an answer. The same dialog appears for <Kbd>c</Kbd> / <Kbd>m</Kbd>.
 
 Transfers run in the background, so you can keep working. Their progress appears under **Processes** in the footer, with the current speed and, once it has settled, the time left (time spent paused does not count); <Kbd>alt+p</Kbd> pauses or resumes the latest one and <Kbd>ctrl+x</Kbd> cancels it. If a copy or move fails or is cancelled, <Kbd>alt+R</Kbd> (or `:retry`) picks it up where it stopped: items that finished are left alone, files that already arrived complete are kept, and the rest go into the same destinations as before. Copies work between any locations — local disk, SFTP servers and Docker containers.
 
@@ -173,6 +173,7 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 - new files and directories (they go to the trash),
 - copies (the copies go to the trash),
 - moves (items go back where they came from, even across filesystems),
+- overwrites on a local disk (the replaced items come back from the trash),
 - trashing (items are restored from the trash — Linux and Windows),
 - restores from the trash browser (they go back to the trash),
 - links and duplicates (they go to the trash),

@@ -539,6 +539,7 @@ impl App {
             dst: self.panel().vfs.clone(),
             dest_dir: self.panel().target_dir(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
         };
         if clip.mode == TransferMode::Move {
@@ -567,19 +568,21 @@ impl App {
             dst: other.vfs.clone(),
             dest_dir: other.cwd.clone(),
             conflict: Conflict::KeepBoth,
+            resolutions: Default::default(),
             targets: Default::default(),
         };
         self.panel_mut().clear_marks();
         self.begin_transfer(transfer);
     }
 
-    /// Starts a transfer, first asking what to do about existing names.
+    /// Starts a transfer, first asking about each name that already exists
+    /// in the destination.
     fn begin_transfer(&mut self, transfer: Transfer) {
-        let names = transfer.conflicts();
-        if names.is_empty() {
+        let clashes = transfer.clashes();
+        if clashes.is_empty() {
             return self.start_transfer(transfer);
         }
-        self.overlay = Some(Overlay::Conflict(super::overlay::ConflictState { transfer, names }));
+        self.overlay = Some(Overlay::Conflict(super::overlay::ConflictState::new(transfer, clashes)));
     }
 
     pub(super) fn start_transfer(&mut self, transfer: Transfer) {
@@ -595,6 +598,8 @@ impl App {
             src: transfer.src.clone(),
             dst: transfer.dst.clone(),
             log: log.clone(),
+            replaced: transfer.resolutions.replaced.clone(),
+            since: std::time::SystemTime::now(),
         };
         let undo_label = format!("{} {what}", verb.to_lowercase());
         let retry = (transfer.clone(), log.clone());
