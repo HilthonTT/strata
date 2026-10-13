@@ -388,14 +388,25 @@ impl App {
             .iter()
             .map(|i| {
                 let when = chrono::DateTime::<chrono::Local>::from(i.deleted).format(format);
-                format!("{:<width$}  {when}  {}", i.name, short_path(&i.original))
+                let from = if i.location_known() { short_path(&i.original) } else { "(origin unknown)".into() };
+                format!("{:<width$}  {when}  {from}", i.name)
             })
             .collect();
         let title = format!("Trash ({}) · enter restore · ctrl+d delete · ctrl+e empty", items.len());
         self.overlay = Some(Overlay::Picker(PickerState::new(title, rows, PickerPurpose::Trash { items })));
     }
 
-    pub(super) fn restore_trashed(&mut self, item: TrashedItem) {
+    pub(super) fn restore_trashed(&mut self, mut item: TrashedItem) {
+        // Without a recorded origin (macOS, trashed outside Finder), restore
+        // into the focused folder.
+        let known = item.location_known();
+        if !known {
+            let p = self.panel();
+            item.original = match p.vfs.is_local() {
+                true => p.cwd.clone(),
+                false => dirs::home_dir().unwrap_or_default(),
+            };
+        }
         let path = item.original_path();
         match trash::restore(vec![item]) {
             Ok(()) => {
@@ -404,7 +415,10 @@ impl App {
                 self.push_undo(format!("restore {name}"), vec![UndoOp::Created { vfs: local, path: path.clone() }]);
                 self.reload_all();
                 self.reveal(path.clone());
-                self.info(format!("restored {}", short_path(&path)));
+                match known {
+                    true => self.info(format!("restored {}", short_path(&path))),
+                    false => self.info(format!("origin unknown: restored to {}", short_path(&path))),
+                }
             }
             Err(e) => self.error(format!("{e:#}")),
         }

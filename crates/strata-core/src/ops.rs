@@ -532,50 +532,14 @@ pub fn swap_with_trashed(vfs: &dyn Vfs, paths: &[PathBuf], since: std::time::Sys
 }
 
 /// The latest version of each of `paths` trashed since `since`.
-#[cfg(any(
-    target_os = "windows",
-    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
-))]
-fn latest_trashed(paths: &[PathBuf], since: std::time::SystemTime) -> Result<Vec<trash::TrashItem>> {
-    let since = since.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0) - 2;
-    let mut chosen: Vec<trash::TrashItem> = Vec::new();
-    for item in trash::os_limited::list().context("cannot read the trash")? {
-        if item.time_deleted < since || !paths.contains(&item.original_path()) {
-            continue;
-        }
-        match chosen.iter_mut().find(|c| c.original_path() == item.original_path()) {
-            Some(existing) if existing.time_deleted < item.time_deleted => *existing = item,
-            Some(_) => {}
-            None => chosen.push(item),
-        }
-    }
-    Ok(chosen)
+fn latest_trashed(paths: &[PathBuf], since: std::time::SystemTime) -> Result<Vec<crate::trash::TrashedItem>> {
+    crate::trash::trashed_since(paths, since).context("cannot read the trash")
 }
 
-#[cfg(any(
-    target_os = "windows",
-    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
-))]
-fn restore_items(chosen: Vec<trash::TrashItem>) -> Result<usize> {
+fn restore_items(chosen: Vec<crate::trash::TrashedItem>) -> Result<usize> {
     let count = chosen.len();
-    trash::os_limited::restore_all(chosen).context("cannot restore from the trash")?;
+    crate::trash::restore(chosen).context("cannot restore from the trash")?;
     Ok(count)
-}
-
-#[cfg(not(any(
-    target_os = "windows",
-    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
-)))]
-fn latest_trashed(_paths: &[PathBuf], _since: std::time::SystemTime) -> Result<Vec<()>> {
-    bail!("restoring from the trash is not supported on this platform")
-}
-
-#[cfg(not(any(
-    target_os = "windows",
-    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
-)))]
-fn restore_items(_chosen: Vec<()>) -> Result<usize> {
-    bail!("restoring from the trash is not supported on this platform")
 }
 
 /// Deletes items, using the trash when requested and supported.

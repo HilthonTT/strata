@@ -172,7 +172,7 @@ To verify a download:
 | <Kbd>ctrl+d</Kbd> | Delete the item for good |
 | <Kbd>ctrl+e</Kbd> | Empty the trash |
 
-Restoring refuses to replace something that has taken the item's place. Restores can be undone like other operations. `:empty-trash` empties the trash after asking. Browsing the trash works on Linux, the BSDs and Windows; macOS has no API to list it.
+Restoring refuses to replace something that has taken the item's place. Restores can be undone like other operations. `:empty-trash` empties the trash after asking. Browsing the trash works on Linux, the BSDs, Windows and macOS. On macOS strata reads `~/.Trash` directly (the terminal needs Full Disk Access) and takes original locations from Finder's put-back records; an item trashed without Finder has none and is restored into the current folder.
 
 ## Archives
 
@@ -199,7 +199,7 @@ Press <Kbd>u</Kbd> (or <Kbd>ctrl+z</Kbd> with the classic preset) to undo the la
 - copies (the copies go to the trash),
 - moves (items go back where they came from, even across filesystems),
 - overwrites on a local disk (the replaced items come back from the trash),
-- trashing (items are restored from the trash — Linux and Windows),
+- trashing (items are restored from the trash — Linux, Windows and macOS),
 - restores from the trash browser (they go back to the trash),
 - links and duplicates (they go to the trash),
 - permission and owner changes (the old ones are set again),
