@@ -213,12 +213,12 @@ impl App {
     fn on_panel_mouse(&mut self, i: usize, mouse: MouseEvent) {
         let (x, y) = (mouse.column, mouse.row);
         let rect = self.layout.panels[i];
-        // Row 0 is the border, row 1 the search line.
-        let row = (y >= rect.y + 2).then(|| (y - rect.y - 2) as usize + self.panels[i].offset);
-        let row = row.filter(|&r| r < self.panels[i].len());
+        let row = self.item_at(i, x, y);
+        // A notch of the wheel moves a row of tiles in a grid.
+        let step = if self.panels[i].is_grid() { self.panels[i].row_step() as isize } else { 3 };
         match mouse.kind {
-            MouseEventKind::ScrollDown => self.panels[i].move_by(3),
-            MouseEventKind::ScrollUp => self.panels[i].move_by(-3),
+            MouseEventKind::ScrollDown => self.panels[i].move_by(step),
+            MouseEventKind::ScrollUp => self.panels[i].move_by(-step),
             MouseEventKind::Down(MouseButton::Left) => {
                 self.active = i;
                 self.focus = Focus::Panels;
@@ -258,6 +258,18 @@ impl App {
         }
     }
 
+    /// The item of panel `i` under `(x, y)`: a list row, or a grid tile.
+    fn item_at(&self, i: usize, x: u16, y: u16) -> Option<usize> {
+        let (rect, panel) = (self.layout.panels.get(i)?, self.panels.get(i)?);
+        let item = match self.layout.grids.get(i).copied().flatten() {
+            Some((area, grid)) => grid.slot_at(area, x, y)? + panel.offset,
+            // Row 0 is the border, row 1 the search line.
+            None if y >= rect.y + 2 => (y - rect.y - 2) as usize + panel.offset,
+            None => return None,
+        };
+        (item < panel.len()).then_some(item)
+    }
+
     /// A click on a segment of a panel's location opens that folder.
     fn click_crumb(&mut self, i: usize, x: u16) {
         let Some(crumb) = self.layout.crumbs.get(i) else {
@@ -287,8 +299,8 @@ impl App {
     fn drop_target(&self, sources: &[PathBuf], x: u16, y: u16) -> Option<(usize, PathBuf)> {
         let inside = |r: &Rect| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
         let j = self.layout.panels.iter().position(inside)?;
-        let (rect, panel) = (self.layout.panels[j], self.panels.get(j)?);
-        let over = (y >= rect.y + 2).then(|| panel.entry_at((y - rect.y - 2) as usize + panel.offset)).flatten();
+        let panel = self.panels.get(j)?;
+        let over = self.item_at(j, x, y).and_then(|row| panel.entry_at(row));
         Some((j, drop_dir(sources, over, &panel.cwd)))
     }
 

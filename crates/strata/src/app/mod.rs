@@ -47,6 +47,7 @@ pub mod sidebar;
 pub mod sync;
 mod tabs;
 mod tags;
+pub mod thumbs;
 mod undo;
 mod vcs;
 mod views;
@@ -192,6 +193,8 @@ pub struct LayoutCache {
     pub top: Vec<mouse::TopHit>,
     /// Where each panel prints its location, for clicks on path segments.
     pub crumbs: Vec<mouse::Crumb>,
+    /// Each panel's grid and the area its tiles start from, when it shows one.
+    pub grids: Vec<Option<(Rect, thumbs::Grid)>>,
     /// The open picker's box and its list rows.
     pub popup: std::cell::Cell<Option<Rect>>,
     pub popup_list: std::cell::Cell<Option<Rect>>,
@@ -250,6 +253,8 @@ pub struct App {
     pub preview_query: Option<String>,
     preview_path: Option<PathBuf>,
     picker: Option<Picker>,
+    /// Thumbnails for the grid view.
+    pub thumbs: thumbs::Thumbs,
     highlighter: Option<Arc<highlight::Highlighter>>,
     pub inspection: Inspection,
 
@@ -355,6 +360,7 @@ impl App {
             .map(|dir| {
                 Panel::new(local.clone(), dir, sort, config.general.show_hidden, Some(listing_tx.clone()))
                     .with_gitignored_hidden(config.general.hide_gitignored)
+                    .with_auto_grid(config.general.auto_grid)
             })
             .collect();
 
@@ -401,6 +407,7 @@ impl App {
             preview_scroll: 0,
             preview_query: None,
             preview_path: None,
+            thumbs: thumbs::Thumbs::new(picker.clone(), tx.clone()),
             picker,
             highlighter,
             inspection: Inspection::default(),
@@ -609,6 +616,7 @@ impl App {
     pub(super) fn make_panel(&self, vfs: VfsRef, cwd: PathBuf, sort: SortOptions, show_hidden: bool) -> Panel {
         Panel::new(vfs, cwd, sort, show_hidden, Some(self.listing_tx.clone()))
             .with_gitignored_hidden(self.config.general.hide_gitignored)
+            .with_auto_grid(self.config.general.auto_grid)
     }
 
     fn drain_events(&mut self) {
@@ -677,6 +685,7 @@ impl App {
                     self.rebuild_sidebar();
                 }
             }
+            AppEvent::Thumb(done) => self.thumbs.finish(*done),
             AppEvent::Preview { generation, content } => {
                 if generation == self.preview_generation {
                     self.preview = content;

@@ -15,7 +15,7 @@ strata opens two panels by default (`panels = 2` in the config). Each panel has 
 | <Kbd>ctrl+h</Kbd> / <Kbd>ctrl+l</Kbd> | Focus the sidebar / go back to the panels |
 | <Kbd>c</Kbd> / <Kbd>m</Kbd> | Copy / move the marked items into the next panel |
 
-The focused panel has a coloured border. Its bottom border shows the mode — **Browser**, **Tree**, or **Select** while items are marked — and your position, such as `3/24`.
+The focused panel has a coloured border. Its bottom border shows the mode — **Browser**, **Tree**, **Grid**, or **Select** while items are marked — and your position, such as `3/24`.
 
 ## Tree view
 
@@ -28,6 +28,20 @@ Press <Kbd>z t</Kbd> (<Kbd>alt+t</Kbd> with the classic preset), or run `:tree`,
 | <Kbd>z M</Kbd> | Collapse everything |
 
 New files, new folders and pastes go inside the hovered folder when it is expanded, and next to the hovered item otherwise. Marks, file operations, git markers and folder sizes work across the whole tree. The filter matches paths relative to the panel's folder and lists matches flat. Expanded folders are watched for changes too, and the tree works on remote connections, where each folder loads in the background.
+
+## Thumbnail grid
+
+Folders where most files are images or videos (three or more, folders not counted) open as a grid of thumbnails. Press <Kbd>z g</Kbd> (<Kbd>alt+v</Kbd> with the classic preset), or run `:grid`, to switch any folder between the grid and the list:
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>h</Kbd> <Kbd>j</Kbd> <Kbd>k</Kbd> <Kbd>l</Kbd> / arrows | Move across the grid |
+| <Kbd>enter</Kbd> | Open the file or enter the folder |
+| <Kbd>backspace</Kbd> | Go to the parent directory |
+
+Folders and other files show their icon. Video frames need `ffmpegthumbnailer` or `ffmpeg`, and only work for local files; image thumbnails work everywhere, including remote connections and archives. Thumbnails are made in the background, those on screen first. Thumbnails of videos and of images over 512 KB are kept in `~/.cache/strata/thumbnails`, so they are only made once. Clicks, the right-click menu and drag and drop work on tiles.
+
+With `auto_grid = true` (the default) your choice lasts until you leave the folder. With `auto_grid = false` nothing switches by itself and the grid stays on from folder to folder until you turn it off. `grid_tile_width` sets the smallest tile width in columns. Without image support in the terminal (or with `image_preview = false`) tiles show icons only.
 
 ## Hide files ignored by git
 

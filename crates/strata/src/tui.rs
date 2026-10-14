@@ -12,7 +12,8 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::Terminal;
 use ratatui_image::picker::cap_parser::QueryStdioOptions;
-use ratatui_image::picker::Picker;
+use ratatui_image::picker::{Capability, Picker, ProtocolType};
+use strata_config::ImageProtocol;
 
 pub type Term = Terminal<CrosstermBackend<Stdout>>;
 
@@ -53,26 +54,47 @@ fn enter() -> Result<()> {
 /// The probe is only sent to terminals known to answer it: a terminal that
 /// stays silent leaves the probe's reader thread waiting on stdin, where it
 /// would swallow the user's first key press.
-pub fn image_picker() -> Picker {
-    if !graphics_capable_terminal() {
+pub fn image_picker(protocol: ImageProtocol) -> Picker {
+    let forced = match protocol {
+        ImageProtocol::Auto => None,
+        ImageProtocol::Halfblocks => return Picker::halfblocks(),
+        ImageProtocol::Kitty => Some(ProtocolType::Kitty),
+        ImageProtocol::Sixel => Some(ProtocolType::Sixel),
+        ImageProtocol::Iterm2 => Some(ProtocolType::Iterm2),
+    };
+    // Graphics would need passthrough set up in tmux and screen.
+    if forced.is_none() && behind_multiplexer() {
         return Picker::halfblocks();
     }
+    // Every terminal is asked: the variables that name it often don't
+    // reach WSL, SSH sessions or containers. One that doesn't answer gets
+    // half blocks.
     let options = QueryStdioOptions { timeout: Duration::from_millis(600), ..Default::default() };
-    Picker::from_query_stdio_with_options(options).unwrap_or_else(|_| Picker::halfblocks())
+    let mut picker = Picker::from_query_stdio_with_options(options).unwrap_or_else(|_| Picker::halfblocks());
+    match forced {
+        Some(protocol) => picker.set_protocol_type(protocol),
+        None => {
+            let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+            if images_switched_off(&program, picker.protocol_type(), picker.capabilities()) {
+                picker.set_protocol_type(ProtocolType::Halfblocks);
+            }
+        }
+    }
+    picker
 }
 
-fn graphics_capable_terminal() -> bool {
-    let var = |k: &str| std::env::var(k).unwrap_or_default().to_ascii_lowercase();
-    if std::env::var_os("TMUX").is_some() || var("TERM").starts_with("screen") {
-        return false;
-    }
-    let term = var("TERM");
-    let program = var("TERM_PROGRAM");
-    ["KITTY_WINDOW_ID", "WEZTERM_EXECUTABLE", "WT_SESSION", "KONSOLE_VERSION", "GHOSTTY_RESOURCES_DIR"]
-        .iter()
-        .any(|k| std::env::var_os(k).is_some())
-        || ["kitty", "foot", "mlterm", "contour", "ghostty", "wezterm"].iter().any(|t| term.contains(t))
-        || ["iterm.app", "wezterm", "ghostty", "vscode", "rio"].contains(&program.as_str())
+fn behind_multiplexer() -> bool {
+    std::env::var_os("TMUX").is_some()
+        || std::env::var("TERM").is_ok_and(|t| t.to_ascii_lowercase().starts_with("screen"))
+}
+
+/// VS Code is taken to understand iTerm2 images, but drops them unless
+/// `terminal.integrated.enableImages` is on — which also makes it report
+/// sixel support. Without that report, nothing would show.
+fn images_switched_off(term_program: &str, protocol: ProtocolType, capabilities: &[Capability]) -> bool {
+    term_program.eq_ignore_ascii_case("vscode")
+        && protocol == ProtocolType::Iterm2
+        && !capabilities.iter().any(|c| matches!(c, Capability::Sixel | Capability::Kitty))
 }
 
 /// Runs `cmd` with the terminal handed over, then takes it back.
@@ -119,4 +141,17 @@ pub fn run_external_and_wait(terminal: &mut Term, cmd: &mut Command, only_on_fai
     enter()?;
     terminal.clear()?;
     Ok(status?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vscode_without_images_gets_half_blocks() {
+        assert!(images_switched_off("vscode", ProtocolType::Iterm2, &[]));
+        assert!(!images_switched_off("vscode", ProtocolType::Iterm2, &[Capability::Sixel]), "enableImages is on");
+        assert!(!images_switched_off("vscode", ProtocolType::Sixel, &[Capability::Sixel]));
+        assert!(!images_switched_off("WezTerm", ProtocolType::Iterm2, &[]), "other terminals are trusted");
+    }
 }

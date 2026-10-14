@@ -162,8 +162,11 @@ fn main() -> Result<()> {
     }
 
     let mut terminal = tui::init(config.general.mouse)?;
-    let picker =
-        if config.general.image_preview { tui::image_picker() } else { ratatui_image::picker::Picker::halfblocks() };
+    let picker = if config.general.image_preview {
+        tui::image_picker(config.general.image_protocol)
+    } else {
+        ratatui_image::picker::Picker::halfblocks()
+    };
     let result = app::App::new(config, options, picker).and_then(|mut app| {
         app.run(&mut terminal)?;
         // Both are attempted; the first failure is reported.

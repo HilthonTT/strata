@@ -2,11 +2,12 @@
 //! git markers and a mode/position footer on the border.
 
 use chrono::{DateTime, Local};
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Rect, Size};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, BorderType, Paragraph};
 use ratatui::Frame;
+use ratatui_image::Image;
 use strata_config::{Action, Theme};
 use strata_core::git::GitState;
 use strata_core::util::{human_size, permissions_string};
@@ -15,12 +16,17 @@ use unicode_width::UnicodeWidthStr;
 
 use super::{block, fit, icons, panels_focused, tag_color, truncate, truncate_left};
 use crate::app::mouse::Crumb;
+use crate::app::panel::Panel;
+use crate::app::thumbs::{Grid, Slot};
 use crate::app::{short_path, App};
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let n = app.panels.len() as u32;
     let rects = Layout::horizontal(vec![Constraint::Ratio(1, n); n as usize]).split(area);
+    app.layout.grids = vec![None; rects.len()];
+    app.thumbs.begin_frame();
     let crumbs = rects.iter().enumerate().map(|(i, rect)| draw_panel(frame, app, i, *rect)).collect();
+    app.thumbs.end_frame();
     app.layout.panels = rects.to_vec();
     app.layout.crumbs = crumbs;
 }
@@ -30,7 +36,26 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) -> Cru
     // Rows available below the border and the search line.
     let list_height = area.height.saturating_sub(3) as usize;
     app.apply_plugin_sort(index);
-    app.panels[index].scroll_into_view(list_height);
+    // Inside the border, below the search line.
+    let tiles = Rect { x: area.x + 1, y: area.y + 2, width: area.width.saturating_sub(2), height: list_height as u16 };
+    let grid = app.panels[index]
+        .is_grid()
+        .then(|| Grid::fit(tiles.width, tiles.height, app.config.general.grid_tile_width, app.thumbs.cell_aspect()));
+    match grid {
+        Some(grid) => {
+            app.panels[index].scroll_grid_into_view(grid.cols, grid.rows);
+            app.layout.grids[index] = Some((tiles, grid));
+            let (panel, thumbs) = (&app.panels[index], &mut app.thumbs);
+            for slot in 0..grid.cols * grid.rows {
+                let Some(entry) = panel.entry_at(panel.offset + slot) else {
+                    break;
+                };
+                let picture = Grid::picture(grid.tile(tiles, slot));
+                thumbs.want(&panel.vfs, entry, Size::new(picture.width, picture.height));
+            }
+        }
+        None => app.panels[index].scroll_into_view(list_height),
+    }
     app.prepare_plugin_cells(index, list_height);
     let app = &*app;
 
@@ -59,6 +84,7 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) -> Cru
     let (mode_icon, mode) = match (selecting, panel.is_tree()) {
         (true, _) => ("\u{f0c8} ", "Select"),
         (false, true) => ("\u{f0645} ", "Tree"),
+        (false, false) if grid.is_some() => ("\u{f11d9} ", "Grid"),
         (false, false) => ("\u{f06e} ", "Browser"),
     };
     let mode = format!(" {}{mode} ", if general.icons { mode_icon } else { "" });
@@ -108,6 +134,10 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) -> Cru
             (false, false) => "   no matches · esc goes back",
         };
         frame.render_widget(Paragraph::new(Line::styled(msg, muted)), list);
+        return crumb;
+    }
+    if let Some(grid) = grid {
+        draw_grid(frame, app, panel, list, grid, focused);
         return crumb;
     }
 
@@ -235,6 +265,82 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) -> Cru
         .collect();
     frame.render_widget(Paragraph::new(lines), list);
     crumb
+}
+
+/// Tiles of thumbnails (icons for folders and other files), each named
+/// below its picture.
+fn draw_grid(frame: &mut Frame, app: &App, panel: &Panel, area: Rect, grid: Grid, focused: bool) {
+    let theme = &app.theme;
+    let icons_on = app.config.general.icons;
+    for slot in 0..grid.cols * grid.rows {
+        let row = panel.offset + slot;
+        let Some(entry) = panel.entry_at(row) else {
+            break;
+        };
+        let tile = grid.tile(area, slot);
+        if tile.bottom() > area.bottom() || tile.right() > area.right() {
+            break;
+        }
+        let (is_cursor, marked) = (row == panel.cursor, panel.is_marked(entry));
+        let border = match (is_cursor, marked) {
+            (true, _) if focused => theme.palette.accent,
+            (true, _) => theme.fg,
+            (false, true) => theme.marked,
+            (false, false) => theme.border,
+        };
+        let block = Block::bordered().border_type(BorderType::Rounded).border_style(Style::default().fg(border));
+        frame.render_widget(block, tile);
+
+        let picture = Grid::picture(tile);
+        let shown = match app.thumbs.get(entry) {
+            Some(Slot::Ready { protocol: Some((_, protocol)), .. }) => {
+                let size = protocol.size();
+                let fits = size.width <= picture.width && size.height <= picture.height;
+                if fits {
+                    let at = Rect {
+                        x: picture.x + (picture.width - size.width) / 2,
+                        y: picture.y + (picture.height - size.height) / 2,
+                        width: size.width,
+                        height: size.height,
+                    };
+                    frame.render_widget(Image::new(protocol), at);
+                }
+                fits
+            }
+            _ => false,
+        };
+        if !shown && picture.height > 0 {
+            let icon = icons::icon(entry, icons_on);
+            let pending = matches!(app.thumbs.get(entry), Some(Slot::Pending));
+            let glyph = match (icon.trim().is_empty(), entry.is_dir()) {
+                (false, _) => icon.to_string(),
+                (true, true) => "[dir]".into(),
+                (true, false) => format!(".{}", entry.extension()),
+            };
+            let mut lines = vec![Line::styled(glyph, Style::default().fg(icons::color(entry, theme)))];
+            if pending {
+                lines.push(Line::styled("…", Style::default().fg(theme.muted)));
+            }
+            let top = picture.y + picture.height.saturating_sub(lines.len() as u16) / 2;
+            let at = Rect { y: top, height: (lines.len() as u16).min(picture.height), ..picture };
+            frame.render_widget(Paragraph::new(lines).centered(), at);
+        }
+
+        let mut name_style = Style::default().fg(if marked { theme.marked } else { theme.fg });
+        if is_cursor {
+            name_style = name_style.add_modifier(Modifier::BOLD);
+        }
+        let tags = app.tags.get(&entry.path);
+        let dots = tags.len().min(3);
+        let room = (tile.width as usize).saturating_sub(2 + if dots > 0 { dots + 1 } else { 0 });
+        let mut spans = vec![Span::styled(truncate(&entry.name, room), name_style)];
+        if dots > 0 {
+            spans.push(Span::raw(" "));
+            spans.extend(tags[..dots].iter().map(|t| Span::styled("●", Style::default().fg(tag_color(t, theme)))));
+        }
+        let name = Rect { x: tile.x + 1, y: tile.bottom() - 2, width: tile.width.saturating_sub(2), height: 1 };
+        frame.render_widget(Paragraph::new(Line::from(spans)).centered(), name);
+    }
 }
 
 /// A colour a plugin named: a theme role (`muted`, `accent`, `error`...),

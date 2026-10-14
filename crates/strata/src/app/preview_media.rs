@@ -114,26 +114,34 @@ fn audio_video(path: &Path, kind: MediaKind, thumbnail: bool) -> Media {
         media.facts = key_value_facts(&String::from_utf8_lossy(&out));
     }
     if thumbnail && has_picture {
-        media.image = with_temp_png(|png| {
-            let small =
-                [OsStr::new("-i"), path.as_os_str(), "-o".as_ref(), png.as_os_str(), "-s".as_ref(), "640".as_ref()];
-            if kind == MediaKind::Video {
-                if let Some(out) = run("ffmpegthumbnailer", small) {
-                    return Some(out);
-                }
-            }
-            // A representative frame of a video, or the cover of a song.
-            let filter = if kind == MediaKind::Video { "thumbnail,scale=640:-2" } else { "scale=640:-2" };
-            let args = [OsStr::new("-v"), "error".as_ref(), "-y".as_ref(), "-i".as_ref(), path.as_os_str()];
-            let rest = ["-an", "-vf", filter, "-frames:v", "1"].map(OsStr::new);
-            run("ffmpeg", args.into_iter().chain(rest).chain([png.as_os_str()]))
-        });
+        media.image = picture(path, kind, 640);
     }
     if media.facts.is_empty() && media.image.is_none() {
         let what = if kind == MediaKind::Video { "videos" } else { "audio" };
         media.hint = Some(format!("install ffmpeg (ffprobe) or mediainfo to preview {what}"));
     }
     media
+}
+
+/// A representative frame of a video, or the cover of a song, `width`
+/// pixels wide (ffmpegthumbnailer, else ffmpeg).
+pub fn picture(path: &Path, kind: MediaKind, width: u32) -> Option<DynamicImage> {
+    let width = width.to_string();
+    with_temp_png(|png| {
+        if kind == MediaKind::Video {
+            let args = [OsStr::new("-i"), path.as_os_str(), "-o".as_ref(), png.as_os_str(), "-s".as_ref()];
+            if let Some(out) = run("ffmpegthumbnailer", args.into_iter().chain([width.as_ref()])) {
+                return Some(out);
+            }
+        }
+        let filter = match kind {
+            MediaKind::Video => format!("thumbnail,scale={width}:-2"),
+            _ => format!("scale={width}:-2"),
+        };
+        let args = [OsStr::new("-v"), "error".as_ref(), "-y".as_ref(), "-i".as_ref(), path.as_os_str()];
+        let rest = [OsStr::new("-an"), "-vf".as_ref(), filter.as_ref(), "-frames:v".as_ref(), "1".as_ref()];
+        run("ffmpeg", args.into_iter().chain(rest).chain([png.as_os_str()]))
+    })
 }
 
 /// Duration, streams, bitrate and tags from `ffprobe -print_format json`.

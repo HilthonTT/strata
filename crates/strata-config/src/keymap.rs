@@ -42,6 +42,8 @@ actions! {
     HalfPageDown => "half_page_down", "Scroll half a page down";
     Parent => "parent", "Go to the parent directory";
     Open => "open", "Enter directory / open file";
+    Left => "left", "Parent directory (in the grid view: the item to the left)";
+    Right => "right", "Enter directory / open file (in the grid view: the item to the right)";
     Back => "back", "Go back in history";
     Forward => "forward", "Go forward in history";
     Home => "home", "Go to the home directory";
@@ -95,6 +97,7 @@ actions! {
     FindPrompt => "find_prompt", "Find files by name, size, age, type or tag";
     Flatten => "flatten", "List every file below this folder / back";
     ToggleTree => "toggle_tree", "Tree view: expand folders in place";
+    ToggleGrid => "toggle_grid", "Grid view: thumbnails of images and videos";
     CollapseAll => "collapse_all", "Collapse every folder in the tree view";
     TagMenu => "tag_menu", "Tag or colour-label marked items";
     GitMenu => "git_menu", "Git: diff, stage, unstage, discard, commit, log, blame";
@@ -336,9 +339,9 @@ const COMMON: &[(&str, &str)] = &[
     ("end", "bottom"),
     ("pageup", "page_up"),
     ("pagedown", "page_down"),
-    ("left", "parent"),
+    ("left", "left"),
     ("backspace", "parent"),
-    ("right", "open"),
+    ("right", "right"),
     ("enter", "open"),
     ("tab", "next_panel"),
     ("backtab", "prev_panel"),
@@ -402,8 +405,8 @@ const VIM: &[(&str, &str)] = &[
     ("ctrl+f", "page_down"),
     ("ctrl+u", "half_page_up"),
     ("ctrl+d", "half_page_down"),
-    ("h", "parent"),
-    ("l", "open"),
+    ("h", "left"),
+    ("l", "right"),
     ("H", "back"),
     ("L", "forward"),
     ("~", "home"),
@@ -454,6 +457,7 @@ const VIM: &[(&str, &str)] = &[
     ("g s", "find_prompt"),
     ("g a", "flatten"),
     ("z t", "toggle_tree"),
+    ("z g", "toggle_grid"),
     ("z M", "collapse_all"),
     ("z i", "toggle_gitignored"),
     ("g j", "jump"),
@@ -463,8 +467,8 @@ const VIM: &[(&str, &str)] = &[
 const STANDARD: &[(&str, &str)] = &[
     ("k", "up"),
     ("j", "down"),
-    ("h", "parent"),
-    ("l", "open"),
+    ("h", "left"),
+    ("l", "right"),
     ("L", "next_panel"),
     ("H", "prev_panel"),
     ("shift+left", "prev_panel"),
@@ -508,6 +512,7 @@ const STANDARD: &[(&str, &str)] = &[
     ("alt+f", "find_prompt"),
     ("alt+a", "flatten"),
     ("alt+t", "toggle_tree"),
+    ("alt+v", "toggle_grid"),
     ("alt+i", "toggle_gitignored"),
     ("alt+g", "jump"),
 ];

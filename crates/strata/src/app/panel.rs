@@ -125,6 +125,15 @@ pub struct Panel {
     pub tree_truncated: bool,
     /// Local folders changed to since last asked, for the jump list.
     visits: Vec<PathBuf>,
+    /// Folders that are mostly images or videos show as a grid.
+    auto_grid: bool,
+    /// The grid or list chosen with `toggle_grid`; `None` follows
+    /// `auto_grid`. Forgotten on `cd` while `auto_grid` is on.
+    grid_choice: Option<bool>,
+    /// The listing is mostly images and videos (see [`super::thumbs::is_media_dir`]).
+    media_dir: bool,
+    /// Tiles per row in the last grid render; 1 outside the grid.
+    pub grid_cols: usize,
 }
 
 impl Panel {
@@ -164,6 +173,10 @@ impl Panel {
             depths: Vec::new(),
             tree_truncated: false,
             visits: Vec::new(),
+            auto_grid: false,
+            grid_choice: None,
+            media_dir: false,
+            grid_cols: 1,
         };
         panel.reload();
         panel
@@ -173,6 +186,37 @@ impl Panel {
     pub fn with_gitignored_hidden(mut self, hide: bool) -> Self {
         self.set_hide_gitignored(hide);
         self
+    }
+
+    /// Shows folders of mostly images or videos as a grid of thumbnails.
+    pub fn with_auto_grid(mut self, on: bool) -> Self {
+        self.auto_grid = on;
+        self
+    }
+
+    /// The grid of thumbnails is shown (never with a tree or flat listing).
+    pub fn is_grid(&self) -> bool {
+        self.flat.is_none() && !self.tree && self.grid_choice.unwrap_or(self.auto_grid && self.media_dir)
+    }
+
+    /// Switches between the grid and the list, leaving the tree view.
+    pub fn set_grid(&mut self, on: bool) {
+        self.grid_choice = Some(on);
+        if on {
+            self.set_tree(false);
+            if self.flat.is_some() {
+                self.set_flat(None);
+            }
+        }
+    }
+
+    /// How far `up`/`down` move: a row of tiles in the grid.
+    pub fn row_step(&self) -> usize {
+        if self.is_grid() {
+            self.grid_cols.max(1)
+        } else {
+            1
+        }
     }
 
     /// Hides or shows what git ignores. Ignored items are only looked up
@@ -483,6 +527,9 @@ impl Panel {
         }
         let names: HashSet<&PathBuf> = self.entries.iter().map(|e| &e.path).collect();
         self.marked.retain(|p| names.contains(p));
+        if self.flat.is_none() && !self.tree {
+            self.media_dir = super::thumbs::is_media_dir(self.entries.iter().filter(|e| !e.is_hidden()));
+        }
         self.refilter();
         if let Some(name) = self.pending_focus.take() {
             self.focus_name(&name);
@@ -606,6 +653,10 @@ impl Panel {
 
     fn after_cd(&mut self, previous: Option<&Path>) {
         self.flat = None;
+        self.media_dir = false;
+        if self.auto_grid {
+            self.grid_choice = None;
+        }
         self.expanded.clear();
         self.depths.clear();
         self.tree_truncated = false;
@@ -706,8 +757,25 @@ impl Panel {
         self.cursor = self.cursor.min(self.visible.len().saturating_sub(1));
     }
 
+    /// Keeps the cursor on screen in a grid of `rows` rows of `cols` tiles;
+    /// `offset` is then the first tile shown, always at the start of a row.
+    pub fn scroll_grid_into_view(&mut self, cols: usize, rows: usize) {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        self.grid_cols = cols;
+        self.page = cols * rows;
+        let (cursor_row, mut top) = (self.cursor / cols, self.offset / cols);
+        if cursor_row < top {
+            top = cursor_row;
+        } else if cursor_row >= top + rows {
+            top = cursor_row + 1 - rows;
+        }
+        let last_top = self.visible.len().div_ceil(cols).saturating_sub(rows);
+        self.offset = top.min(last_top) * cols;
+    }
+
     /// Keeps the cursor on screen for a list of `height` rows.
     pub fn scroll_into_view(&mut self, height: usize) {
+        self.grid_cols = 1;
         self.page = height.max(1);
         if self.cursor < self.offset {
             self.offset = self.cursor;
@@ -961,6 +1029,56 @@ mod tests {
         assert!(strata_core::util::glob_match("*.rs", "main.RS"));
         assert!(strata_core::util::glob_match("a?c", "abc"));
         assert!(!strata_core::util::glob_match("*.rs", "main.rsx"));
+    }
+
+    #[test]
+    fn photo_folders_open_as_a_grid() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos = dir.path().join("photos");
+        std::fs::create_dir(&photos).unwrap();
+        for name in ["a.jpg", "b.png", "c.mp4", "notes.txt"] {
+            std::fs::write(photos.join(name), "").unwrap();
+        }
+        let mut p = panel_in(dir.path()).with_auto_grid(true);
+        assert!(!p.is_grid(), "a folder of folders stays a list");
+        assert!(p.cd(photos.clone()));
+        assert!(p.is_grid());
+
+        p.set_grid(false);
+        assert!(!p.is_grid(), "toggling wins over the guess");
+        assert!(p.parent() && p.cd(photos.clone()));
+        assert!(p.is_grid(), "the choice is forgotten on leaving");
+
+        p.set_tree(true);
+        assert!(!p.is_grid(), "the tree replaces the grid");
+        p.set_grid(true);
+        assert!(p.is_grid() && !p.tree);
+
+        let mut manual = panel_in(dir.path());
+        manual.set_grid(true);
+        assert!(manual.cd(photos) && manual.is_grid(), "without auto_grid the choice stays");
+        assert!(manual.parent() && manual.is_grid());
+    }
+
+    #[test]
+    fn grids_scroll_by_whole_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..23 {
+            std::fs::write(dir.path().join(format!("{i:02}.jpg")), "").unwrap();
+        }
+        let mut p = panel_in(dir.path()).with_auto_grid(true);
+        assert!(p.is_grid());
+        p.scroll_grid_into_view(4, 2);
+        assert_eq!((p.offset, p.page, p.row_step()), (0, 8, 4));
+        p.move_by(p.row_step() as isize * 2);
+        p.scroll_grid_into_view(4, 2);
+        assert_eq!((p.cursor, p.offset), (8, 4), "the row with the cursor comes into view");
+        p.move_to(usize::MAX);
+        p.scroll_grid_into_view(4, 2);
+        assert_eq!((p.cursor, p.offset), (22, 16), "the last two rows fill the grid");
+        p.move_to(1);
+        p.scroll_grid_into_view(4, 2);
+        assert_eq!(p.offset, 0);
     }
 
     #[test]

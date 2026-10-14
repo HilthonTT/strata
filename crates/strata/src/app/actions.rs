@@ -25,6 +25,18 @@ impl App {
     pub fn dispatch(&mut self, action: Action) {
         use Action::*;
 
+        // `h`/`l` move across a grid and leave or open folders elsewhere.
+        let in_grid = self.view == View::Files
+            && self.focus == Focus::Panels
+            && self.overlay.is_none()
+            && self.panels.get(self.active).is_some_and(|p| p.is_grid());
+        let action = match action {
+            Left | Right if in_grid => return self.panel_mut().move_by(if action == Left { -1 } else { 1 }),
+            Left => Parent,
+            Right => Open,
+            other => other,
+        };
+
         // Actions that work everywhere.
         match action {
             ViewFiles => return self.set_view(View::Files),
@@ -126,8 +138,14 @@ impl App {
         }
 
         match action {
-            Up => self.panel_mut().move_by(-1),
-            Down => self.panel_mut().move_by(1),
+            Up => {
+                let step = self.panel().row_step() as isize;
+                self.panel_mut().move_by(-step);
+            }
+            Down => {
+                let step = self.panel().row_step() as isize;
+                self.panel_mut().move_by(step);
+            }
             Top => self.panel_mut().move_to(0),
             Bottom => self.panel_mut().move_to(usize::MAX),
             PageUp => self.page(-1.0),
@@ -241,6 +259,11 @@ impl App {
                 self.panel_mut().set_tree(on);
                 self.info(if on { "tree view · l expands, h collapses, z M collapses all" } else { "list view" });
             }
+            ToggleGrid => {
+                let on = !self.panel().is_grid();
+                self.panel_mut().set_grid(on);
+                self.info(if on { "grid view · h j k l move, enter opens" } else { "list view" });
+            }
             CollapseAll => self.panel_mut().collapse_all(),
             TagMenu => self.tag_menu(),
             GitMenu => self.git_menu(),
@@ -330,7 +353,7 @@ impl App {
     fn page(&mut self, fraction: f64) {
         let page = match self.config.general.page_size {
             0 => self.panel().page,
-            rows => rows,
+            rows => rows * self.panel().row_step(),
         } as f64;
         self.panel_mut().move_by((page * fraction).round() as isize);
     }

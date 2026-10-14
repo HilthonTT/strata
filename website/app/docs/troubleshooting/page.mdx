@@ -8,7 +8,11 @@ Your terminal font has no Nerd Font icons. Install a [Nerd Font](https://www.ner
 
 ### Images look blocky
 
-Your terminal (or tmux) does not support kitty, sixel or iTerm2 graphics, so strata draws images with half blocks. Use a terminal such as kitty, WezTerm, Ghostty, iTerm2, Konsole, foot or Windows Terminal 1.22+, outside of tmux.
+strata asks the terminal which graphics it supports at start and draws images with half blocks when it supports none (or inside tmux). Use a terminal such as kitty, WezTerm, Ghostty, iTerm2, Konsole, foot or Windows Terminal 1.22+, outside of tmux. If yours supports images but strata picked the wrong way to draw them, set `image_protocol = "sixel"` (or `kitty`, `iterm2`) under `[general]`.
+
+### Images are blank in VS Code
+
+VS Code's terminal drops images unless `"terminal.integrated.enableImages": true` is in your settings. Without it strata falls back to half blocks; turn it on and open a new terminal for real images.
 
 ### "system keychain unavailable"
 

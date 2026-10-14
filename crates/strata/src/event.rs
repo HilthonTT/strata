@@ -39,6 +39,8 @@ pub enum AppEvent {
         generation: u64,
         content: PreviewContent,
     },
+    /// A thumbnail for the grid view.
+    Thumb(Box<crate::app::thumbs::ThumbDone>),
     Docker(Result<Vec<Container>, String>),
     DockerChanged,
     Nas(Vec<NasStatus>),

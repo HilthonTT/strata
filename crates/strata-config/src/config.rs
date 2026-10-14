@@ -51,6 +51,20 @@ impl OpenRule {
     }
 }
 
+/// How images are drawn in the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageProtocol {
+    /// Ask the terminal what it supports.
+    #[default]
+    Auto,
+    Kitty,
+    Sixel,
+    Iterm2,
+    /// Coloured half blocks: low resolution, but works everywhere.
+    Halfblocks,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BorderStyle {
@@ -108,6 +122,14 @@ pub struct General {
     pub panels: usize,
     pub preview: bool,
     pub image_preview: bool,
+    /// How images are drawn: `auto` asks the terminal; `kitty`, `sixel`
+    /// or `iterm2` force a graphics protocol, `halfblocks` coloured blocks.
+    pub image_protocol: ImageProtocol,
+    /// Show folders that are mostly images or videos as a grid of
+    /// thumbnails (`z g` switches any folder between list and grid).
+    pub auto_grid: bool,
+    /// Width of a grid tile in columns; tiles stretch to fill the panel.
+    pub grid_tile_width: u16,
     /// Colour code in the preview.
     pub syntax_highlight: bool,
     /// Show git status markers next to files in repositories.
@@ -225,6 +247,9 @@ impl Default for General {
             panels: 2,
             preview: true,
             image_preview: true,
+            image_protocol: ImageProtocol::Auto,
+            auto_grid: true,
+            grid_tile_width: 22,
             syntax_highlight: true,
             git_status: true,
             dir_sizes: false,
