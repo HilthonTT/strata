@@ -22,6 +22,7 @@ line_numbers = false         # line numbers in text previews
 sidebar = true
 footer = true
 icons = true                 # needs a Nerd Font
+mouse = true                 # clicks, right-click menu, drag and drop; false leaves the mouse to the terminal
 border = "rounded"           # plain | rounded | double | thick
 # border_chars = { top_left = "┌", top_right = "┐", bottom_left = "└", bottom_right = "┘", top = "─", bottom = "─", left = "│", right = "│" }
 sidebar_width = 24           # columns

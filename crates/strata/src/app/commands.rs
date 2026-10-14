@@ -580,6 +580,11 @@ impl App {
                     }
                 }
             }
+            PickerPurpose::Context { items } => {
+                if let Some(item) = selected_index.and_then(|i| items.get(i)).copied() {
+                    self.run_menu_item(item);
+                }
+            }
         }
     }
 

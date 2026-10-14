@@ -204,6 +204,10 @@ pub enum PickerPurpose {
     Layouts {
         names: Vec<String>,
     },
+    /// The right-click menu; `items[i]` is row `i`.
+    Context {
+        items: Vec<super::mouse::MenuItem>,
+    },
 }
 
 pub struct PickerState {
@@ -214,6 +218,8 @@ pub struct PickerState {
     pub cursor: usize,
     pub offset: usize,
     pub purpose: PickerPurpose,
+    /// Drawn as a small menu at this cell instead of centred.
+    pub anchor: Option<(u16, u16)>,
     fuzzy: Fuzzy,
 }
 
@@ -227,10 +233,17 @@ impl PickerState {
             cursor: 0,
             offset: 0,
             purpose,
+            anchor: None,
             fuzzy: Fuzzy::default(),
         };
         p.refilter();
         p
+    }
+
+    /// Shows the picker as a menu at the pointer.
+    pub fn at(mut self, x: u16, y: u16) -> Self {
+        self.anchor = Some((x, y));
+        self
     }
 
     pub fn refilter(&mut self) {

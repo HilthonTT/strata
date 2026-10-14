@@ -82,4 +82,16 @@ SFTP, Docker and rclone (S3, WebDAV, FTP…) folders load in the background, so 
 
 ## Mouse
 
-Click to focus a panel and move the cursor, double-click to open, and scroll anywhere.
+| Mouse | Action |
+| --- | --- |
+| Click | Focus a panel and move the cursor; pick a menu or picker row |
+| Double-click | Open the file or enter the folder |
+| Right-click | A menu for the item (or the marked items, when you click one of them): open, rename, copy, cut, paste, duplicate, trash, delete, permissions, checksums, extract or compress, tag, copy path. Below the items: paste, new file or folder, sort, refresh |
+| Drag an item | Copy it (or the marked items) to the panel or folder you release it on; hold <Kbd>alt</Kbd> or <Kbd>ctrl</Kbd> to move instead. The status line says where they will go |
+| Click a path segment | Open that folder (the panel title, e.g. `src` in `~/src/strata`) |
+| Click a view or tab | Switch to it in the top bar; middle-click closes a tab |
+| Wheel | Scroll the list, preview, sidebar, popup or menu; over the top bar it cycles tabs |
+
+Drags go through the usual copy and move jobs, so name clashes are asked about and <Kbd>u</Kbd> undoes them. Dropping items where they already are does nothing.
+
+Set `mouse = false` under `[general]` to leave the mouse to your terminal, for its own text selection.

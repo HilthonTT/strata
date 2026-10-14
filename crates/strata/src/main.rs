@@ -161,7 +161,7 @@ fn main() -> Result<()> {
         app::check_layout(name)?;
     }
 
-    let mut terminal = tui::init()?;
+    let mut terminal = tui::init(config.general.mouse)?;
     let picker =
         if config.general.image_preview { tui::image_picker() } else { ratatui_image::picker::Picker::halfblocks() };
     let result = app::App::new(config, options, picker).and_then(|mut app| {

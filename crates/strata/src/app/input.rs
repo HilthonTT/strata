@@ -1,14 +1,13 @@
 //! Keyboard and mouse input routing.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use ratatui::layout::Rect;
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use strata_config::{Binding, KeyPress, Lookup};
 use strata_core::ops::Conflict;
 
 use super::overlay::{Confirm, InputPurpose, Overlay, PickerPurpose};
-use super::{App, Focus, View};
+use super::App;
 
 impl App {
     pub(super) fn on_key(&mut self, key: KeyEvent) {
@@ -178,7 +177,7 @@ impl App {
         }
     }
 
-    fn on_picker_moved(&mut self) {
+    pub(super) fn on_picker_moved(&mut self) {
         // Theme picker previews the theme under the cursor.
         if let Some(Overlay::Picker(p)) = &self.overlay {
             if let PickerPurpose::Theme { .. } = p.purpose {
@@ -189,7 +188,7 @@ impl App {
         }
     }
 
-    fn cancel_picker(&mut self) {
+    pub(super) fn cancel_picker(&mut self) {
         match self.overlay.take() {
             Some(Overlay::Picker(p)) => match p.purpose {
                 PickerPurpose::Theme { original } => {
@@ -206,7 +205,8 @@ impl App {
                 | PickerPurpose::Drives { .. }
                 | PickerPurpose::Jump { .. }
                 | PickerPurpose::Git { .. }
-                | PickerPurpose::Layouts { .. } => {}
+                | PickerPurpose::Layouts { .. }
+                | PickerPurpose::Context { .. } => {}
             },
             other => self.overlay = other,
         }
@@ -256,109 +256,5 @@ impl App {
             }
             _ => {}
         }
-    }
-
-    pub(super) fn on_mouse(&mut self, mouse: MouseEvent) {
-        if self.overlay.is_some() {
-            // The wheel scrolls the open popup or picker.
-            let delta: isize = match mouse.kind {
-                MouseEventKind::ScrollDown => 3,
-                MouseEventKind::ScrollUp => -3,
-                _ => return,
-            };
-            let max_scroll = self.layout.popup_max_scroll.get();
-            match self.overlay.as_mut() {
-                Some(Overlay::Help { scroll }) | Some(Overlay::Text(super::overlay::TextPopup { scroll, .. })) => {
-                    *scroll = scroll.saturating_add_signed(delta).min(max_scroll);
-                }
-                Some(Overlay::Picker(picker)) => {
-                    picker.move_by(delta);
-                    self.on_picker_moved();
-                }
-                _ => {}
-            }
-            return;
-        }
-        let (x, y) = (mouse.column, mouse.row);
-        let inside = |r: &Rect| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
-
-        if self.view == View::Files {
-            if let Some(i) = self.layout.panels.iter().position(inside) {
-                let rect = self.layout.panels[i];
-                match mouse.kind {
-                    MouseEventKind::ScrollDown => self.panels[i].move_by(3),
-                    MouseEventKind::ScrollUp => self.panels[i].move_by(-3),
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        self.active = i;
-                        self.focus = Focus::Panels;
-                        // Row 0 is the border, row 1 the column header.
-                        let row = y.saturating_sub(rect.y + 2) as usize + self.panels[i].offset;
-                        if y >= rect.y + 2 && row < self.panels[i].len() {
-                            self.panels[i].move_to(row);
-                            if self.is_double_click(x, y) {
-                                self.dispatch(strata_config::Action::Open);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-                return;
-            }
-            if self.layout.preview.is_some_and(|r| inside(&r)) {
-                match mouse.kind {
-                    MouseEventKind::ScrollDown => self.scroll_preview(3),
-                    MouseEventKind::ScrollUp => self.scroll_preview(-3),
-                    _ => {}
-                }
-                return;
-            }
-            if let Some(rect) = self.layout.sidebar.filter(|r| inside(r)) {
-                match mouse.kind {
-                    MouseEventKind::ScrollDown => self.sidebar.move_by(1),
-                    MouseEventKind::ScrollUp => self.sidebar.move_by(-1),
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        // Below the border, the title line and a blank line.
-                        let top = rect.y + 3;
-                        let row = y.saturating_sub(top) as usize + self.sidebar.offset;
-                        if y >= top && self.sidebar.items.get(row).is_some_and(|i| i.selectable()) {
-                            self.sidebar.cursor = row;
-                            self.open_sidebar_item();
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            return;
-        }
-        if let Some(rect) = self.layout.list.filter(|r| inside(r)) {
-            let delta = match mouse.kind {
-                MouseEventKind::ScrollDown => 1,
-                MouseEventKind::ScrollUp => -1,
-                MouseEventKind::Down(MouseButton::Left) => {
-                    // Row 0 is the border, row 1 the column header.
-                    let row = y.saturating_sub(rect.y + 2) as usize + self.layout.list_offset;
-                    if y >= rect.y + 2 && row < self.view_len() {
-                        self.set_view_cursor(row);
-                        if self.is_double_click(x, y) {
-                            self.dispatch(strata_config::Action::Open);
-                        }
-                    }
-                    0
-                }
-                _ => 0,
-            };
-            if delta != 0 {
-                self.move_view_cursor(delta);
-            }
-        }
-    }
-
-    fn is_double_click(&mut self, x: u16, y: u16) -> bool {
-        let now = Instant::now();
-        let double = self
-            .last_click
-            .is_some_and(|(t, lx, ly)| lx == x && ly == y && now.duration_since(t) < Duration::from_millis(400));
-        self.last_click = if double { None } else { Some((now, x, y)) };
-        double
     }
 }

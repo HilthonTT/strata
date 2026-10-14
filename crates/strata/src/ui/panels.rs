@@ -14,18 +14,19 @@ use strata_core::EntryKind;
 use unicode_width::UnicodeWidthStr;
 
 use super::{block, fit, icons, panels_focused, tag_color, truncate, truncate_left};
+use crate::app::mouse::Crumb;
 use crate::app::{short_path, App};
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let n = app.panels.len() as u32;
     let rects = Layout::horizontal(vec![Constraint::Ratio(1, n); n as usize]).split(area);
-    for (i, rect) in rects.iter().enumerate() {
-        draw_panel(frame, app, i, *rect);
-    }
+    let crumbs = rects.iter().enumerate().map(|(i, rect)| draw_panel(frame, app, i, *rect)).collect();
     app.layout.panels = rects.to_vec();
+    app.layout.crumbs = crumbs;
 }
 
-fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
+/// Draws a panel and returns where its location is printed.
+fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) -> Crumb {
     // Rows available below the border and the search line.
     let list_height = area.height.saturating_sub(3) as usize;
     app.apply_plugin_sort(index);
@@ -49,7 +50,10 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         location = format!("{location} · tree (first {} items)", panel.len());
     }
     let folder = if general.icons { "\u{f07b} " } else { "" };
-    let title = format!("{folder}{}", truncate_left(&location, area.width.saturating_sub(8) as usize));
+    let shown = truncate_left(&location, area.width.saturating_sub(8) as usize);
+    let title = format!("{folder}{shown}");
+    // The title sits after the corner and a space.
+    let crumb = Crumb { x: area.x + 2 + folder.width() as u16, text: shown };
 
     let selecting = panel.visual_anchor.is_some() || !panel.marked.is_empty();
     let (mode_icon, mode) = match (selecting, panel.is_tree()) {
@@ -70,7 +74,7 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     let inner = b.inner(area);
     frame.render_widget(b, area);
     if inner.height < 2 {
-        return;
+        return crumb;
     }
 
     // Search line.
@@ -93,7 +97,8 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
 
     if let Some(err) = &panel.error {
         let p = Paragraph::new(Line::styled(format!(" {err}"), Style::default().fg(theme.error)));
-        return frame.render_widget(p, list);
+        frame.render_widget(p, list);
+        return crumb;
     }
     if panel.len() == 0 {
         let msg = match (panel.loading, panel.filter.is_empty() && panel.flat.is_none()) {
@@ -102,7 +107,8 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
             (false, true) => "   empty directory",
             (false, false) => "   no matches · esc goes back",
         };
-        return frame.render_widget(Paragraph::new(Line::styled(msg, muted)), list);
+        frame.render_widget(Paragraph::new(Line::styled(msg, muted)), list);
+        return crumb;
     }
 
     let width = list.width as usize;
@@ -228,6 +234,7 @@ fn draw_panel(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), list);
+    crumb
 }
 
 /// A colour a plugin named: a theme role (`muted`, `accent`, `error`...),

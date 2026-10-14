@@ -26,6 +26,7 @@ mod input;
 mod jump;
 mod layouts;
 pub use layouts::check_exists as check_layout;
+pub mod mouse;
 pub mod overlay;
 pub mod panel;
 mod plugins;
@@ -187,6 +188,15 @@ pub struct LayoutCache {
     pub list_offset: usize,
     /// Furthest the open help or text popup can scroll.
     pub popup_max_scroll: std::cell::Cell<usize>,
+    /// Clickable views and tabs in the top bar.
+    pub top: Vec<mouse::TopHit>,
+    /// Where each panel prints its location, for clicks on path segments.
+    pub crumbs: Vec<mouse::Crumb>,
+    /// The open picker's box and its list rows.
+    pub popup: std::cell::Cell<Option<Rect>>,
+    pub popup_list: std::cell::Cell<Option<Rect>>,
+    /// First picker row shown in `popup_list`.
+    pub popup_offset: std::cell::Cell<usize>,
 }
 
 pub struct App {
@@ -277,6 +287,8 @@ pub struct App {
     /// Border characters, from `border` and `border_chars`.
     pub border: ratatui::symbols::border::Set<'static>,
     last_click: Option<(Instant, u16, u16)>,
+    /// Items being dragged with the mouse.
+    drag: Option<mouse::Drag>,
     external: Option<External>,
     /// Set by `quit_cd`: report the last directory to the shell wrapper.
     cd_on_exit: bool,
@@ -428,6 +440,7 @@ impl App {
             last_view: View::Files,
             border,
             last_click: None,
+            drag: None,
             external: None,
             cd_on_exit: false,
             chooser: opts.chooser,

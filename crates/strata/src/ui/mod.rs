@@ -36,8 +36,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     ])
     .areas(area);
 
-    status::top_bar(frame, app, top);
     app.layout = Default::default();
+    app.layout.top = status::top_bar(frame, app, top);
     match app.view {
         View::Files => draw_files(frame, app, main),
         View::Dashboard => dashboard::draw(frame, app, main),

@@ -2,6 +2,7 @@
 
 use std::io::{self, Stdout};
 use std::process::{Command, ExitStatus};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -15,7 +16,11 @@ use ratatui_image::picker::Picker;
 
 pub type Term = Terminal<CrosstermBackend<Stdout>>;
 
-pub fn init() -> Result<Term> {
+/// Whether strata captures the mouse (`general.mouse`).
+static MOUSE: AtomicBool = AtomicBool::new(true);
+
+pub fn init(mouse: bool) -> Result<Term> {
+    MOUSE.store(mouse, Ordering::Relaxed);
     // Restore the terminal even when we panic, so the shell stays usable.
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -23,13 +28,22 @@ pub fn init() -> Result<Term> {
         hook(info);
     }));
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    enter()?;
     Ok(Terminal::new(CrosstermBackend::new(io::stdout()))?)
 }
 
 pub fn restore() -> Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+    Ok(())
+}
+
+/// Switches to the alternate screen, capturing the mouse unless it is off.
+fn enter() -> Result<()> {
+    execute!(io::stdout(), EnterAlternateScreen)?;
+    if MOUSE.load(Ordering::Relaxed) {
+        execute!(io::stdout(), EnableMouseCapture)?;
+    }
     Ok(())
 }
 
@@ -66,7 +80,7 @@ pub fn run_external(terminal: &mut Term, cmd: &mut Command) -> Result<ExitStatus
     restore()?;
     let status = cmd.status();
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    enter()?;
     terminal.clear()?;
     Ok(status?)
 }
@@ -86,7 +100,7 @@ pub fn run_external_with_input(terminal: &mut Term, cmd: &mut Command, input: Op
         child.wait()
     })();
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    enter()?;
     terminal.clear()?;
     Ok(status?)
 }
@@ -102,7 +116,7 @@ pub fn run_external_and_wait(terminal: &mut Term, cmd: &mut Command, only_on_fai
         let _ = io::stdin().read_line(&mut line);
     }
     enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    enter()?;
     terminal.clear()?;
     Ok(status?)
 }

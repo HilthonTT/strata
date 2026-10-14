@@ -36,6 +36,7 @@ Everything you need, nothing you don't.
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
 - **Lua plugins**: add keys, commands, panels, status-line segments, previewers, file-list columns and sort orders, react to events such as `rename`, `open`, `tag`, `delete` and `job_done`, and refuse deletes, moves and renames with `before_*` events
+- **Mouse**: double-click to open, a right-click menu, drag files between panels or into folders (alt to move), click path segments and tabs
 - **Vim-style keys**, all remappable
 
 ## Install

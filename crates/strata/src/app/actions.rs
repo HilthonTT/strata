@@ -587,7 +587,7 @@ impl App {
 
     /// Starts a transfer, first asking about each name that already exists
     /// in the destination.
-    fn begin_transfer(&mut self, transfer: Transfer) {
+    pub(super) fn begin_transfer(&mut self, transfer: Transfer) {
         let clashes = transfer.clashes();
         if clashes.is_empty() {
             return self.start_transfer(transfer);

@@ -126,6 +126,9 @@ pub struct General {
     pub footer: bool,
     /// Nerd Font file icons.
     pub icons: bool,
+    /// Clicks, the wheel, right-click menus and drag and drop. Off leaves
+    /// the mouse to the terminal (its own selection and copy).
+    pub mouse: bool,
     pub border: BorderStyle,
     /// Characters overriding parts of `border`.
     pub border_chars: BorderChars,
@@ -231,6 +234,7 @@ impl Default for General {
             sidebar: true,
             footer: true,
             icons: true,
+            mouse: true,
             border: BorderStyle::Rounded,
             border_chars: BorderChars::default(),
             sidebar_width: 24,

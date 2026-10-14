@@ -11,22 +11,32 @@ use strata_plugin::Level;
 use unicode_width::UnicodeWidthStr;
 
 use super::truncate;
+use crate::app::mouse::{TopHit, TopTarget};
 use crate::app::{App, Focus, View};
 
-pub fn top_bar(frame: &mut Frame, app: &App, area: Rect) {
+/// Draws the top bar and returns where its views and tabs are, for clicks.
+pub fn top_bar(frame: &mut Frame, app: &App, area: Rect) -> Vec<TopHit> {
     let theme = &app.theme;
     let bar_bg = theme.surface;
     let mut left = vec![Span::styled(
         " ◆ strata ",
         Style::default().bg(theme.palette.accent).fg(theme.bg).add_modifier(Modifier::BOLD),
     )];
+    let mut hits = Vec::new();
+    // Records the span about to be pushed as a click target.
+    let mut hit = |left: &[Span], text: &str, target: TopTarget| {
+        let x = area.x + left.iter().map(|s| s.content.width()).sum::<usize>() as u16;
+        hits.push(TopHit { x: (x, x + text.width() as u16), target });
+    };
     for (i, view) in View::ALL.iter().enumerate() {
         let style = if *view == app.view {
             Style::default().fg(theme.palette.accent).bg(bar_bg).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme.muted).bg(bar_bg)
         };
-        left.push(Span::styled(format!(" {} {} ", i + 1, view.title()), style));
+        let text = format!(" {} {} ", i + 1, view.title());
+        hit(&left, &text, TopTarget::View(*view));
+        left.push(Span::styled(text, style));
     }
     let titles = app.tab_titles();
     if titles.len() > 1 {
@@ -37,7 +47,9 @@ pub fn top_bar(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default().fg(theme.muted).bg(bar_bg)
             };
-            left.push(Span::styled(format!(" {}:{} ", i + 1, super::truncate(title, 16)), style));
+            let text = format!(" {}:{} ", i + 1, super::truncate(title, 16));
+            hit(&left, &text, TopTarget::Tab(i));
+            left.push(Span::styled(text, style));
         }
     }
 
@@ -58,6 +70,7 @@ pub fn top_bar(frame: &mut Frame, app: &App, area: Rect) {
     left.push(Span::styled(" ".repeat(pad), Style::default().bg(bar_bg)));
     left.push(Span::styled(right_text, Style::default().fg(theme.muted).bg(bar_bg)));
     frame.render_widget(Paragraph::new(Line::from(left)), area);
+    hits
 }
 
 pub fn bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
@@ -75,7 +88,10 @@ pub fn bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
     let mut spans = vec![Span::styled(mode, Style::default().bg(mode_color).fg(theme.bg).add_modifier(Modifier::BOLD))];
 
     let width = area.width as usize;
-    if let Some(n) = app.current_notification() {
+    if let Some(hint) = app.drag_hint() {
+        let room = width.saturating_sub(spans[0].content.width() + 2);
+        spans.push(Span::styled(format!(" {}", truncate(&hint, room)), Style::default().fg(theme.info)));
+    } else if let Some(n) = app.current_notification() {
         let color = match n.level {
             Level::Info => theme.fg,
             Level::Warn => theme.warning,

@@ -190,13 +190,21 @@ fn draw_rename_preview(frame: &mut Frame, app: &App, preview: &RenamePreview, pr
 
 fn draw_picker(frame: &mut Frame, app: &App, picker: &PickerState, area: Rect) {
     let theme = &app.theme;
-    let rect = centered(area, (area.width * 3 / 5).max(50), (area.height * 3 / 5).max(12));
+    // A menu opened with the mouse hides its query line until typed into.
+    let query_rows = if picker.anchor.is_some() && picker.query.is_empty() { 0 } else { 2 };
+    let rect = match picker.anchor {
+        Some(at) => menu_rect(area, at, picker, query_rows),
+        None => centered(area, (area.width * 3 / 5).max(50), (area.height * 3 / 5).max(12)),
+    };
     frame.render_widget(Clear, rect);
-    let title = format!("{} ({}/{})", picker.title, picker.matches.len(), picker.items.len());
-    let b = block(theme, app.border, &title, true);
+    let title = match picker.anchor {
+        Some(_) => picker.title.clone(),
+        None => format!("{} ({}/{})", picker.title, picker.matches.len(), picker.items.len()),
+    };
+    let b = block(theme, app.border, &truncate(&title, rect.width.saturating_sub(4) as usize), true);
     let inner = b.inner(rect);
     frame.render_widget(b, rect);
-    let [query, list] = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).areas(inner);
+    let [query, list] = Layout::vertical([Constraint::Length(query_rows), Constraint::Min(1)]).areas(inner);
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
@@ -207,10 +215,15 @@ fn draw_picker(frame: &mut Frame, app: &App, picker: &PickerState, area: Rect) {
         ]),
         query,
     );
-    frame.set_cursor_position(Position::new(query.x + 3 + picker.query.width() as u16, query.y));
+    if query_rows > 0 {
+        frame.set_cursor_position(Position::new(query.x + 3 + picker.query.width() as u16, query.y));
+    }
 
     let height = list.height as usize;
     let offset = picker.cursor.saturating_sub(height.saturating_sub(1));
+    app.layout.popup.set(Some(rect));
+    app.layout.popup_list.set(Some(list));
+    app.layout.popup_offset.set(offset);
     let width = list.width as usize;
     let lines: Vec<Line> = picker
         .matches
@@ -236,6 +249,17 @@ fn draw_picker(frame: &mut Frame, app: &App, picker: &PickerState, area: Rect) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), list);
+}
+
+/// A menu box just below and right of the pointer, moved back on screen
+/// when it would run off an edge.
+fn menu_rect(area: Rect, (x, y): (u16, u16), picker: &PickerState, query_rows: u16) -> Rect {
+    let longest = picker.items.iter().map(|i| i.width()).chain([picker.title.width()]).max().unwrap_or(0);
+    let width = (longest as u16 + 6).clamp(20, area.width);
+    let height = (picker.matches.len() as u16 + query_rows + 2).clamp(3, area.height);
+    let x = x.min(area.x + area.width - width);
+    let y = if y + 1 + height <= area.y + area.height { y + 1 } else { y.saturating_sub(height).max(area.y) };
+    Rect { x, y, width, height }
 }
 
 fn draw_help(frame: &mut Frame, app: &App, area: Rect, scroll: usize) {
