@@ -48,6 +48,7 @@ impl Reply {
 }
 
 /// Reads one request line: JSON when it starts with `{`, else a command.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn parse_request(line: &str) -> Result<Request, String> {
     let line = line.trim();
     if line.is_empty() {
