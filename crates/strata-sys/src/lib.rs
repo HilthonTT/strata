@@ -1,5 +1,6 @@
 //! System metrics for strata: disks and free space, disk I/O (IOPS,
-//! throughput, latency), memory pressure, directory disk usage and Docker.
+//! throughput, latency), memory pressure, directory disk usage, Docker and
+//! the processes holding files open.
 //!
 //! Every collector is synchronous; the UI runs them on worker threads.
 
@@ -8,6 +9,7 @@ pub mod docker;
 pub mod drives;
 pub mod du;
 pub mod history;
+pub mod holders;
 pub mod io;
 pub mod memory;
 

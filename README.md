@@ -24,7 +24,7 @@ Everything you need, nothing you don't.
 - **Scriptable**: run `:` commands at startup (`-e`) or send them to a running instance (`--remote`, `--remote-query` for its state as JSON)
 - **Search**: filter (fuzzy, glob `*.{jpg,png}` or regex `re:^v\d+`), fuzzy find, content search with ripgrep, and `:find` by name, size, age, type or tag with the results listed in the panel; `:flatten` lists every file below a folder
 - **Tags and colour labels** (`,`): coloured dots in the list, a sidebar section, `:find --tag`; mirrored to `user.xdg.tags` on Linux
-- **Removable drives**: `:drives` mounts and opens USB sticks and SD cards, `:eject` powers them off safely
+- **Removable drives**: `:drives` mounts and opens USB sticks and SD cards, `:eject` powers them off safely, and when a drive is busy strata lists the programs still using it (`:holders` shows them for any file or folder)
 - **Git**: status markers next to every file, and a git menu (`;`) to diff, stage, unstage, discard, commit, and show the log or blame of the marked files
 - **Tree view** (`z t`): expand folders in place instead of entering them, and **tabs** on top of multiple panels
 - **Thumbnail grid** (`z g`): folders of photos and videos open as a grid of thumbnails, cached on disk; any folder can switch between grid and list

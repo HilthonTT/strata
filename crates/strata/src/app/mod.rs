@@ -22,6 +22,7 @@ mod fileops;
 mod find;
 pub mod grep;
 mod highlight;
+mod holders;
 mod input;
 mod jump;
 mod layouts;
@@ -657,7 +658,10 @@ impl App {
                     JobState::Failed(e) => Some(e.as_str()),
                     _ => None,
                 };
-                let hint = self.elevation_on_finish(done.id, failure).unwrap_or_default();
+                let mut hint = self.elevation_on_finish(done.id, failure).unwrap_or_default();
+                if failure.is_some_and(holders::is_busy_error) {
+                    hint = " (:holders shows what is using it)";
+                }
                 self.prune_retryable(done.id, &done.state);
                 let (state, error) = match &done.state {
                     JobState::Done => ("done", None),

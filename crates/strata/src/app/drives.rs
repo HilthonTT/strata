@@ -118,13 +118,14 @@ impl App {
                     p.cd(home.clone());
                 }
             }
+            super::holders::leave(mount, &home);
         }
         let eject = drive.mount.is_some() || cfg!(target_os = "macos");
         self.queue_external(External::Run {
             argv: drives::unmount_command(&drive, eject),
             cwd: dirs::home_dir(),
             wait: Wait::OnFailure,
-            after: After::DriveEjected(drive.name().to_string()),
+            after: After::DriveEjected { name: drive.name().to_string(), mount: drive.mount.clone() },
         });
     }
 

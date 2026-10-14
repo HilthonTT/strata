@@ -40,6 +40,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("drives", "drives — removable drives: open, mount or eject"),
     ("mount", "mount <drive> — mount a removable drive and open it"),
     ("eject", "eject [drive] — unmount and power off a removable drive"),
+    ("holders", "holders [path] — programs holding the hovered item (or anything in it) open"),
     ("duplicate", "duplicate — copy marked items next to themselves"),
     ("link", "link [-r] — paste the clipboard as (relative) symbolic links"),
     ("hardlink", "hardlink — paste the clipboard as hard links"),
@@ -138,6 +139,7 @@ impl App {
             "drives" => self.drives_command(""),
             "mount" => self.drives_command(args),
             "eject" => self.eject_command(args),
+            "holders" | "lsof" | "in-use" => self.holders_command(args),
             "duplicate" | "dup" => self.dispatch(Action::Duplicate),
             "link" | "symlink" | "ln" => match args {
                 "" => self.dispatch(Action::PasteSymlink),
@@ -724,11 +726,12 @@ impl App {
                 p.cd(home.clone());
             }
         }
+        super::holders::leave(&mounted, &home);
         self.queue_external(External::Run {
             argv: conn.unmount_command(&mounted),
             cwd: Some(home),
             wait: Wait::OnFailure,
-            after: After::Unmounted,
+            after: After::Unmounted(mounted.clone()),
         });
     }
 }

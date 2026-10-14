@@ -25,11 +25,27 @@ pub enum Wait {
 pub enum After {
     Reload,
     Mounted(String),
-    Unmounted,
+    /// A share mounted here was unmounted.
+    Unmounted(PathBuf),
     /// A removable drive (by device) was mounted: open it.
     DriveMounted(String),
-    /// A removable drive (by name) was ejected.
-    DriveEjected(String),
+    /// A removable drive (by name, mounted here) was ejected.
+    DriveEjected {
+        name: String,
+        mount: Option<PathBuf>,
+    },
+}
+
+impl After {
+    /// For an unmount: where the filesystem is mounted, and how to
+    /// describe the failure, so a "busy" one can show what is using it.
+    fn unmounting(&self) -> Option<(PathBuf, String)> {
+        match self {
+            After::Unmounted(mount) => Some((mount.clone(), "cannot unmount".into())),
+            After::DriveEjected { name, mount: Some(mount) } => Some((mount.clone(), format!("cannot eject {name}"))),
+            _ => None,
+        }
+    }
 }
 
 pub enum External {
@@ -351,6 +367,9 @@ impl App {
                         if wait == Wait::OnFailure {
                             self.notify("see :messages for details", Level::Warn);
                         }
+                        if let Some((mount, failure)) = after.unmounting() {
+                            self.find_holders(mount, Some(failure));
+                        }
                     }
                     Err(e) => self.error(format!("{program}: {e:#}")),
                 }
@@ -407,12 +426,12 @@ impl App {
                     None => self.notify(format!("{name}: mount finished but the share was not found"), Level::Warn),
                 }
             }
-            After::Unmounted => {
+            After::Unmounted(_) => {
                 self.probe_connections();
                 self.info("unmounted");
             }
             After::DriveMounted(device) => self.drive_mounted(&device),
-            After::DriveEjected(name) => self.drive_ejected(&name),
+            After::DriveEjected { name, .. } => self.drive_ejected(&name),
         }
     }
 

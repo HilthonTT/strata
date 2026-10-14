@@ -153,6 +153,12 @@ Files are compared by content, like <Kbd>C</Kbd>, so a sync works across local, 
 
 On Linux this uses `udisksctl` (from udisks2, installed on most desktops; no root needed), on macOS `diskutil`, which mounts external drives by itself.
 
+### What is using a file
+
+When an eject or unmount fails because the drive is busy, strata lists the programs still using it: their process ID, name, and what they hold — an open file, their working directory (`cwd`, such as a shell sitting in the drive), the program itself, or a mapped library. Close them, or `cd` out in their terminal, and try again. A job that fails with "resource busy" points to the same list.
+
+`:holders` shows this for the hovered item, or anything inside it when it is a folder; `:holders <path>` checks another path. On Linux it reads `/proc` and needs no extra tools; on macOS it uses `lsof`. Programs of other users can only be seen when strata runs as root, and the list says how many it could not check. Not available on Windows yet.
+
 ## Checksums
 
 <Kbd>#</Kbd> shows the MD5, SHA-1 and SHA-256 of the marked files. `:checksum sha256` (or `md5`, `sha1`, `sha512`) copies the hovered file's checksum to the clipboard instead.
