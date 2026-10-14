@@ -120,7 +120,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut app = app(dir.path());
         let state = app.answer(Request::Query("state".into())).state.unwrap();
-        assert_eq!(state["cwd"], dir.path().to_string_lossy().as_ref());
+        // Start folders are canonicalized (macOS temp dirs live under /private).
+        let cwd = std::fs::canonicalize(dir.path()).unwrap();
+        assert_eq!(state["cwd"], cwd.to_string_lossy().as_ref());
         assert_eq!(state["marked"], serde_json::json!([]));
         assert!(!app.answer(Request::Query("nope".into())).ok);
     }

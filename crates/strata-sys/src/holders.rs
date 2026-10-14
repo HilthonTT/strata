@@ -75,13 +75,14 @@ pub fn find(target: &Path) -> Result<Holders> {
 }
 
 /// `path` is `target` or inside it.
+#[cfg(any(unix, test))]
 fn within(path: &Path, target: &Path) -> bool {
     path.starts_with(target)
 }
 
 /// A link target from `/proc`, without the ` (deleted)` the kernel adds
 /// for removed files.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", all(unix, test)))]
 fn proc_link(path: &Path) -> Option<PathBuf> {
     let link = std::fs::read_link(path).ok()?;
     let text = link.to_string_lossy();
@@ -92,7 +93,7 @@ fn proc_link(path: &Path) -> Option<PathBuf> {
 }
 
 /// Walks every process under `proc` (a `/proc`-like tree).
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", all(unix, test)))]
 fn from_proc(proc: &Path, target: &Path) -> Holders {
     let mut holders = Holders::default();
     let Ok(dir) = std::fs::read_dir(proc) else {

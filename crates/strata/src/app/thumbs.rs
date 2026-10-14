@@ -464,7 +464,8 @@ mod tests {
     #[test]
     fn left_and_right_move_across_a_grid_and_leave_or_open_folders_in_a_list() {
         let dir = tempfile::tempdir().unwrap();
-        let photos = dir.path().join("photos");
+        // Start folders are canonicalized (macOS temp dirs live under /private).
+        let photos = std::fs::canonicalize(dir.path()).unwrap().join("photos");
         std::fs::create_dir(&photos).unwrap();
         for name in ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"] {
             std::fs::write(photos.join(name), "").unwrap();
