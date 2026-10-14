@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use strata_core::inspect::HashAlgo;
 use strata_core::nas::{self, Connection};
+use strata_core::ssh::SshConfig;
 use strata_sys::docker::{self, ContainerAction};
 use strata_sys::{IoSampler, MemoryMonitor};
 
@@ -71,15 +72,20 @@ pub fn probe_connections(tx: Sender<AppEvent>, connections: Vec<Connection>) {
         return;
     }
     thread::spawn(move || {
+        let ssh = SshConfig::load();
         let statuses = thread::scope(|s| {
             let handles: Vec<_> = connections
                 .iter()
                 .map(|c| {
+                    let target = ssh.apply(c);
                     s.spawn(move || NasStatus {
                         name: c.name.clone(),
-                        reach: match nas::probe_ports(c) {
-                            ports if ports.is_empty() => nas::Reachability::Unknown,
-                            ports => nas::probe(&c.host, &ports, Duration::from_secs(2)),
+                        reach: match (target, nas::probe_ports(c)) {
+                            (Err(_), _) => nas::Reachability::Down("needs a jump host (unsupported)".into()),
+                            (Ok(_), ports) if ports.is_empty() => nas::Reachability::Unknown,
+                            (Ok(target), _) => {
+                                nas::probe(&target.host, &nas::probe_ports(&target), Duration::from_secs(2))
+                            }
                         },
                         mounted: c.mounted_at(),
                         checked: SystemTime::now(),
@@ -99,21 +105,37 @@ pub fn diagnose(tx: Sender<AppEvent>, conn: Connection) {
     });
 }
 
+/// Connects over SFTP, with what `~/.ssh/config` says about the host.
+/// `accepted` is a host key fingerprint the user has just approved.
 #[cfg(feature = "sftp")]
-pub fn connect_sftp(tx: Sender<AppEvent>, conn: Connection, password: Option<String>) {
+pub fn connect_sftp(tx: Sender<AppEvent>, conn: Connection, password: Option<String>, accepted: Option<String>) {
+    use strata_core::ssh::HostKeyError;
     use strata_core::vfs::{SftpAuth, SftpVfs};
     thread::spawn(move || {
-        let user = conn.user.clone().unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "root".into()));
-        let auth = match (password, &conn.identity_file) {
-            (Some(pw), _) => SftpAuth::Password(pw),
+        let target = match SshConfig::load().apply(&conn) {
+            Ok(target) => target,
+            Err(e) => {
+                let result = Err(format!("{e:#}"));
+                let _ = tx.send(AppEvent::Connected { conn, result, path: PathBuf::new() });
+                return;
+            }
+        };
+        let user = target.user.clone().unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "root".into()));
+        let auth = match (&password, &target.identity_file) {
+            (Some(pw), _) => SftpAuth::Password(pw.clone()),
             (None, Some(key)) => SftpAuth::Key(strata_core::util::expand_tilde(&key.to_string_lossy())),
             (None, None) => SftpAuth::Auto,
         };
-        let mut result = SftpVfs::connect(&conn.host, conn.port(), &user, &auth);
+        let connect = |auth: &SftpAuth| SftpVfs::connect(&target.host, target.port(), &user, auth, accepted.as_deref());
+        let mut result = connect(&auth);
+        if let Some(problem) = result.as_ref().err().and_then(|e| e.downcast_ref::<HostKeyError>()) {
+            let _ = tx.send(AppEvent::HostKey { conn, password, problem: Box::new(problem.clone()) });
+            return;
+        }
         // Keys and agent failed: try the password saved in the keychain.
         if result.is_err() && !matches!(auth, SftpAuth::Password(_)) {
             if let Some(saved) = strata_core::secrets::get(&conn.name) {
-                result = SftpVfs::connect(&conn.host, conn.port(), &user, &SftpAuth::Password(saved));
+                result = connect(&SftpAuth::Password(saved));
             }
         }
         let result = result.map(|v| Arc::new(v) as strata_core::VfsRef).map_err(|e| format!("{e:#}"));

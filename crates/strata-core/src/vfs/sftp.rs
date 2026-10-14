@@ -5,10 +5,59 @@ use std::sync::Mutex;
 use std::time::{Duration, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
-use ssh2::{FileStat, Session, Sftp};
+use ssh2::{FileStat, MethodType, Session, Sftp};
 
 use super::Vfs;
+use crate::ssh::{self, HostKey, KnownHost};
 use crate::{Entry, EntryKind};
+
+/// Opens the TCP connection and runs the SSH handshake, asking for a host
+/// key type `known_hosts` already has for the server.
+fn handshake(host: &str, port: u16) -> Result<Session> {
+    let addr = (host, port)
+        .to_socket_addrs()
+        .with_context(|| format!("cannot resolve {host}"))?
+        .next()
+        .with_context(|| format!("no address for {host}"))?;
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
+        .with_context(|| format!("cannot reach {host}:{port}"))?;
+    let mut session = Session::new()?;
+    session.set_tcp_stream(tcp);
+    session.set_timeout(15_000);
+    prefer_known_key_types(&session, &ssh::known_key_types(&ssh::read_known_hosts(), host, port));
+    session.handshake().context("SSH handshake failed")?;
+    Ok(session)
+}
+
+/// Puts the host key algorithms of `known` key types first, as `ssh`
+/// does, so a server with several keys offers the one on record.
+fn prefer_known_key_types(session: &Session, known: &[String]) {
+    if known.is_empty() {
+        return;
+    }
+    let Ok(supported) = session.supported_algs(MethodType::HostKey) else { return };
+    // RSA keys sign with any of these.
+    let key_type = |alg: &'static str| if alg.starts_with("rsa-sha2-") { "ssh-rsa" } else { alg };
+    let (first, rest): (Vec<&str>, Vec<&str>) =
+        supported.into_iter().partition(|alg| known.iter().any(|k| k == key_type(alg)));
+    if !first.is_empty() {
+        let _ = session.method_pref(MethodType::HostKey, &[first, rest].concat().join(","));
+    }
+}
+
+fn server_key(session: &Session, host: &str, port: u16) -> Result<HostKey> {
+    let (blob, _) = session.host_key().context("the server sent no host key")?;
+    Ok(HostKey::new(host, port, blob))
+}
+
+/// Connects far enough to read the server's host key and looks it up in
+/// `known_hosts`, without logging in.
+pub fn probe_host_key(host: &str, port: u16) -> Result<(HostKey, KnownHost)> {
+    let session = handshake(host, port)?;
+    let key = server_key(&session, host, port)?;
+    let known = ssh::check_known_hosts(&ssh::read_known_hosts(), &key);
+    Ok((key, known))
+}
 
 /// How to authenticate against an SFTP server.
 #[derive(Debug, Clone, Default)]
@@ -39,18 +88,15 @@ impl std::fmt::Debug for SftpVfs {
 }
 
 impl SftpVfs {
-    pub fn connect(host: &str, port: u16, user: &str, auth: &SftpAuth) -> Result<Self> {
-        let addr = (host, port)
-            .to_socket_addrs()
-            .with_context(|| format!("cannot resolve {host}"))?
-            .next()
-            .with_context(|| format!("no address for {host}"))?;
-        let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
-            .with_context(|| format!("cannot reach {host}:{port}"))?;
-        let mut session = Session::new()?;
-        session.set_tcp_stream(tcp);
-        session.set_timeout(15_000);
-        session.handshake().context("SSH handshake failed")?;
+    /// Connects and logs in. The server's host key is checked against
+    /// `known_hosts` before any credentials are sent: an unknown server
+    /// fails with [`ssh::HostKeyError::Unknown`] unless `accepted` is the
+    /// fingerprint the user approved, and a changed key always fails.
+    pub fn connect(host: &str, port: u16, user: &str, auth: &SftpAuth, accepted: Option<&str>) -> Result<Self> {
+        let session = handshake(host, port)?;
+        let key = server_key(&session, host, port)?;
+        let known = ssh::check_known_hosts(&ssh::read_known_hosts(), &key);
+        ssh::verify_host_key(known, key, accepted).map_err(|e| *e)?;
 
         match auth {
             SftpAuth::Password(pw) => session.userauth_password(user, pw)?,

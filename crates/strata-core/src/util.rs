@@ -103,6 +103,42 @@ pub fn unique_name(name: &str, exists: impl Fn(&str) -> bool) -> String {
         .expect("an unused name always exists")
 }
 
+const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Standard base64 (RFC 4648) with `=` padding.
+pub fn base64(input: &[u8]) -> String {
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(BASE64[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// Decodes standard base64, with or without padding. `None` on any other
+/// character.
+pub fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(input.len() / 4 * 3);
+    let (mut acc, mut bits) = (0u32, 0);
+    for c in input.trim_end_matches('=').bytes() {
+        let v = BASE64.iter().position(|&b| b == c)? as u32;
+        acc = acc << 6 | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
 /// Splits a command line into arguments, honouring single quotes, double
 /// quotes and backslash escapes: `code --wait "my dir"` → 3 arguments.
 pub fn split_command(line: &str) -> Vec<String> {
@@ -150,6 +186,19 @@ pub fn shell_quote(arg: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_matches_rfc4648() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        for text in ["", "f", "fo", "foo", "foobar"] {
+            assert_eq!(base64_decode(&base64(text.as_bytes())).unwrap(), text.as_bytes());
+        }
+        assert_eq!(base64_decode("Zm8").unwrap(), b"fo", "padding is optional");
+        assert_eq!(base64_decode("Zm9v!"), None);
+    }
 
     #[test]
     fn sizes_are_human_readable() {

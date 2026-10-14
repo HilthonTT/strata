@@ -7,6 +7,7 @@ use strata_core::git::GitStatus;
 use strata_core::inspect::HashAlgo;
 use strata_core::jobs::JobFinished;
 use strata_core::nas::{Connection, Reachability, Step};
+use strata_core::ssh::HostKeyError;
 use strata_core::VfsRef;
 use strata_plugin::Level;
 use strata_sys::docker::Container;
@@ -54,6 +55,14 @@ pub enum AppEvent {
         conn: Connection,
         result: Result<VfsRef, String>,
         path: PathBuf,
+    },
+    /// An SFTP server's host key is new, changed or revoked. No
+    /// credentials were sent; `password` is the one typed, if any.
+    #[cfg_attr(not(feature = "sftp"), allow(dead_code))]
+    HostKey {
+        conn: Connection,
+        password: Option<String>,
+        problem: Box<HostKeyError>,
     },
     Text {
         title: String,

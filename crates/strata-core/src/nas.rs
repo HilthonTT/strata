@@ -148,7 +148,7 @@ impl Connection {
         Some(conn)
     }
 
-    fn new(name: &str, protocol: Protocol, host: &str) -> Self {
+    pub(crate) fn new(name: &str, protocol: Protocol, host: &str) -> Self {
         Self {
             name: name.to_string(),
             protocol,
@@ -517,6 +517,31 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
         steps.push(Step { name: "Remote", status, detail });
         return steps;
     }
+    let resolved_conn;
+    let conn = if conn.protocol == Protocol::Sftp {
+        match crate::ssh::SshConfig::load().apply(conn) {
+            Ok(applied) => {
+                if applied != *conn {
+                    let detail = format!(
+                        "{} → {}@{}:{}",
+                        conn.host,
+                        applied.user.as_deref().unwrap_or("you"),
+                        applied.host,
+                        applied.port()
+                    );
+                    steps.push(Step { name: "SSH config", status: StepStatus::Ok, detail });
+                }
+                resolved_conn = applied;
+                &resolved_conn
+            }
+            Err(e) => {
+                steps.push(Step { name: "SSH config", status: StepStatus::Fail, detail: e.to_string() });
+                return steps;
+            }
+        }
+    } else {
+        conn
+    };
     let resolved = (conn.host.as_str(), conn.port()).to_socket_addrs().map(|a| a.collect::<Vec<_>>());
     let resolved_ok = match &resolved {
         Ok(addrs) if !addrs.is_empty() => {
@@ -565,13 +590,25 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
             rclone_step(&mut steps);
         }
         Protocol::Sftp => {
+            let trusted = if reachable {
+                let (status, detail, trusted) = host_key_step(conn);
+                steps.push(Step { name: "Host key", status, detail });
+                trusted
+            } else {
+                steps.push(Step {
+                    name: "Host key",
+                    status: StepStatus::Skipped,
+                    detail: "server did not answer".into(),
+                });
+                false
+            };
             steps.push(Step {
                 name: "Credentials",
-                status: if reachable { StepStatus::Ok } else { StepStatus::Skipped },
-                detail: if reachable {
-                    "checked when connecting (agent, key or password)".into()
-                } else {
-                    "server did not answer".into()
+                status: if trusted { StepStatus::Ok } else { StepStatus::Skipped },
+                detail: match (reachable, trusted) {
+                    (true, true) => "checked when connecting (agent, key or password)".into(),
+                    (true, false) => "not sent until the host key is trusted".into(),
+                    (false, _) => "server did not answer".into(),
                 },
             });
         }
@@ -597,6 +634,31 @@ pub fn diagnose(conn: &Connection) -> Vec<Step> {
         }
     }
     steps
+}
+
+/// Looks the SFTP server's key up in `known_hosts`. The last value says
+/// whether credentials would be sent: a new server counts, since
+/// connecting asks the user first.
+#[cfg(feature = "sftp")]
+fn host_key_step(conn: &Connection) -> (StepStatus, String, bool) {
+    use crate::ssh::{verify_host_key, HostKeyError};
+    let (key, known) = match crate::vfs::probe_host_key(&conn.host, conn.port()) {
+        Ok(found) => found,
+        Err(e) => return (StepStatus::Fail, format!("{e:#}"), false),
+    };
+    let shown = format!("{} {}", key.key_type, key.fingerprint);
+    match verify_host_key(known, key, None).map_err(|e| *e) {
+        Ok(()) => (StepStatus::Ok, format!("known ({shown})"), true),
+        Err(HostKeyError::Unknown(_)) => {
+            (StepStatus::Warn, format!("new: {shown} · you will be asked to trust it"), true)
+        }
+        Err(e) => (StepStatus::Fail, e.to_string(), false),
+    }
+}
+
+#[cfg(not(feature = "sftp"))]
+fn host_key_step(_conn: &Connection) -> (StepStatus, String, bool) {
+    (StepStatus::Skipped, "this build has no SFTP support".into(), false)
 }
 
 /// Checks that rclone is installed. Returns whether it is.

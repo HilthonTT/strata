@@ -64,8 +64,10 @@ use strata_config::{Config, General, KeyPress, Keymap, Theme, ThemeRegistry};
 use strata_core::inspect::HashAlgo;
 use strata_core::jobs::Progress;
 use strata_core::jobs::{JobManager, JobState};
+use strata_core::nas::Connection;
 use strata_core::ops::TransferMode;
 use strata_core::sort::SortOptions;
+use strata_core::ssh::SshHost;
 use strata_core::tags::TagDb;
 use strata_core::vfs::LocalVfs;
 use strata_core::VfsRef;
@@ -146,6 +148,8 @@ pub struct NasState {
     pub sessions: HashMap<String, VfsRef>,
     /// Connections with a password in the keychain.
     pub saved_passwords: std::collections::HashSet<String>,
+    /// Hosts in `~/.ssh/config`, reread with every probe.
+    pub ssh_hosts: Vec<SshHost>,
 }
 
 pub struct DashboardState {
@@ -383,6 +387,7 @@ impl App {
                 last_probe: None,
                 sessions: HashMap::new(),
                 saved_passwords: Default::default(),
+                ssh_hosts: Vec::new(),
             },
             dashboard: DashboardState {
                 usage: None,
@@ -658,6 +663,7 @@ impl App {
             AppEvent::Found { root, files } => self.open_find_picker(root, files),
             AppEvent::Diagnosed { name, steps } => self.show_diagnosis(&name, steps),
             AppEvent::Connected { conn, result, path } => self.on_connected(conn, result, path),
+            AppEvent::HostKey { conn, password, problem } => self.on_host_key(conn, password, *problem),
             AppEvent::Text { title, body } => {
                 let lines = body.lines().map(str::to_string).collect::<Vec<_>>();
                 let scroll = lines.len().saturating_sub(10);
@@ -915,9 +921,25 @@ impl App {
         workers::list_containers(self.tx.clone());
     }
 
+    /// Rereads `~/.ssh/config` and checks every listed connection.
     pub fn probe_connections(&mut self) {
         self.nas.last_probe = Some(Instant::now());
-        workers::probe_connections(self.tx.clone(), self.config.connections.clone());
+        self.nas.ssh_hosts = strata_core::ssh::SshConfig::load().hosts();
+        workers::probe_connections(self.tx.clone(), self.listed_connections());
+    }
+
+    /// The connections view's rows: those in `config.toml`, then the
+    /// `~/.ssh/config` hosts no saved connection already covers.
+    pub fn listed_connections(&self) -> Vec<Connection> {
+        self.config.connections.iter().cloned().chain(self.ssh_hosts().map(SshHost::to_connection)).collect()
+    }
+
+    /// The `~/.ssh/config` hosts listed after the saved connections.
+    pub fn ssh_hosts(&self) -> impl Iterator<Item = &SshHost> {
+        let saved = &self.config.connections;
+        self.nas.ssh_hosts.iter().filter(move |h| {
+            !saved.iter().any(|c| c.name.eq_ignore_ascii_case(&h.alias) || c.host.eq_ignore_ascii_case(&h.alias))
+        })
     }
 }
 

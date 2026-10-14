@@ -30,7 +30,7 @@ Everything you need, nothing you don't.
 - **Hide git-ignored files** (`z i`): leave build output, logs and anything else your `.gitignore` lists out of the listing
 - **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, CSV/TSV tables, JSON/YAML/TOML outlines, SQLite tables and columns, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
 - **Multiple panels**: browse several directories side by side and copy between them with one key
-- **Remote connections**: SMB, NFS and SFTP, plus S3 (AWS, MinIO, R2…), WebDAV, FTP and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox…) browsed in-app (copies between two of them go remote to remote, server-side where possible), with live reachability checks, a step-by-step connection test and passwords in your system keychain
+- **Remote connections**: SMB, NFS and SFTP, plus S3 (AWS, MinIO, R2…), WebDAV, FTP and any [rclone](https://rclone.org) remote (Google Drive, OneDrive, Dropbox…) browsed in-app (copies between two of them go remote to remote, server-side where possible), with live reachability checks, a step-by-step connection test and passwords in your system keychain; SFTP checks host keys against `~/.ssh/known_hosts` before logging in and lists the hosts in `~/.ssh/config`
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own

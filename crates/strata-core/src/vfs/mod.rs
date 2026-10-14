@@ -24,7 +24,7 @@ pub use docker::DockerVfs;
 pub use local::LocalVfs;
 pub use rclone::{obscure as rclone_obscure, quote as rclone_quote, RcloneVfs};
 #[cfg(feature = "sftp")]
-pub use sftp::{SftpAuth, SftpVfs};
+pub use sftp::{probe_host_key, SftpAuth, SftpVfs};
 
 pub type VfsRef = Arc<dyn Vfs>;
 

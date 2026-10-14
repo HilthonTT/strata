@@ -45,15 +45,30 @@ tls = true                # S3, WebDAV and FTP: encrypt (default on, off for FTP
 | Key | Action |
 | --- | --- |
 | <Kbd>enter</Kbd> | Connect (SFTP, S3, WebDAV, FTP, rclone) or mount (SMB/NFS), then open it |
+| <Kbd>i</Kbd> | Save a host from `~/.ssh/config` to `config.toml` |
 | <Kbd>t</Kbd> | Diagnose step by step |
 | <Kbd>u</Kbd> | Disconnect or unmount |
 | <Kbd>p</Kbd> / <Kbd>f</Kbd> | Save / forget the password in the system keychain |
 | <Kbd>r</Kbd> | Re-check every connection |
 | <Kbd>e</Kbd> | Edit `config.toml` |
 
+## SSH config hosts
+
+The `Host` aliases in `~/.ssh/config` (and the files it `Include`s) are listed after your saved connections, marked `~/.ssh/config`, ready to open. strata uses their `HostName`, `User`, `Port` and `IdentityFile`. A saved SFTP connection whose host is an alias gets the same settings, but its own `user`, `port` and `identity_file` win. Press <Kbd>i</Kbd> to save an alias to `config.toml`: only the alias is stored, so `~/.ssh/config` stays the place its settings live.
+
+Hosts reached through `ProxyJump` or `ProxyCommand` are listed but can't be opened yet: strata says so instead of connecting directly. `Match` blocks are not evaluated.
+
+## Host keys
+
+Before sending a password or key, strata checks the server's host key against `~/.ssh/known_hosts` (and `/etc/ssh/ssh_known_hosts`), the same way `ssh` does, hashed entries included.
+
+- **A known key** connects quietly.
+- **A new server** shows its key type and `SHA256:` fingerprint and asks you to trust it. Press <Kbd>y</Kbd> only if the fingerprint matches the server's. The key is then added to `~/.ssh/known_hosts`.
+- **A changed or revoked key** is refused with a warning, since someone may be intercepting the connection. strata won't let you skip that warning. If the server's keys really changed, check the new fingerprint, run `ssh-keygen -R <host>` (or `ssh-keygen -R '[host]:port'`) and connect again.
+
 ## How connections work
 
-- **SFTP** runs inside strata: no mounting, no root. strata tries your SSH agent, then your keys in `~/.ssh` (or `identity_file`), then a password saved in the keychain, and finally asks you. After a successful password login it offers to save it.
+- **SFTP** runs inside strata: no mounting, no root. Once the host key checks out, strata tries your SSH agent, then your keys in `~/.ssh` (or `identity_file`), then a password saved in the keychain, and finally asks you. After a successful password login it offers to save it.
 - **SMB** mounts with `gio mount` on Linux desktops (no root needed), `mount -t cifs` otherwise, `mount_smbfs` on macOS and `net use` on Windows.
 - **NFS** mounts with `mount -t nfs`.
 - **S3, WebDAV, FTP and rclone remotes** run inside strata through the [`rclone`](https://rclone.org/install/) command, which must be installed. Listings load in the background; each operation starts rclone once, so expect a short pause per folder. Copies between two rclone-backed panels (say S3 to WebDAV) are handed to a single `rclone copy`, which copies on the server when both sides are the same provider and otherwise streams directly, without staging files on your disk. Two connections of the same kind with different passwords can't share one rclone call; those copies stream through strata instead.
@@ -70,4 +85,4 @@ Passwords are never written to strata's own files. They live in your operating s
 
 ## Diagnosing a connection
 
-<Kbd>t</Kbd> walks the chain a connection takes and reports each step: resolving the server's name, reaching it (falling back from port 445 to 139 for SMB), the mount point, and the share. For rclone-based connections it checks that rclone is installed and, for rclone remotes, that the remote is configured. Steps that cannot run because an earlier one failed are marked as skipped instead of guessed at.
+<Kbd>t</Kbd> walks the chain a connection takes and reports each step: resolving the server's name, reaching it (falling back from port 445 to 139 for SMB), the mount point, and the share. For SFTP it shows what `~/.ssh/config` changed and whether the server's host key is known, new or changed. For rclone-based connections it checks that rclone is installed and, for rclone remotes, that the remote is configured. Steps that cannot run because an earlier one failed are marked as skipped instead of guessed at.

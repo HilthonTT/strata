@@ -18,7 +18,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let [summary, list, hint] =
         Layout::vertical([Constraint::Length(4), Constraint::Min(3), Constraint::Length(1)]).areas(area);
 
-    let conns = &app.config.connections;
+    let conns = app.listed_connections();
+    // Rows after the saved connections come from ~/.ssh/config.
+    let saved = app.config.connections.len();
+    let ssh_addresses: Vec<String> =
+        app.ssh_hosts().map(|h| format!("sftp://{} · ~/.ssh/config", h.address())).collect();
     let reachable = conns
         .iter()
         .filter(|c| app.nas.statuses.get(&c.name).is_some_and(|s| matches!(s.reach, Reachability::Up { .. })))
@@ -83,6 +87,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 Style::default().fg(theme.muted),
             ),
             Line::styled(" or add [[connections]] entries to config.toml (press e).", Style::default().fg(theme.muted)),
+            Line::styled(" Hosts in ~/.ssh/config show up here too.", Style::default().fg(theme.muted)),
         ];
         frame.render_widget(Paragraph::new(lines), inner);
     } else {
@@ -121,6 +126,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 (_, None) => ("○", theme.muted, "checking…".into()),
             };
             let seen = app.nas.last_up.get(&c.name).map(|t| ago(*t)).unwrap_or_else(|| "never".into());
+            let address =
+                i.checked_sub(saved).and_then(|row| ssh_addresses.get(row)).cloned().unwrap_or_else(|| c.url());
             let mut style = Style::default().fg(theme.fg);
             if i == app.nas.cursor {
                 style = style.bg(theme.cursor_bg).add_modifier(Modifier::BOLD);
@@ -129,14 +136,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(format!(" {dot} "), style.fg(color)),
                 Span::styled(fit(&c.name, name_w), style),
                 Span::styled(fit(c.protocol.as_str(), proto_w), style),
-                Span::styled(fit(&c.url(), url_w), style.fg(theme.muted)),
+                Span::styled(fit(&address, url_w), style.fg(theme.muted)),
                 Span::styled(format!("{} ", fit(&text, status_w - 1)), style.fg(color)),
                 Span::styled(fit(&seen, seen_w), style.fg(theme.muted)),
             ]));
         }
         frame.render_widget(Paragraph::new(lines), inner);
     }
-    let keys = " enter connect/open · a add · t diagnose · u disconnect · r recheck · p save password · f forget password · e edit config · 1 files";
+    let keys = " enter connect/open · a add · i import ssh host · t diagnose · u disconnect · r recheck · p save password · f forget password · e edit config · 1 files";
     frame.render_widget(Paragraph::new(Line::styled(keys, Style::default().fg(theme.muted))), hint);
 }
 

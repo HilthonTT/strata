@@ -6,6 +6,7 @@ use std::sync::Arc;
 use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 use strata_config::KeyPress;
 use strata_core::nas::{Connection, Protocol, Step, StepStatus};
+use strata_core::ssh::{HostKey, HostKeyError};
 use strata_core::vfs::DockerVfs;
 use strata_core::{Vfs, VfsRef};
 use strata_plugin::Level;
@@ -76,7 +77,7 @@ impl App {
                 self.overlay = Some(Overlay::Input(input));
             }
             't' | 'u' => {
-                let Some(conn) = self.config.connections.get(self.nas.cursor).cloned() else {
+                let Some(conn) = self.listed_connections().get(self.nas.cursor).cloned() else {
                     return false;
                 };
                 if c == 't' {
@@ -87,11 +88,23 @@ impl App {
             }
             'e' => self.run_command("config"),
             'p' | 'f' => {
-                let Some(conn) = self.config.connections.get(self.nas.cursor).cloned() else { return false };
+                let Some(conn) = self.listed_connections().get(self.nas.cursor).cloned() else { return false };
                 if c == 'p' {
                     self.prompt_save_password(conn.name);
                 } else {
                     self.forget_password(&conn.name);
+                }
+            }
+            // Saves a ~/.ssh/config host to config.toml, under its alias.
+            'i' => {
+                let row = self.nas.cursor.checked_sub(self.config.connections.len());
+                let host = row.and_then(|row| self.ssh_hosts().nth(row)).map(|h| h.to_connection());
+                match (row, host) {
+                    (_, Some(conn)) => self.save_connection(conn),
+                    (Some(_), None) => return false,
+                    (None, _) => {
+                        self.info("this connection is already in config.toml; i imports hosts from ~/.ssh/config")
+                    }
                 }
             }
             'r' => {
@@ -106,7 +119,7 @@ impl App {
     pub(super) fn view_len(&self) -> usize {
         match self.view {
             View::Docker => self.docker.containers.len(),
-            View::Connections => self.config.connections.len(),
+            View::Connections => self.listed_connections().len(),
             View::Dashboard => self.dashboard.usage.as_ref().map_or(0, |u| u.items.len()),
             View::Files => 0,
         }
@@ -150,7 +163,7 @@ impl App {
                 self.info(format!("browsing container {}", c.name));
             }
             View::Connections => {
-                if let Some(conn) = self.config.connections.get(self.nas.cursor).cloned() {
+                if let Some(conn) = self.listed_connections().get(self.nas.cursor).cloned() {
                     self.open_connection(conn);
                 }
             }
@@ -232,7 +245,7 @@ impl App {
     /// Changes the keychain off the UI thread (D-Bus can wait on an unlock
     /// prompt), then reports and refreshes which connections have a password.
     fn keychain_task(&mut self, done: String, op: impl FnOnce() -> anyhow::Result<()> + Send + 'static) {
-        let names: Vec<String> = self.config.connections.iter().map(|c| c.name.clone()).collect();
+        let names: Vec<String> = self.listed_connections().into_iter().map(|c| c.name).collect();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let (message, level) = match op() {
@@ -247,7 +260,7 @@ impl App {
 
     /// Checks which connections have a keychain password, off the UI thread.
     pub(super) fn refresh_keychain(&mut self) {
-        let names: Vec<String> = self.config.connections.iter().map(|c| c.name.clone()).collect();
+        let names: Vec<String> = self.listed_connections().into_iter().map(|c| c.name).collect();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let saved = names.into_iter().filter(|n| strata_core::secrets::get(n).is_some()).collect();
@@ -258,23 +271,55 @@ impl App {
     /// Connects to an in-app connection, with `password` if one was typed.
     pub(super) fn connect_remote(&mut self, conn: Connection, password: Option<String>) {
         if conn.protocol == Protocol::Sftp {
-            return self.connect_sftp(conn, password);
+            return self.connect_sftp(conn, password, None);
         }
         self.info(format!("connecting to {}…", conn.name));
         workers::connect_rclone(self.tx.clone(), conn, password);
     }
 
-    fn connect_sftp(&mut self, conn: Connection, password: Option<String>) {
+    /// `accepted` is the host key fingerprint the user has just trusted.
+    fn connect_sftp(&mut self, conn: Connection, password: Option<String>, accepted: Option<String>) {
         #[cfg(feature = "sftp")]
         {
             self.info(format!("connecting to {}…", conn.host));
-            workers::connect_sftp(self.tx.clone(), conn, password);
+            workers::connect_sftp(self.tx.clone(), conn, password, accepted);
         }
         #[cfg(not(feature = "sftp"))]
         {
-            let _ = (conn, password);
+            let _ = (conn, password, accepted);
             self.error("this build of strata has no SFTP support");
         }
+    }
+
+    /// The server's host key was not trusted, so nothing was sent to it.
+    /// A new server is the user's call; a changed or revoked key is refused.
+    pub(super) fn on_host_key(&mut self, conn: Connection, password: Option<String>, problem: HostKeyError) {
+        let name = conn.name.clone();
+        let key = match problem {
+            HostKeyError::Unknown(key) => key,
+            problem => {
+                self.error(format!("{name}: {problem}"));
+                return self.show_overlay(Overlay::Text(host_key_warning(&name, &problem)));
+            }
+        };
+        let message = format!(
+            "{name}: {} is not a known host. Its {} key fingerprint is {} — trust it and add it to \
+             ~/.ssh/known_hosts? Only say yes if it matches the server's own fingerprint.",
+            key.host_entry(),
+            key.key_type,
+            key.fingerprint
+        );
+        let action = Confirm::TrustHostKey { conn, password, key: Box::new(key) };
+        self.show_overlay(Overlay::Confirm(ConfirmState { message, action }));
+    }
+
+    /// Saves a host key the user trusted, then connects with it.
+    pub(super) fn trust_host_key(&mut self, conn: Connection, password: Option<String>, key: HostKey) {
+        match strata_core::ssh::remember_host_key(&key) {
+            Ok(path) => self.info(format!("added {} to {}", key.host_entry(), path.display())),
+            Err(e) => self.error(format!("could not save the host key ({e}); trusting it for this connection only")),
+        }
+        self.connect_sftp(conn, password, Some(key.fingerprint));
     }
 
     pub(super) fn on_connected(&mut self, conn: Connection, result: Result<VfsRef, String>, path: PathBuf) {
@@ -362,4 +407,41 @@ impl App {
             }
         }
     }
+}
+
+/// The warning shown when a server's key does not match `known_hosts`.
+/// There is no way past it from strata: the fix is the user's to make.
+fn host_key_warning(name: &str, problem: &HostKeyError) -> TextPopup {
+    let key = problem.key();
+    let host = key.host_entry();
+    let mut lines = vec![format!("✗ {name}: connection refused; nothing was sent to the server."), String::new()];
+    match problem {
+        HostKeyError::Changed { known_types, .. } => {
+            lines.push("✗ WARNING: THE SERVER'S HOST KEY DOES NOT MATCH ~/.ssh/known_hosts".into());
+            lines.push("  Someone could be intercepting the connection (a man-in-the-middle attack).".into());
+            lines.push(String::new());
+            lines.push(format!("  Server         {host}"));
+            lines.push(format!("  Offered key    {} {}", key.key_type, key.fingerprint));
+            lines.push(format!("  On record      {}", known_types.join(", ")));
+            lines.push(String::new());
+            if !known_types.contains(&key.key_type) {
+                lines.push(format!("  The server sent a {} key, but known_hosts only has other types.", key.key_type));
+                lines.push("  It may have stopped offering the recorded key, or this build cannot use it.".into());
+            }
+            lines.push("  If the server's keys were changed on purpose (say it was reinstalled), check the".into());
+            lines.push("  fingerprint above with its administrator, remove the old entry and connect again:".into());
+            lines.push(String::new());
+            lines.push(format!("      ssh-keygen -R '{host}'"));
+        }
+        HostKeyError::Revoked(_) => {
+            lines.push("✗ WARNING: THE SERVER'S HOST KEY HAS BEEN REVOKED".into());
+            lines.push(String::new());
+            lines.push(format!("  Server         {host}"));
+            lines.push(format!("  Offered key    {} {}", key.key_type, key.fingerprint));
+            lines.push(String::new());
+            lines.push("  known_hosts marks this key @revoked. Ask the server's administrator for its new key.".into());
+        }
+        HostKeyError::Unknown(_) => lines.push(problem.to_string()),
+    }
+    TextPopup { title: "Host key warning".into(), lines, scroll: 0, colored: true }
 }

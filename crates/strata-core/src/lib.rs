@@ -22,6 +22,7 @@ pub mod perm;
 pub mod search;
 pub mod secrets;
 pub mod sort;
+pub mod ssh;
 pub mod sync;
 pub mod tags;
 pub mod throttle;

@@ -83,6 +83,8 @@ disabled = []                                          # user plugins to skip
 # Connections. Protocols: smb, nfs, sftp, s3, webdav, ftp, rclone.
 # smb and nfs are mounted; the others are browsed in strata. s3, webdav,
 # ftp and rclone need the rclone tool (https://rclone.org/install/).
+# Hosts in ~/.ssh/config are listed too, and an sftp host that is an alias
+# there takes its HostName, User, Port and IdentityFile from it.
 # [[connections]]
 # name = "nas"
 # protocol = "smb"

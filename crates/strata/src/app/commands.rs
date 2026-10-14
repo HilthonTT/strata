@@ -344,8 +344,9 @@ impl App {
         }
     }
 
+    /// A saved connection, or a `~/.ssh/config` host, by name.
     pub(super) fn connection(&self, name: &str) -> Option<Connection> {
-        self.config.connections.iter().find(|c| c.name == name).cloned()
+        self.listed_connections().into_iter().find(|c| c.name == name)
     }
 
     fn create(&mut self, name: &str, dir: bool) {

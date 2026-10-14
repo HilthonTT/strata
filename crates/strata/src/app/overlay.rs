@@ -279,6 +279,12 @@ pub enum Confirm {
         name: String,
         password: String,
     },
+    /// Add a new SFTP server's host key to `known_hosts`, then connect.
+    TrustHostKey {
+        conn: Connection,
+        password: Option<String>,
+        key: Box<strata_core::ssh::HostKey>,
+    },
     /// Store the password that just opened this archive in the keychain.
     SaveArchivePassword {
         file: PathBuf,
@@ -311,7 +317,9 @@ impl Confirm {
             | Confirm::EmptyTrash
             | Confirm::Sync(_)
             | Confirm::GitDiscard { .. }
-            | Confirm::Elevate(_) => true,
+            | Confirm::Elevate(_)
+            // Trusting a server should be a deliberate y.
+            | Confirm::TrustHostKey { .. } => true,
             Confirm::SavePassword { .. }
             | Confirm::SaveArchivePassword { .. }
             | Confirm::TrashDupe(_)
