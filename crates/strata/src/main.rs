@@ -39,6 +39,9 @@ struct Cli {
     /// chosen paths to this file, one per line, and quits.
     #[arg(long, value_name = "FILE")]
     chooser_file: Option<PathBuf>,
+    /// Open the tabs and panels saved with `:layout save <name>`.
+    #[arg(short, long, value_name = "NAME", conflicts_with = "paths")]
+    layout: Option<String>,
     /// Print a shell function that lets `Q` change your shell's directory.
     #[arg(long, value_name = "SHELL")]
     shell_init: Option<Shell>,
@@ -121,7 +124,11 @@ fn main() -> Result<()> {
         config_path: cli.config.unwrap_or_else(Config::default_path),
         load_plugins: !cli.no_plugins,
         chooser: cli.chooser_file.is_some(),
+        layout: cli.layout,
     };
+    if let Some(name) = &options.layout {
+        app::check_layout(name)?;
+    }
 
     let mut terminal = tui::init()?;
     let picker =

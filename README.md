@@ -19,7 +19,7 @@ Everything you need, nothing you don't.
 - **Jobs you control**: see each transfer's speed and time left, cap it (`:limit 10M` or `bandwidth_limit`), pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
 - **Shell commands on your selection**: `:!tar czf out.tgz {s}` fills in the marked items, and `:each gzip -k` runs once per item
 - **Saved selections**: keep marked items from any folders under a name and mark them again later (`:select save|load|add|list|delete`)
-- **Sessions**: reopen your tabs and folders on the next start (`restore_session = true`)
+- **Sessions and layouts**: reopen your tabs and folders on the next start (`restore_session = true`), or save them under a name and open them again with `:layout load work` or `strata --layout work`
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
 - **Search**: filter (fuzzy, glob `*.{jpg,png}` or regex `re:^v\d+`), fuzzy find, content search with ripgrep, and `:find` by name, size, age, type or tag with the results listed in the panel; `:flatten` lists every file below a folder
 - **Tags and colour labels** (`,`): coloured dots in the list, a sidebar section, `:find --tag`; mirrored to `user.xdg.tags` on Linux

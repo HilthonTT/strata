@@ -95,6 +95,7 @@ Handlers get the context and a `data` table describing what happened:
 | `view` | `view`: `files`, `dashboard`, `docker` or `nas` |
 | `tab` | `tab`: the tab switched to (1-based) |
 | `theme` | `name`: the theme picked |
+| `layout_save`, `layout_load` | `name`: the layout saved or opened (`:layout`, `--layout`, `default_layout`) |
 
 ```lua
 strata.on("rename", function(ctx, e)

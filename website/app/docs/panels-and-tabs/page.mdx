@@ -48,7 +48,21 @@ Tabs keep whole workspaces apart: every tab has its own panels.
 
 Open tabs are listed in the top bar. With the classic preset, use <Kbd>ctrl+t</Kbd>, <Kbd>alt+←</Kbd> / <Kbd>alt+→</Kbd> and <Kbd>alt+w</Kbd>.
 
-Set `restore_session = true` to reopen your tabs, folders and sort orders from the last time you quit whenever you start strata without paths. Remote panels are not reopened; a folder that no longer exists opens at its nearest parent.
+Set `restore_session = true` to reopen your tabs, folders, sort orders, tree views and cursor positions from the last time you quit whenever you start strata without paths. Remote panels are not reopened; a folder that no longer exists opens at its nearest parent.
+
+### Layouts
+
+A layout is a set of tabs and panels saved under a name, so you can keep one for each project or task:
+
+| Command | What it does |
+| --- | --- |
+| `:layout save <name>` | Save the open tabs and local panels (asks before replacing a layout of that name) |
+| `:layout load <name>` | Replace the open tabs with the layout |
+| `:layout list` | Pick a layout: <Kbd>enter</Kbd> opens it, <Kbd>ctrl+d</Kbd> deletes it |
+| `:layout delete <name>` | Delete a layout |
+| `:layout rename <name> <new>` | Rename a layout |
+
+Names are one word; <Kbd>tab</Kbd> completes them. Start strata with `strata --layout <name>` to open one straight away, or set `default_layout = "<name>"` to open it whenever you start without paths. What opens at start, first match wins: `--layout`, then the paths you give, then `default_layout`, then `restore_session`. `--layout` and paths can't be combined, and a missing `--layout` stops strata with an error, while a missing `default_layout` only warns. Layouts are kept in `layouts.json` in the data directory.
 
 ## Folder sizes
 

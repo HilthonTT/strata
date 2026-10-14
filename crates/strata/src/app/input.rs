@@ -93,7 +93,11 @@ impl App {
                     KeyCode::Up => picker.move_by(-1),
                     KeyCode::Down | KeyCode::Tab => picker.move_by(1),
                     KeyCode::Char(c @ ('d' | 'e')) if ctrl => {
-                        if self.trash_picker_key(c) || self.dupes_picker_key(c) || self.drives_picker_key(c) {
+                        if self.trash_picker_key(c)
+                            || self.dupes_picker_key(c)
+                            || self.drives_picker_key(c)
+                            || self.layouts_picker_key(c)
+                        {
                             return;
                         }
                     }
@@ -201,7 +205,8 @@ impl App {
                 | PickerPurpose::Tags { .. }
                 | PickerPurpose::Drives { .. }
                 | PickerPurpose::Jump { .. }
-                | PickerPurpose::Git { .. } => {}
+                | PickerPurpose::Git { .. }
+                | PickerPurpose::Layouts { .. } => {}
             },
             other => self.overlay = other,
         }
@@ -233,6 +238,8 @@ impl App {
             Confirm::TrashDupe(path) => self.trash_dupe(path),
             Confirm::GitDiscard { root, paths } => self.git_discard(root, paths),
             Confirm::Elevate(plan) => self.run_as_root(plan),
+            Confirm::ReplaceLayout { name, session } => self.save_layout(name, *session),
+            Confirm::DeleteLayout(name) => self.delete_layout(name),
             Confirm::Quit => {
                 self.jobs.cancel_all();
                 self.quit();

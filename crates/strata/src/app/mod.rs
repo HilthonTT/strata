@@ -23,6 +23,8 @@ pub mod grep;
 mod highlight;
 mod input;
 mod jump;
+mod layouts;
+pub use layouts::check_exists as check_layout;
 pub mod overlay;
 pub mod panel;
 mod plugins;
@@ -89,6 +91,8 @@ pub struct StartOptions {
     pub load_plugins: bool,
     /// Picker mode: opening a file picks it and quits (`--chooser-file`).
     pub chooser: bool,
+    /// Open this named layout (`--layout`); missing is an error.
+    pub layout: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -444,8 +448,25 @@ impl App {
         for e in app.keymap.apply_overrides(&overrides) {
             app.notify(e, Level::Warn);
         }
-        if app.config.general.restore_session && opts.paths.is_empty() && !app.chooser {
-            app.restore_session();
+        let general = &app.config.general;
+        let restore = general.restore_session;
+        let default_layout = general.default_layout.clone();
+        match layouts::startup(opts.layout.as_deref(), !opts.paths.is_empty(), &default_layout, restore, app.chooser) {
+            layouts::Startup::Layout { name, explicit: true } => {
+                app.load_layout(name).map_err(anyhow::Error::msg)?;
+            }
+            layouts::Startup::Layout { name, explicit: false } => {
+                if let Err(e) = app.load_layout(name) {
+                    app.notify(format!("default_layout: {e}"), Level::Warn);
+                    if restore {
+                        app.restore_session();
+                    }
+                }
+            }
+            layouts::Startup::Session => {
+                app.restore_session();
+            }
+            layouts::Startup::Paths => {}
         }
         app.rebuild_sidebar();
         if app.chooser {

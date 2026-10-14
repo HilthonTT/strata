@@ -26,6 +26,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
         "select",
         "select <glob>|re:<regex>|tag:<name> — mark matching items; select save|add|load|delete <name>, select list — saved selections",
     ),
+    (
+        "layout",
+        "layout save|load|delete <name>, layout rename <name> <new>, layout list — named sets of tabs and panels",
+    ),
     ("find", "find [glob] [--size +100M] [--mtime -7d] [--type f|d|l] [--ext a,b] [--tag t] — list matches below here"),
     ("flatten", "flatten — list every file below this folder, or go back"),
     ("tree", "tree — show folders as an expandable tree, or go back to the list"),
@@ -121,6 +125,7 @@ impl App {
                 };
                 self.info(format!("marked {n} item(s)"));
             }
+            "layout" | "layouts" => self.layout_command(args),
             "rename-pattern" | "rename-all" | "rp" => self.rename_pattern_command(args),
             "find" => self.find_command(args),
             "flatten" | "flat" => self.toggle_flatten(),
@@ -568,6 +573,13 @@ impl App {
                     self.open_drive(drive);
                 }
             }
+            PickerPurpose::Layouts { names } => {
+                if let Some(name) = selected_index.and_then(|i| names.get(i)) {
+                    if let Err(e) = self.load_layout(name) {
+                        self.error(e);
+                    }
+                }
+            }
         }
     }
 
@@ -609,6 +621,7 @@ impl App {
                     names.into_iter().filter(|n| n.starts_with(arg)).map(|n| format!("{cmd} {n}")).collect()
                 }
                 Some(("select", arg)) => self.complete_selection(arg),
+                Some(("layout", arg)) => self.complete_layout(arg),
                 Some((cmd @ ("cd" | "local"), arg)) => {
                     self.complete_path(arg).into_iter().map(|p| format!("{cmd} {p}")).collect()
                 }

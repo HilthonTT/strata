@@ -200,6 +200,10 @@ pub enum PickerPurpose {
         target: super::vcs::GitTarget,
         ops: Vec<super::vcs::GitOp>,
     },
+    /// Saved layouts; `names[i]` is row `i`.
+    Layouts {
+        names: Vec<String>,
+    },
 }
 
 pub struct PickerState {
@@ -303,6 +307,12 @@ pub enum Confirm {
     },
     /// Run an operation refused for lack of permission as root.
     Elevate(strata_core::elevate::Privileged),
+    /// Save the open tabs over the layout of this name.
+    ReplaceLayout {
+        name: String,
+        session: Box<super::session::Session>,
+    },
+    DeleteLayout(String),
     Quit,
 }
 
@@ -318,6 +328,8 @@ impl Confirm {
             | Confirm::Sync(_)
             | Confirm::GitDiscard { .. }
             | Confirm::Elevate(_)
+            | Confirm::ReplaceLayout { .. }
+            | Confirm::DeleteLayout(_)
             // Trusting a server should be a deliberate y.
             | Confirm::TrustHostKey { .. } => true,
             Confirm::SavePassword { .. }
