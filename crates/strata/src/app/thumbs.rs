@@ -487,6 +487,6 @@ mod tests {
         app.dispatch(Action::ToggleGrid);
         assert!(!app.panels[0].is_grid());
         app.dispatch(Action::Left);
-        assert_eq!(app.panels[0].cwd, dir.path(), "in a list, left goes to the parent");
+        assert_eq!(app.panels[0].cwd, photos.parent().unwrap(), "in a list, left goes to the parent");
     }
 }
