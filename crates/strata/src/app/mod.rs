@@ -10,6 +10,7 @@ mod clipboard;
 pub use actions::short_path;
 pub use archives::ArchiveUse;
 mod commands;
+mod control;
 mod dirsize;
 mod drives;
 mod dupes;
@@ -93,6 +94,8 @@ pub struct StartOptions {
     pub chooser: bool,
     /// Open this named layout (`--layout`); missing is an error.
     pub layout: Option<String>,
+    /// Command-palette lines to run once the panels are up (`--command`).
+    pub commands: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,6 +224,8 @@ pub struct App {
     pub clipboard: Option<Clipboard>,
     pub jobs: JobManager<AppEvent>,
     pub notifications: Vec<Notification>,
+    /// Notifications raised so far, to tell which ones a command raised.
+    notified: u64,
     pub pending_keys: Vec<KeyPress>,
     pending_since: Instant,
 
@@ -279,6 +284,10 @@ pub struct App {
     pub chooser: bool,
     /// What was picked in picker mode.
     pub chosen: Vec<PathBuf>,
+    /// Lines from `--command`, run when the loop starts.
+    startup_commands: Vec<String>,
+    /// Listens for `strata --remote`; dropping it removes the socket.
+    remote_server: Option<crate::remote::Server>,
     tx: Sender<AppEvent>,
     rx: Receiver<AppEvent>,
     /// Background directory listings for remote panels.
@@ -369,6 +378,7 @@ impl App {
             clipboard: None,
             jobs,
             notifications: Vec::new(),
+            notified: 0,
             pending_keys: Vec::new(),
             pending_since: Instant::now(),
             preview: PreviewContent::Empty,
@@ -422,6 +432,8 @@ impl App {
             cd_on_exit: false,
             chooser: opts.chooser,
             chosen: Vec::new(),
+            startup_commands: opts.commands,
+            remote_server: None,
             tx,
             rx,
             listing_tx,
@@ -487,6 +499,9 @@ impl App {
         self.probe_connections();
         self.auto_connect();
         self.emit_plugin_event("startup");
+        self.start_remote_control();
+        self.drain_events();
+        self.run_startup_commands();
 
         while !self.should_quit {
             terminal.draw(|frame| crate::ui::draw(frame, self))?;
@@ -533,6 +548,7 @@ impl App {
 
     pub fn notify(&mut self, message: impl Into<String>, level: Level) {
         self.notifications.push(Notification { message: message.into(), level, at: Instant::now() });
+        self.notified += 1;
         if self.notifications.len() > 200 {
             self.notifications.remove(0);
         }

@@ -65,6 +65,11 @@ strata [DIR...]           one panel per directory
       --dump-config       print a documented config
       --shell-init <SH>   print the shell function (bash, zsh, fish, powershell)
       --chooser-file <F>  pick files for another program (see below)
+  -e, --command <CMD>     run a `:` command once the panels are up (repeatable)
+      --remote <CMD>      send a `:` command to a running strata (repeatable)
+      --remote-query      print a running strata's directory and marked items
+      --instance <PID>    the strata --remote talks to
+      --list-instances    print each running strata's pid and directory
 ```
 
 ## Picking files from other programs
@@ -74,3 +79,24 @@ strata [DIR...]           one panel per directory
 ```sh
 strata --chooser-file /tmp/chosen && cat /tmp/chosen
 ```
+
+## Scripting a running strata
+
+`-e` runs `:` commands as strata starts, in the order given:
+
+```sh
+strata -e 'select *.jpg' -e 'sort size rev' ~/Pictures
+```
+
+`--remote` sends the same commands to a strata that is already running, so editors, scripts and window-manager keys can drive it. It prints what the command reported and exits nonzero if it failed:
+
+```sh
+strata --remote 'cd ~/projects' --remote 'select *.rs'
+strata --remote-query | jq -r '.marked[]'     # the marked items, one per line
+```
+
+`--remote-query` prints JSON with `cwd`, `hovered`, `marked`, `local` (false on remote locations), `panel` and `pid`.
+
+Programs strata starts, such as a `:!` shell, get `STRATA_INSTANCE` set to its pid, so `strata --remote` run from them drives that strata. Elsewhere it drives the most recently started one; pick another with `--instance <pid>` (see `--list-instances`).
+
+Each strata listens on a socket only you can open, in `$XDG_RUNTIME_DIR/strata` (else a private folder in the temp dir). Set `remote_control = false` under `[general]` to turn it off. The socket also takes one request per line from tools like `socat`: a command line, `{"command": "..."}` or `{"query": "state"}`, each answered with a line of JSON. Remote control needs Unix sockets, so it is not available on Windows yet; `-e` works everywhere.

@@ -21,6 +21,7 @@ Everything you need, nothing you don't.
 - **Saved selections**: keep marked items from any folders under a name and mark them again later (`:select save|load|add|list|delete`)
 - **Sessions and layouts**: reopen your tabs and folders on the next start (`restore_session = true`), or save them under a name and open them again with `:layout load work` or `strata --layout work`
 - **File picker** for editors and scripts: `strata --chooser-file <file>`
+- **Scriptable**: run `:` commands at startup (`-e`) or send them to a running instance (`--remote`, `--remote-query` for its state as JSON)
 - **Search**: filter (fuzzy, glob `*.{jpg,png}` or regex `re:^v\d+`), fuzzy find, content search with ripgrep, and `:find` by name, size, age, type or tag with the results listed in the panel; `:flatten` lists every file below a folder
 - **Tags and colour labels** (`,`): coloured dots in the list, a sidebar section, `:find --tag`; mirrored to `user.xdg.tags` on Linux
 - **Removable drives**: `:drives` mounts and opens USB sticks and SD cards, `:eject` powers them off safely
@@ -80,6 +81,14 @@ strata [DIR...]           # one panel per directory
 | `z i` | hide / show git-ignored files | `.` | hide / show dotfiles |
 | `g j` | jump to a frequent folder | `:z <words>` | jump to the best match |
 | `?` | all keys | `q` | quit |
+
+Run `:` commands at startup with `-e`, or send them to a running strata (Unix) from scripts and editors:
+
+```sh
+strata -e 'select *.jpg' ~/Pictures          # run commands as it starts
+strata --remote 'cd ~/projects'              # drive the running instance
+strata --remote-query | jq -r '.marked[]'    # read its marked items
+```
 
 Prefer superfile's keys (`ctrl+c`, `ctrl+x`, `ctrl+v`, `ctrl+d`…)? Set `keymap = "default"` under `[general]`.
 

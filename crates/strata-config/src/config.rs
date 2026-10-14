@@ -185,6 +185,9 @@ pub struct General {
     pub clipboard: String,
     /// Look for a newer strata release on GitHub (at most once a day).
     pub check_updates: bool,
+    /// Listen on a private socket so `strata --remote` can drive this
+    /// instance (Unix only).
+    pub remote_control: bool,
     /// Show the MD5 checksum of the hovered file (reads the whole file).
     pub md5_checksum: bool,
     /// Show the SHA-256 checksum of the hovered file (reads the whole file).
@@ -255,6 +258,7 @@ impl Default for General {
             bandwidth_limit: String::new(),
             clipboard: String::new(),
             check_updates: false,
+            remote_control: true,
             md5_checksum: false,
             sha256_checksum: false,
             markdown_preview: true,

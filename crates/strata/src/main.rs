@@ -2,6 +2,7 @@
 
 mod app;
 mod event;
+mod remote;
 mod tui;
 mod ui;
 
@@ -45,6 +46,25 @@ struct Cli {
     /// Print a shell function that lets `Q` change your shell's directory.
     #[arg(long, value_name = "SHELL")]
     shell_init: Option<Shell>,
+    /// Run a command-palette command once the panels are up, e.g.
+    /// `-e 'select *.rs'`. Repeat to run several, in order.
+    #[arg(short = 'e', long = "command", value_name = "CMD")]
+    commands: Vec<String>,
+    /// Send a command to a running strata and exit; nonzero if it failed.
+    /// Repeat to send several, in order.
+    #[arg(long, value_name = "CMD")]
+    remote: Vec<String>,
+    /// Print the running strata's directory, hovered and marked items as
+    /// JSON (after any `--remote` commands).
+    #[arg(long)]
+    remote_query: bool,
+    /// The pid of the strata `--remote` drives. Default: `$STRATA_INSTANCE`,
+    /// else the most recently started one.
+    #[arg(long, value_name = "PID")]
+    instance: Option<u32>,
+    /// Print the pid and directory of each running strata and exit.
+    #[arg(long)]
+    list_instances: bool,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -109,6 +129,9 @@ fn main() -> Result<()> {
         print!("{}", Config::template());
         return Ok(());
     }
+    if !cli.remote.is_empty() || cli.remote_query || cli.list_instances {
+        std::process::exit(remote::run_client(&cli.remote, cli.remote_query, cli.list_instances, cli.instance));
+    }
     if cli.list_themes {
         let (themes, _) = ThemeRegistry::load(&strata_config::config_dir().join("themes"));
         themes.names().iter().for_each(|n| println!("{n}"));
@@ -119,12 +142,20 @@ fn main() -> Result<()> {
     if let Some(theme) = cli.theme {
         config.general.theme = theme;
     }
+    // Before any thread starts: programs strata runs inherit it, so
+    // `strata --remote` from them drives this instance.
+    if config.general.remote_control && cfg!(unix) {
+        std::env::set_var(remote::INSTANCE_ENV, std::process::id().to_string());
+    } else {
+        std::env::remove_var(remote::INSTANCE_ENV);
+    }
     let options = app::StartOptions {
         paths: cli.paths,
         config_path: cli.config.unwrap_or_else(Config::default_path),
         load_plugins: !cli.no_plugins,
         chooser: cli.chooser_file.is_some(),
         layout: cli.layout,
+        commands: cli.commands,
     };
     if let Some(name) = &options.layout {
         app::check_layout(name)?;

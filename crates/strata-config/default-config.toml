@@ -49,6 +49,7 @@ verify_copies = false        # read copies back and compare checksums (local des
 bandwidth_limit = ""          # cap each copy job, e.g. "10M" or "512K" (per second); empty = unlimited; :limit changes it
 clipboard = ""               # program fed copied text, e.g. "wl-copy"; empty = detect, then OSC 52; "osc52" = terminal only
 check_updates = false        # look for a newer release on GitHub, at most once a day
+remote_control = true        # let `strata --remote` drive this instance through a private socket (Unix)
 md5_checksum = false         # show the MD5 of the hovered file (reads the whole file)
 sha256_checksum = false      # show the SHA-256 of the hovered file (reads the whole file)
 markdown_preview = true      # render Markdown in the preview (false = highlighted source)
