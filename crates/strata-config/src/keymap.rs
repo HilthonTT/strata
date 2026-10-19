@@ -124,6 +124,7 @@ actions! {
     ViewDashboard => "view_dashboard", "Disk & memory dashboard";
     ViewDocker => "view_docker", "Docker containers";
     ViewConnections => "view_connections", "NAS connections";
+    ViewUsage => "view_usage", "Disk usage: what takes up space";
     ThemePicker => "theme_picker", "Pick a theme";
     Help => "help", "Show key bindings";
     CommandPalette => "command_palette", "Run a command";
@@ -358,6 +359,7 @@ const COMMON: &[(&str, &str)] = &[
     ("2", "view_dashboard"),
     ("3", "view_docker"),
     ("4", "view_connections"),
+    ("5", "view_usage"),
     ("T", "theme_picker"),
     ("?", "help"),
     (":", "command_palette"),
@@ -445,6 +447,7 @@ const VIM: &[(&str, &str)] = &[
     ("g d", "view_dashboard"),
     ("g k", "view_docker"),
     ("g c", "view_connections"),
+    ("g u", "view_usage"),
     ("o", "open_with"),
     ("!", "shell"),
     ("ctrl+c", "quit"),

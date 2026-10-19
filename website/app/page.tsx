@@ -246,7 +246,7 @@ export default function Home() {
             <Showcase
               icon={HardDrive}
               title="A dashboard for your disks"
-              text="Free space, IOPS, throughput and latency per device, memory pressure from PSI, and what is eating your space."
+              text="Free space, IOPS, throughput and latency per device, memory pressure from PSI, and an ncdu-style view of what is eating your space."
               media="dashboard.png"
               alt="The strata dashboard"
             />

@@ -1,0 +1,24 @@
+export const metadata = { title: "Disk usage" };
+
+# Disk usage
+
+Press <Kbd>5</Kbd> (<Kbd>g u</Kbd> with the vim preset), or run `:du`, to see what takes up space below the focused panel's folder. `:du <path>` measures another folder. Like [ncdu](https://dev.yorhel.nl/ncdu), strata measures everything below the folder once, so opening and leaving folders afterwards is instant.
+
+Each row shows an item's size, its share of the folder as a bar and a percentage, and how many files a folder holds. Folders are listed largest first. The title shows the folder's total size and file count, and how long ago it was measured.
+
+| Keys | Action |
+| --- | --- |
+| <Kbd>j</Kbd> / <Kbd>k</Kbd> | Move down / up |
+| <Kbd>l</Kbd> / <Kbd>enter</Kbd> | Open the folder; on a file, show it in the files view |
+| <Kbd>h</Kbd> / <Kbd>backspace</Kbd> | Go to the parent folder. Above the folder you measured, the parent is measured |
+| <Kbd>d d</Kbd> / <Kbd>D</Kbd> | Trash / permanently delete the item (<Kbd>ctrl+d</Kbd> in the classic preset), after asking. Sizes above it go down |
+| <Kbd>r</Kbd> / <Kbd>F5</Kbd> | Measure the shown folder again |
+| <Kbd>s</Kbd> | Sort by size, file count or name |
+| <Kbd>o</Kbd> | Show the item in the files view |
+| <Kbd>esc</Kbd> / <Kbd>1</Kbd> | Back to the files view |
+
+The measurement stays on the folder's filesystem: other disks mounted below it are listed but not entered, and symbolic links count as nothing. While a folder is being measured, the view counts the items seen so far. You can switch to other views in the meantime.
+
+The last measurement is kept while strata runs. Opening the view on a folder inside it shows that folder straight away. Press <Kbd>r</Kbd> to bring it up to date. A deletion that fails, for example for lack of permission, still disappears from the view until you measure again.
+
+Disk usage works on local folders. The [dashboard](/docs/dashboard/) shows a one-level summary of the focused folder too; <Kbd>enter</Kbd> on a folder there opens it here.

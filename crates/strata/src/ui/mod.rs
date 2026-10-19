@@ -11,6 +11,7 @@ mod popup;
 mod preview;
 mod sidebar;
 mod status;
+mod usage;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -43,6 +44,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         View::Dashboard => dashboard::draw(frame, app, main),
         View::Docker => docker::draw(frame, app, main),
         View::Connections => connections::draw(frame, app, main),
+        View::Usage => usage::draw(frame, app, main),
     }
     if show_footer {
         footer::draw(frame, app, footer);

@@ -237,6 +237,7 @@ impl App {
             Confirm::EmptyTrash => self.purge_trash(None),
             Confirm::Sync(request) => self.start_sync(*request),
             Confirm::TrashDupe(path) => self.trash_dupe(path),
+            Confirm::UsageDelete { path, trail, permanent } => self.delete_from_usage(path, trail, permanent),
             Confirm::GitDiscard { root, paths } => self.git_discard(root, paths),
             Confirm::Elevate(plan) => self.run_as_root(plan),
             Confirm::ReplaceLayout { name, session } => self.save_layout(name, *session),

@@ -50,6 +50,7 @@ mod tabs;
 mod tags;
 pub mod thumbs;
 mod undo;
+mod usage;
 mod vcs;
 mod views;
 mod watch;
@@ -107,10 +108,11 @@ pub enum View {
     Dashboard,
     Docker,
     Connections,
+    Usage,
 }
 
 impl View {
-    pub const ALL: [View; 4] = [View::Files, View::Dashboard, View::Docker, View::Connections];
+    pub const ALL: [View; 5] = [View::Files, View::Dashboard, View::Docker, View::Connections, View::Usage];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -118,6 +120,7 @@ impl View {
             View::Dashboard => "Dashboard",
             View::Docker => "Docker",
             View::Connections => "NAS",
+            View::Usage => "Usage",
         }
     }
 }
@@ -263,6 +266,7 @@ pub struct App {
     pub docker: DockerState,
     pub nas: NasState,
     pub dashboard: DashboardState,
+    pub usage: usage::UsageView,
     find_cancel: Arc<AtomicBool>,
 
     pub plugins: Option<PluginHost>,
@@ -429,6 +433,7 @@ impl App {
                 cancel: Arc::new(AtomicBool::new(false)),
                 cursor: 0,
             },
+            usage: Default::default(),
             find_cancel: Arc::new(AtomicBool::new(false)),
             plugins: None,
             plugin_status: Vec::new(),
@@ -723,6 +728,7 @@ impl App {
                 self.dashboard.cursor = 0;
                 self.dashboard.usage = Some(report);
             }
+            AppEvent::UsageTree { root, tree } => self.on_usage_tree(root, tree),
             AppEvent::Found { root, files } => self.open_find_picker(root, files),
             AppEvent::Diagnosed { name, steps } => self.show_diagnosis(&name, steps),
             AppEvent::Connected { conn, result, path } => self.on_connected(conn, result, path),

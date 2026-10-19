@@ -1,4 +1,5 @@
-//! Logic for the dashboard, Docker and NAS connection views.
+//! Logic for the dashboard, Docker and NAS connection views (the disk
+//! usage view is in `usage`).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,6 +29,7 @@ impl App {
         match self.view {
             View::Docker => self.docker_key(c),
             View::Connections => self.connections_key(c),
+            View::Usage => self.usage_key(c),
             View::Dashboard | View::Files => false,
         }
     }
@@ -121,6 +123,7 @@ impl App {
             View::Docker => self.docker.containers.len(),
             View::Connections => self.listed_connections().len(),
             View::Dashboard => self.dashboard.usage.as_ref().map_or(0, |u| u.items.len()),
+            View::Usage => self.usage.listed().len(),
             View::Files => 0,
         }
     }
@@ -130,6 +133,7 @@ impl App {
             View::Docker => Some(&mut self.docker.cursor),
             View::Connections => Some(&mut self.nas.cursor),
             View::Dashboard => Some(&mut self.dashboard.cursor),
+            View::Usage => Some(&mut self.usage.cursor),
             View::Files => None,
         }
     }
@@ -171,14 +175,14 @@ impl App {
                 let item = self.dashboard.usage.as_ref().and_then(|u| u.items.get(self.dashboard.cursor)).cloned();
                 if let Some(item) = item {
                     if item.is_dir {
-                        self.cd_local(item.path);
+                        self.open_usage(Some(item.path));
                     } else {
                         self.view = View::Files;
                         self.reveal(item.path);
                     }
                 }
             }
-            View::Files => {}
+            View::Usage | View::Files => {}
         }
     }
 

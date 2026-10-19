@@ -16,6 +16,7 @@ Everything you need, nothing you don't.
 - **Compare and verify**: diff two files or directory trees, show checksums (MD5, SHA-1, SHA-256, SHA-512), check downloads against a hash or `SHA256SUMS`, and verify copies against the original (`:paste --verify`, `:sync --verify` or `verify_copies = true`)
 - **Archives**: browse zip and tar (gz, bz2, xz, zst) archives like directories, extract them with `X` and create them with `:compress`; password-protected zips (AES-256 or legacy ZipCrypto) open with a masked prompt and the password can be kept in the system keychain, and `:compress --password` writes AES-256 zips
 - **Folder sizes** in the file list (`d c`), measured in the background
+- **Disk usage view** (`5`, `:du`): see what takes up space below a folder, ncdu-style. One scan, then folders open and close instantly; trash the biggest items from there and the sizes update
 - **Jobs you control**: see each transfer's speed and time left, cap it (`:limit 10M` or `bandwidth_limit`), pause copies (`alt+p`), resume failed or cancelled ones where they stopped (`alt+R`), and run an operation refused for lack of permission again as root (`:sudo`, `alt+s`)
 - **Shell commands on your selection**: `:!tar czf out.tgz {s}` fills in the marked items, and `:each gzip -k` runs once per item
 - **Saved selections**: keep marked items from any folders under a name and mark them again later (`:select save|load|add|list|delete`)
@@ -66,7 +67,7 @@ strata [DIR...]           # one panel per directory
 | `y y` `x` `p` | copy, cut, paste | `c` / `m` | copy / move to the next panel |
 | `d d` / `D` | trash / delete | `r` / `R` | rename / bulk rename |
 | `a` / `A` | new file / directory | `/` / `f` | filter / fuzzy find |
-| `tab` / `n` | next / new panel | `1`–`4` | files, dashboard, Docker, NAS |
+| `tab` / `n` | next / new panel | `1`–`5` | files, dashboard, Docker, NAS, disk usage |
 | `H` / `L` | back / forward | `g o` | pick from the panel's history |
 | `T` | theme picker | `:` | command palette |
 | `u` / `ctrl+r` | undo / redo | `ctrl+g` | search file contents |

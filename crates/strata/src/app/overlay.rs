@@ -315,6 +315,13 @@ pub enum Confirm {
     PurgeTrash(Vec<TrashedItem>),
     EmptyTrash,
     Sync(Box<super::sync::SyncRequest>),
+    /// Delete an item listed in the disk usage view; `trail` is where it is
+    /// in the view's tree.
+    UsageDelete {
+        path: PathBuf,
+        trail: Vec<String>,
+        permanent: bool,
+    },
     /// Trash one copy of a duplicate, then show the duplicates again.
     TrashDupe(PathBuf),
     /// Throw away unstaged changes to these files.
@@ -338,7 +345,7 @@ impl Confirm {
     /// an Enter meant for something else.
     pub fn is_destructive(&self) -> bool {
         match self {
-            Confirm::Delete { permanent, .. } => *permanent,
+            Confirm::Delete { permanent, .. } | Confirm::UsageDelete { permanent, .. } => *permanent,
             Confirm::DockerRemove { .. }
             | Confirm::PurgeTrash(_)
             | Confirm::EmptyTrash

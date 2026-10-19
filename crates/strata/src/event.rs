@@ -11,7 +11,7 @@ use strata_core::ssh::HostKeyError;
 use strata_core::VfsRef;
 use strata_plugin::Level;
 use strata_sys::docker::Container;
-use strata_sys::du::UsageReport;
+use strata_sys::du::{UsageReport, UsageTree};
 use strata_sys::{DiskInfo, IoStats, MemorySnapshot};
 
 use crate::app::grep::GrepResult;
@@ -45,6 +45,11 @@ pub enum AppEvent {
     DockerChanged,
     Nas(Vec<NasStatus>),
     DiskUsage(UsageReport),
+    /// A disk usage view scan of `root`; `None` if it could not be read.
+    UsageTree {
+        root: PathBuf,
+        tree: Option<UsageTree>,
+    },
     Found {
         root: PathBuf,
         files: Vec<PathBuf>,

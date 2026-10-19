@@ -34,7 +34,7 @@ Callbacks receive a `ctx` table that describes the current UI state:
 | `hovered_is_dir` | whether `hovered` is a directory |
 | `selected` | list of marked paths |
 | `panel` | focused panel number (1-based) |
-| `view` | `files`, `dashboard`, `docker` or `nas` |
+| `view` | `files`, `dashboard`, `docker`, `nas` or `usage` |
 | `theme` | active theme name |
 | `scheme` | `local`, `sftp` or `docker` |
 | `icons` | whether Nerd Font icons are enabled |
@@ -92,7 +92,7 @@ Handlers get the context and a `data` table describing what happened:
 | `job_done` | `label`, `state` (`done`, `failed` or `cancelled`), `error` |
 | `mount` | `device`, `path`: a removable drive was mounted |
 | `unmount` | `device`: a removable drive was ejected |
-| `view` | `view`: `files`, `dashboard`, `docker` or `nas` |
+| `view` | `view`: `files`, `dashboard`, `docker`, `nas` or `usage` |
 | `tab` | `tab`: the tab switched to (1-based) |
 | `theme` | `name`: the theme picked |
 | `layout_save`, `layout_load` | `name`: the layout saved or opened (`:layout`, `--layout`, `default_layout`) |

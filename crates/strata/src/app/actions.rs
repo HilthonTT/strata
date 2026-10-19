@@ -43,6 +43,7 @@ impl App {
             ViewDashboard => return self.set_view(View::Dashboard),
             ViewDocker => return self.set_view(View::Docker),
             ViewConnections => return self.set_view(View::Connections),
+            ViewUsage => return self.set_view(View::Usage),
             ThemePicker => return self.open_theme_picker(),
             Help => return self.overlay = Some(Overlay::Help { scroll: 0 }),
             CommandPalette => {
@@ -69,6 +70,10 @@ impl App {
                 return self.info(message);
             }
             RetryJob => return self.retry_transfer(),
+            Refresh if self.view == View::Usage => {
+                self.usage_action(Refresh);
+                return;
+            }
             Refresh => {
                 self.dir_sizes.clear();
                 self.reload_all();
@@ -95,6 +100,9 @@ impl App {
             _ => {}
         }
 
+        if self.view == View::Usage && self.usage_action(action) {
+            return;
+        }
         // Other views reuse navigation keys for their own lists.
         if self.view != View::Files {
             match action {
@@ -343,6 +351,7 @@ impl App {
                 self.refresh_keychain();
             }
             View::Files => self.invalidate_preview(),
+            View::Usage => self.open_usage(None),
             View::Dashboard => {}
         }
     }
