@@ -2,6 +2,8 @@
 //! picker over them, best first, and `:z <words>` goes straight to the best
 //! match. Every local folder a panel changes to is remembered (see
 //! [`strata_core::frecency`]) in `jumps.json` in the data directory.
+//! `history` opens a picker over the focused panel's back and forward
+//! history instead.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -10,6 +12,7 @@ use strata_core::frecency::{self, Frecency};
 use strata_plugin::Level;
 
 use super::overlay::{Overlay, PickerPurpose, PickerState};
+use super::panel::Place;
 use super::{short_path, App};
 
 /// Most folders listed in the picker.
@@ -94,6 +97,15 @@ impl Jumps {
     }
 }
 
+/// A history row: the folder, after its filesystem unless it is local.
+fn place_label(place: &Place) -> String {
+    if place.vfs.is_local() {
+        short_path(&place.path)
+    } else {
+        format!("{}:{}", place.vfs.label(), place.path.display())
+    }
+}
+
 fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -139,6 +151,30 @@ impl App {
         }
         self.jumps.forget(&dir);
         self.notify(format!("{} no longer exists", short_path(&dir)), Level::Warn);
+    }
+
+    /// `history`: a picker over the places the focused panel can go back
+    /// to (latest first), then forward to (nearest first).
+    pub(super) fn open_history_picker(&mut self) {
+        let (back, forward) = self.panel().history();
+        let back = back.iter().rev().enumerate().map(|(i, p)| (format!("← {}", place_label(p)), (true, i + 1)));
+        let forward = forward.iter().rev().enumerate().map(|(i, p)| (format!("→ {}", place_label(p)), (false, i + 1)));
+        let (items, steps): (Vec<String>, Vec<(bool, usize)>) = back.chain(forward).unzip();
+        if items.is_empty() {
+            return self.info("no history yet: the folders this panel leaves are listed here");
+        }
+        let picker = PickerState::new("Go back or forward", items, PickerPurpose::History { steps });
+        self.overlay = Some(Overlay::Picker(picker));
+    }
+
+    /// Goes `steps` places back (or forward) in the focused panel's history.
+    pub(super) fn travel(&mut self, back: bool, steps: usize) {
+        self.view = super::View::Files;
+        if self.panel_mut().travel(back, steps) {
+            self.invalidate_preview();
+        } else {
+            self.info(if back { "nothing to go back to" } else { "nothing to go forward to" });
+        }
     }
 
     /// `:z <words>`: the best visited folder whose path has the words in

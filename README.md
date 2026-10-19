@@ -28,6 +28,7 @@ Everything you need, nothing you don't.
 - **Git**: status markers next to every file, and a git menu (`;`) to diff, stage, unstage, discard, commit, and show the log or blame of the marked files
 - **Tree view** (`z t`): expand folders in place instead of entering them, and **tabs** on top of multiple panels
 - **Thumbnail grid** (`z g`): folders of photos and videos open as a grid of thumbnails, cached on disk; any folder can switch between grid and list
+- **History per panel**: `H` / `L` (or `ctrl+o`) go back and forward with the cursor where it was, even out of archives, servers and containers; `g o` picks from the list
 - **Jump to frequent folders** (`g j`, `:z proj`): folders you visit are ranked by frequency and recency, zoxide-style, with no extra tool needed
 - **Hide git-ignored files** (`z i`): leave build output, logs and anything else your `.gitignore` lists out of the listing
 - **Preview**: syntax-highlighted code, rendered Markdown, images, PDFs, video frames and cover art, Word/Excel/PowerPoint/OpenDocument/EPUB text, CSV/TSV tables, JSON/YAML/TOML outlines, SQLite tables and columns, hex dumps, archives and directories; executable architecture and optional MD5/SHA-256 in the metadata pane
@@ -66,6 +67,7 @@ strata [DIR...]           # one panel per directory
 | `d d` / `D` | trash / delete | `r` / `R` | rename / bulk rename |
 | `a` / `A` | new file / directory | `/` / `f` | filter / fuzzy find |
 | `tab` / `n` | next / new panel | `1`–`4` | files, dashboard, Docker, NAS |
+| `H` / `L` | back / forward | `g o` | pick from the panel's history |
 | `T` | theme picker | `:` | command palette |
 | `u` / `ctrl+r` | undo / redo | `ctrl+g` | search file contents |
 | `alt+j` / `alt+k` | scroll the preview | `alt+/` | search the preview |

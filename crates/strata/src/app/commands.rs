@@ -18,6 +18,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("cd", "cd <path> — change directory"),
     ("local", "local [path] — leave a remote filesystem"),
     ("z", "z [words] — jump to the best visited folder matching the words; no words: pick one"),
+    ("history", "history — pick a folder to go back or forward to in this panel"),
     ("mkdir", "mkdir <name> — create a directory"),
     ("touch", "touch <name> — create a file"),
     ("rename", "rename <name> — rename the hovered item"),
@@ -572,6 +573,11 @@ impl App {
                     self.jump_to(dir);
                 }
             }
+            PickerPurpose::History { steps } => {
+                if let Some(&(back, steps)) = selected_index.and_then(|i| steps.get(i)) {
+                    self.travel(back, steps);
+                }
+            }
             PickerPurpose::Drives { drives } => {
                 if let Some(drive) = selected_index.and_then(|i| drives.get(i)).cloned() {
                     self.open_drive(drive);
@@ -713,6 +719,10 @@ impl App {
                     let local = self.local.clone();
                     self.panels[i].switch_vfs(local, dirs::home_dir().unwrap_or_default());
                 }
+            }
+            // Back must not lead into the closed session.
+            for panel in self.panels.iter_mut().chain(self.tabs.iter_mut().flat_map(|t| t.panels.iter_mut())) {
+                panel.forget_vfs(&vfs);
             }
             return self.info(format!("disconnected {}", conn.name));
         }

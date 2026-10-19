@@ -11,9 +11,14 @@ strata opens two panels by default (`panels = 2` in the config). Each panel has 
 | <Kbd>tab</Kbd> / <Kbd>shift+tab</Kbd> | Focus the next / previous panel |
 | <Kbd>n</Kbd> | Open a new panel (up to six) |
 | <Kbd>ctrl+w</Kbd> | Close the focused panel |
-| <Kbd>H</Kbd> / <Kbd>L</Kbd> | Back / forward in the panel's history |
+| <Kbd>H</Kbd> / <Kbd>L</Kbd> | Back / forward in the panel's history (<Kbd>ctrl+o</Kbd> also goes back) |
+| <Kbd>g o</Kbd> | Pick a place from the panel's history |
 | <Kbd>ctrl+h</Kbd> / <Kbd>ctrl+l</Kbd> | Focus the sidebar / go back to the panels |
 | <Kbd>c</Kbd> / <Kbd>m</Kbd> | Copy / move the marked items into the next panel |
+
+### History
+
+Each panel remembers the last 100 places it left. Going back puts the cursor on the item it was on. History reaches across filesystems: <Kbd>H</Kbd> from inside an archive, an SFTP server or a Docker container goes back to where you were before. <Kbd>g o</Kbd> (<Kbd>alt+h</Kbd> with the classic preset), or `:history`, lists every place you can go back (←) or forward (→) to. Folders that no longer exist are skipped, and disconnecting a server removes its places. The classic preset has no forward key; use the picker.
 
 The focused panel has a coloured border. Its bottom border shows the mode — **Browser**, **Tree**, **Grid**, or **Select** while items are marked — and your position, such as `3/24`.
 

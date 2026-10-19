@@ -25,6 +25,9 @@ const TREE_LIMIT: usize = 20_000;
 /// must not freeze the UI.
 const LOCAL_WAIT: Duration = Duration::from_millis(100);
 
+/// Most places a panel remembers to go back to.
+const HISTORY_LIMIT: usize = 100;
+
 /// A directory listing produced off the UI thread.
 pub struct Listing {
     pub panel: u64,
@@ -60,6 +63,15 @@ pub struct Flat {
     pub announced: bool,
 }
 
+/// A place in a panel's history: the filesystem, the folder and the item the
+/// cursor was on there.
+#[derive(Clone)]
+pub struct Place {
+    pub vfs: VfsRef,
+    pub path: PathBuf,
+    focus: Option<String>,
+}
+
 /// Where background listings are delivered.
 pub type Lister = Sender<Listing>;
 
@@ -92,8 +104,10 @@ pub struct Panel {
     ignored: HashSet<PathBuf>,
     pub visual_anchor: Option<usize>,
     pub error: Option<String>,
-    back: Vec<PathBuf>,
-    forward: Vec<PathBuf>,
+    /// Places to go back to, the latest last; kept across filesystems.
+    back: Vec<Place>,
+    /// Places gone back from, the nearest last.
+    forward: Vec<Place>,
     /// Rows available in the last render, for paging.
     pub page: usize,
     /// Remote listings run in the background when this is set.
@@ -635,20 +649,50 @@ impl Panel {
                 return false;
             }
         }
+        self.remember();
         let previous = std::mem::replace(&mut self.cwd, path);
-        self.back.push(previous.clone());
-        self.forward.clear();
         self.after_cd(Some(&previous));
         true
     }
 
-    /// Switches to another filesystem (SFTP, Docker...).
+    /// Switches to another filesystem (SFTP, Docker...); back returns to
+    /// where the panel was.
     pub fn switch_vfs(&mut self, vfs: VfsRef, path: PathBuf) {
+        self.remember();
         self.vfs = vfs;
         self.cwd = path;
-        self.back.clear();
-        self.forward.clear();
         self.after_cd(None);
+    }
+
+    /// Where the panel is, with the cursor's item (the top-level one in a
+    /// tree or flat listing, which is what shows when coming back).
+    fn here(&self) -> Place {
+        let focus = self
+            .hovered()
+            .and_then(|e| e.path.strip_prefix(&self.cwd).ok()?.components().next())
+            .map(|c| c.as_os_str().to_string_lossy().into_owned());
+        Place { vfs: self.vfs.clone(), path: self.cwd.clone(), focus }
+    }
+
+    /// Adds where the panel is to the history before it moves elsewhere.
+    fn remember(&mut self) {
+        let here = self.here();
+        self.back.push(here);
+        if self.back.len() > HISTORY_LIMIT {
+            self.back.remove(0);
+        }
+        self.forward.clear();
+    }
+
+    /// Places to go back to (the latest last) and forward to (the nearest last).
+    pub fn history(&self) -> (&[Place], &[Place]) {
+        (&self.back, &self.forward)
+    }
+
+    /// Drops every place on `vfs` from the history (a closed connection).
+    pub fn forget_vfs(&mut self, vfs: &VfsRef) {
+        self.back.retain(|p| !Arc::ptr_eq(&p.vfs, vfs));
+        self.forward.retain(|p| !Arc::ptr_eq(&p.vfs, vfs));
     }
 
     fn after_cd(&mut self, previous: Option<&Path>) {
@@ -692,23 +736,32 @@ impl Panel {
         }
     }
 
-    pub fn go_back(&mut self) -> bool {
-        let Some(path) = self.back.pop() else {
+    /// Goes `steps` places back (or forward) in the history at once, with
+    /// the cursor on the item it was on there. Local folders that are gone
+    /// are skipped and forgotten. False if there was nowhere to go.
+    pub fn travel(&mut self, back: bool, steps: usize) -> bool {
+        let mut current = self.here();
+        let mut moved = 0;
+        while moved < steps {
+            let (from, to) =
+                if back { (&mut self.back, &mut self.forward) } else { (&mut self.forward, &mut self.back) };
+            let Some(place) = from.pop() else { break };
+            if place.vfs.is_local() && matches!(can_open_dir(&place.path), Some(Err(_))) {
+                continue;
+            }
+            to.push(std::mem::replace(&mut current, place));
+            moved += 1;
+        }
+        if moved == 0 {
             return false;
-        };
-        let current = std::mem::replace(&mut self.cwd, path);
-        self.forward.push(current.clone());
-        self.after_cd(Some(&current));
-        true
-    }
-
-    pub fn go_forward(&mut self) -> bool {
-        let Some(path) = self.forward.pop() else {
-            return false;
-        };
-        let current = std::mem::replace(&mut self.cwd, path);
-        self.back.push(current.clone());
-        self.after_cd(Some(&current));
+        }
+        let same_fs = Arc::ptr_eq(&self.vfs, &current.vfs);
+        self.vfs = current.vfs;
+        let previous = std::mem::replace(&mut self.cwd, current.path);
+        self.after_cd(same_fs.then_some(previous.as_path()));
+        if let Some(name) = current.focus {
+            self.focus_name(&name);
+        }
         true
     }
 
@@ -1102,7 +1155,7 @@ mod tests {
         assert_eq!(p.len(), 1);
         p.set_filter("");
         assert_eq!(p.hovered().unwrap().name, "b.txt", "clearing the filter keeps the cursor");
-        assert!(p.go_back());
+        assert!(p.travel(true, 1));
     }
 
     #[test]
@@ -1143,11 +1196,46 @@ mod tests {
         p.cd(dir.path().join("sub"));
         p.cd(dir.path().join("sub"));
         p.parent();
-        p.go_back();
+        p.travel(true, 1);
         assert!(!p.cd(dir.path().join("missing")));
         let sub = dir.path().join("sub");
         assert_eq!(p.take_visits(), [sub.clone(), dir.path().to_path_buf(), sub]);
         assert!(p.take_visits().is_empty());
+    }
+
+    #[test]
+    fn history_keeps_the_cursor_and_crosses_filesystems() {
+        let dir = tempfile::tempdir().unwrap();
+        for d in ["a", "b", "c"] {
+            std::fs::create_dir(dir.path().join(d)).unwrap();
+        }
+        let mut p = panel_in(dir.path());
+        p.move_to(2);
+        assert!(p.cd(dir.path().join("c")));
+        assert!(p.cd(dir.path().join("a")));
+        assert!(p.travel(true, 1));
+        assert_eq!(p.cwd, dir.path().join("c"));
+        assert!(p.travel(true, 1));
+        assert_eq!(p.hovered().unwrap().name, "c", "back puts the cursor where it was");
+        assert!(!p.travel(true, 1), "nothing older");
+        assert!(p.travel(false, 2));
+        assert_eq!(p.cwd, dir.path().join("a"), "forward goes several places at once");
+
+        // Another filesystem: back returns to the local folder.
+        let local = p.vfs.clone();
+        let other: VfsRef = Arc::new(LocalVfs);
+        p.switch_vfs(other.clone(), dir.path().join("b"));
+        assert!(p.travel(true, 1));
+        assert!(Arc::ptr_eq(&p.vfs, &local));
+        assert_eq!(p.cwd, dir.path().join("a"));
+        assert_eq!(p.history().1.len(), 1, "the other filesystem is forward");
+        p.forget_vfs(&other);
+        assert!(p.history().1.is_empty(), "a closed connection leaves the history");
+
+        // Folders that are gone are skipped.
+        std::fs::remove_dir(dir.path().join("c")).unwrap();
+        assert!(p.travel(true, 1));
+        assert_eq!(p.cwd, dir.path());
     }
 
     #[test]

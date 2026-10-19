@@ -46,6 +46,7 @@ actions! {
     Right => "right", "Enter directory / open file (in the grid view: the item to the right)";
     Back => "back", "Go back in history";
     Forward => "forward", "Go forward in history";
+    History => "history", "Pick a folder from the panel's history";
     Home => "home", "Go to the home directory";
     Root => "root", "Go to the filesystem root";
     NextPanel => "next_panel", "Focus the next panel";
@@ -344,6 +345,7 @@ const COMMON: &[(&str, &str)] = &[
     ("right", "right"),
     ("enter", "open"),
     ("tab", "next_panel"),
+    ("ctrl+o", "back"),
     ("backtab", "prev_panel"),
     ("esc", "clear"),
     ("v", "visual_mode"),
@@ -461,6 +463,7 @@ const VIM: &[(&str, &str)] = &[
     ("z M", "collapse_all"),
     ("z i", "toggle_gitignored"),
     ("g j", "jump"),
+    ("g o", "history"),
 ];
 
 /// Mirrors superfile's default hotkeys where strata has the feature.
@@ -515,6 +518,7 @@ const STANDARD: &[(&str, &str)] = &[
     ("alt+v", "toggle_grid"),
     ("alt+i", "toggle_gitignored"),
     ("alt+g", "jump"),
+    ("alt+h", "history"),
 ];
 
 impl Keymap {

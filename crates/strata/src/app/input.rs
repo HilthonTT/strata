@@ -204,6 +204,7 @@ impl App {
                 | PickerPurpose::Tags { .. }
                 | PickerPurpose::Drives { .. }
                 | PickerPurpose::Jump { .. }
+                | PickerPurpose::History { .. }
                 | PickerPurpose::Git { .. }
                 | PickerPurpose::Layouts { .. }
                 | PickerPurpose::Context { .. } => {}

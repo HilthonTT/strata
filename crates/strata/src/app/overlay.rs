@@ -195,6 +195,10 @@ pub enum PickerPurpose {
     Jump {
         dirs: Vec<PathBuf>,
     },
+    /// The panel's history; row `i` is `steps[i]` places back (`true`) or forward.
+    History {
+        steps: Vec<(bool, usize)>,
+    },
     /// The git menu; `ops[i]` is row `i`.
     Git {
         target: super::vcs::GitTarget,

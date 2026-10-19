@@ -160,12 +160,9 @@ impl App {
                 }
             }
             Open => self.open_hovered(),
-            Back => {
-                self.panel_mut().go_back();
-            }
-            Forward => {
-                self.panel_mut().go_forward();
-            }
+            Back => self.travel(true, 1),
+            Forward => self.travel(false, 1),
+            History => self.open_history_picker(),
             Home => {
                 let home = self.panel().vfs.home();
                 self.cd(home);
