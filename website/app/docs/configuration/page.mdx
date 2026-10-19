@@ -2,7 +2,7 @@ export const metadata = { title: "Configuration" };
 
 # Configuration
 
-strata reads `~/.config/strata/config.toml` (`%APPDATA%\strata\config.toml` on Windows). Override the location with `STRATA_CONFIG_DIR` or `strata --config <file>`. Every setting is optional, and unknown keys are reported so typos never go unnoticed.
+strata reads `~/.config/strata/config.toml`, or `$XDG_CONFIG_HOME/strata/config.toml` when that variable is set (`%APPDATA%\strata\config.toml` on Windows). Override the location with `STRATA_CONFIG_DIR` or `strata --config <file>`. Every setting is optional, and unknown keys are reported so typos never go unnoticed.
 
 Start from the documented default:
 

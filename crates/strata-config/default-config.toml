@@ -72,7 +72,7 @@ metrics_interval_ms = 1000
 # "g p" = ":cd ~/projects"
 
 [plugins]
-enabled = ["git", "bookmarks", "archive", "zoxide"]   # official plugins
+enabled = ["git", "bookmarks", "archive", "zoxide"]   # official plugins; add "protect" to guard items tagged keep
 disabled = []                                          # user plugins to skip
 
 # [plugins.options.git]

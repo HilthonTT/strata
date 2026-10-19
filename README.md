@@ -94,6 +94,7 @@ Run `:` commands at startup with `-e`, or send them to a running strata (Unix) f
 strata -e 'select *.jpg' ~/Pictures          # run commands as it starts
 strata --remote 'cd ~/projects'              # drive the running instance
 strata --remote-query | jq -r '.marked[]'    # read its marked items
+strata --list-instances                      # several running? pick one with --instance <pid>
 ```
 
 Prefer superfile's keys (`ctrl+c`, `ctrl+x`, `ctrl+v`, `ctrl+d`…)? Set `keymap = "default"` under `[general]`.
@@ -112,7 +113,7 @@ Run `strata --dump-config > ~/.config/strata/config.toml` to start from a docume
 
 ## Plugins
 
-Plugins are Lua files in `~/.config/strata/plugins/`. strata ships official ones: `git`, `bookmarks`, `archive` (previews of `.7z` and `.rar` archives), `zoxide` and `protect` (refuses to delete items tagged `keep`; off by default). See [docs/plugins.md](docs/plugins.md) for the API.
+Plugins are Lua files in `~/.config/strata/plugins/`. strata ships official ones: `git`, `bookmarks`, `archive` (previews of `.7z` and `.rar` archives), `zoxide` and `protect` (refuses to delete, move, rename or overwrite items tagged `keep`; off by default). See [docs/plugins.md](docs/plugins.md) for the API.
 
 ## Documentation
 

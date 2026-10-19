@@ -64,7 +64,7 @@ pub struct Context {
     pub panel: usize,
     pub view: String,
     pub theme: String,
-    /// `local`, `sftp` or `docker`.
+    /// `local`, `sftp`, `docker`, `archive`, `s3`, `webdav`, `ftp` or `rclone`.
     pub scheme: String,
     /// Whether Nerd Font icons are enabled.
     pub icons: bool,

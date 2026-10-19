@@ -33,6 +33,7 @@ host = "192.168.0.10"     # S3: the endpoint; rclone: the remote's name
 share = "media"           # share (SMB), export (NFS), start directory (SFTP, FTP, rclone),
                           # /bucket/prefix (S3) or the server path of the WebDAV root
 user = "me"
+port = 445                # optional: the protocol's usual port otherwise
 domain = "WORKGROUP"      # SMB only, optional
 mount_point = "~/mnt/homelab"   # optional
 identity_file = "~/.ssh/id_ed25519"   # SFTP only, optional

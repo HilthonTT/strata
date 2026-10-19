@@ -11,13 +11,15 @@ strata is a terminal file explorer written in Rust. It aims to be the only file 
 - **Multiple panels and tabs** — browse several directories side by side, and copy or move between them with one key.
 - **Complete file operations** — copy, move, trash, delete, rename, bulk rename in your editor, and **undo** for all of them except permanent deletes.
 - **Search** — filter the current folder, fuzzy-find files across a project, or search inside files with ripgrep.
-- **Previews** — syntax-highlighted code, images (kitty, sixel, iTerm2 or half blocks), directories and archives.
-- **Git status** — modified, added, untracked and ignored markers next to every file.
+- **Previews** — syntax-highlighted code, rendered Markdown, images (kitty, sixel, iTerm2 or half blocks), PDFs, video frames, office documents, CSV, JSON/YAML/TOML outlines, SQLite tables, hex dumps, directories and archives.
+- **Git** — modified, added, untracked and ignored markers next to every file, and a menu to diff, stage, commit, and show the log or blame.
 - **Dashboard** — disk space, per-device I/O (IOPS, throughput, latency), memory pressure and disk usage.
 - **Disk usage view** — measure a folder once, then browse what takes up space and trash it, like ncdu.
 - **Docker** — manage containers and browse their filesystems like local folders.
-- **NAS connections** — SMB, NFS and SFTP with reachability checks, diagnostics and keychain-stored passwords.
-- **28 themes**, two key presets (vim and classic) and **Lua plugins**.
+- **Remote connections** — SMB, NFS and SFTP, plus S3, WebDAV, FTP and any rclone remote, with reachability checks, diagnostics and keychain-stored passwords.
+- **Archives** — browse zip and tar archives like folders (password-protected zips too), extract and create them.
+- **Tree view, thumbnail grid, tags, trash browser, sync and duplicate finder**, saved selections, named layouts and a mouse menu with drag and drop.
+- **28 themes**, two key presets (vim and classic, `keymap = "default"`) and **Lua plugins**.
 
 ## How it is built
 
@@ -25,7 +27,7 @@ strata is a Cargo workspace with one crate per concern, so each part stays small
 
 | Crate | What it does |
 | --- | --- |
-| `strata-core` | Filesystem backends (local, SFTP, Docker), file operations, jobs, search, git, undo support, NAS |
+| `strata-core` | Filesystem backends (local, SFTP, Docker, archives, rclone), file operations, jobs, search, git, undo support, NAS, keychain |
 | `strata-sys` | Disks, I/O, memory pressure, disk usage and the Docker CLI |
 | `strata-config` | `config.toml`, keymaps and themes |
 | `strata-plugin` | The Lua plugin host |

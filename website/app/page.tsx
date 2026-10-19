@@ -121,7 +121,7 @@ const capabilities = [
   {
     icon: GitBranch,
     title: "Git aware",
-    text: "Modified, added, untracked and ignored files are marked right in the panel.",
+    text: "Status markers in the panel, and a menu to diff, stage, commit, and read the log or blame.",
   },
   {
     icon: Undo2,
@@ -136,7 +136,7 @@ const capabilities = [
   {
     icon: ImageIcon,
     title: "Rich preview",
-    text: "Syntax-highlighted code, images over kitty, sixel or iTerm2, and archives.",
+    text: "Code, Markdown, images over kitty, sixel or iTerm2, PDFs, video, documents, CSV, JSON and SQLite.",
   },
   {
     icon: Container,
@@ -156,7 +156,7 @@ const capabilities = [
   {
     icon: Puzzle,
     title: "Lua plugins",
-    text: "Add keys, commands, status segments, panels and previewers in a few lines.",
+    text: "Add keys, commands, panels, previewers, columns and sort orders, or veto deletes and moves.",
   },
 ];
 
@@ -182,7 +182,7 @@ export default function Home() {
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-mist-300 sm:text-xl">
             strata is a fast terminal file explorer with side-by-side panels,
-            rich previews, git status, undo, NAS connections, Docker and a disk
+            rich previews, git, undo, remote connections, Docker and a disk
             dashboard. Everything you need, nothing you don&apos;t.
           </p>
           <div className="mt-10 flex flex-col items-center gap-4">
@@ -253,7 +253,7 @@ export default function Home() {
             <Showcase
               icon={Network}
               title="NAS connections, handled"
-              text="SMB, NFS and SFTP with live reachability, a step-by-step connection check, and passwords kept in your system keychain."
+              text="SMB, NFS, SFTP, S3, WebDAV, FTP and any rclone remote, with live reachability, a step-by-step connection check, and passwords kept in your system keychain."
               media="nas.png"
               alt="NAS connections in strata"
             />
@@ -286,7 +286,7 @@ export default function Home() {
         <Section
           eyebrow="Plugins"
           title="Make it yours with a few lines of Lua."
-          intro="Plugins can bind keys, add commands, react to events, draw their own panels and preview new file types. git, bookmarks, archive and zoxide ship with strata."
+          intro="Plugins can bind keys, add commands, react to events, draw their own panels and preview new file types. git, bookmarks, archive, zoxide and protect ship with strata."
         >
           <div className="grid items-center gap-10 lg:grid-cols-2">
             <pre className="overflow-x-auto rounded-3xl border border-white/[0.07] bg-ink-950 p-7 font-mono text-[0.85rem] leading-7 text-mist-300">

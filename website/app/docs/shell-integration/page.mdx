@@ -35,7 +35,7 @@ The function is called `strata` and wraps the real binary, so you keep typing `s
 | <Kbd>!</Kbd> | Open your `$SHELL` in the current directory (in a Docker container or over SSH for remote locations) |
 | `:sh <command>` or `:!<command>` | Run a command here and see its output |
 | `:each <command>` | Run a command once for each marked item |
-| `:git <args>` | Run git here (from the `git` plugin) |
+| `:git <args>` | Run git here (no arguments: the git menu) |
 
 Commands can name the marked items (or the hovered one when nothing is marked) with placeholders. strata quotes them for the shell:
 
@@ -65,6 +65,7 @@ strata [DIR...]           one panel per directory
       --dump-config       print a documented config
       --shell-init <SH>   print the shell function (bash, zsh, fish, powershell)
       --chooser-file <F>  pick files for another program (see below)
+  -l, --layout <NAME>     open the tabs and panels saved with :layout save
   -e, --command <CMD>     run a `:` command once the panels are up (repeatable)
       --remote <CMD>      send a `:` command to a running strata (repeatable)
       --remote-query      print a running strata's directory and marked items

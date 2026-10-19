@@ -36,7 +36,7 @@ Callbacks receive a `ctx` table that describes the current UI state:
 | `panel` | focused panel number (1-based) |
 | `view` | `files`, `dashboard`, `docker`, `nas` or `usage` |
 | `theme` | active theme name |
-| `scheme` | `local`, `sftp` or `docker` |
+| `scheme` | `local`, `sftp`, `docker`, `archive`, `s3`, `webdav`, `ftp` or `rclone` |
 | `icons` | whether Nerd Font icons are enabled |
 | `tags` | tags of the hovered item |
 | `filter` | the panel's filter text |
