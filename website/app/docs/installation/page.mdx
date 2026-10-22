@@ -17,10 +17,14 @@ On Linux and macOS, SFTP support also needs the OpenSSL headers (`libssl-dev` on
 ```sh
 git clone https://github.com/HilthonTT/strata
 cd strata
-make install     # builds a release binary into ~/.local/bin
+make install     # builds a release binary into ~/.local/bin, and the man page
 ```
 
 Run `make help` to see the other tasks (`make check` runs everything CI runs).
+
+## Man page
+
+`make install` puts the man page in `~/.local/share/man/man1/`. Otherwise strata prints it: `strata --man > ~/.local/share/man/man1/strata.1`, then `man strata`. It lists every option, key, palette command, file and environment variable.
 
 ## Prebuilt binaries
 

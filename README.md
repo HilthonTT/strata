@@ -53,6 +53,8 @@ Or install with Cargo: `cargo install --locked --git https://github.com/HilthonT
 
 Coming with the first tagged release (not available yet): a Homebrew formula, an AUR package, a Nix flake (`nix run github:HilthonTT/strata` once released) and crates.io. The recipes are in [`packaging/`](packaging) and [`flake.nix`](flake.nix).
 
+`make install` also installs the man page (`man strata`); with Cargo, run `strata --man > ~/.local/share/man/man1/strata.1`.
+
 You need Rust 1.95 or newer. On Linux and macOS you also need OpenSSL headers for SFTP (`libssl-dev` on Debian/Ubuntu). S3, WebDAV, FTP and rclone connections need the [`rclone`](https://rclone.org/install/) command. Icons need a [Nerd Font](https://www.nerdfonts.com); set `icons = false` if you don't use one.
 
 ## Usage

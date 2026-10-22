@@ -5,7 +5,7 @@ BIN     := target/release/strata
 PREFIX  ?= $(HOME)/.local
 
 .DEFAULT_GOAL := help
-.PHONY: help build release run test lint fmt fmt-check check ci install uninstall clean fonts media website website-dev
+.PHONY: help build release run test lint fmt fmt-check check ci install uninstall man clean fonts media website website-dev
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-11s\033[0m %s\n", $$1, $$2}'
@@ -35,12 +35,16 @@ check: fmt-check lint test ## Everything CI runs
 
 ci: check ## Alias for check
 
-install: release ## Install to $(PREFIX)/bin
-	mkdir -p $(PREFIX)/bin
+install: release ## Install to $(PREFIX)/bin, with the man page
+	mkdir -p $(PREFIX)/bin $(PREFIX)/share/man/man1
 	install -m 755 $(BIN) $(PREFIX)/bin/strata
+	$(BIN) --man > $(PREFIX)/share/man/man1/strata.1
 
-uninstall: ## Remove the installed binary
-	rm -f $(PREFIX)/bin/strata
+man: build ## Preview the man page
+	target/debug/strata --man | man -l -
+
+uninstall: ## Remove the installed binary and man page
+	rm -f $(PREFIX)/bin/strata $(PREFIX)/share/man/man1/strata.1
 
 FONT_DIR := target/fonts
 NERD_FONT := https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.tar.xz

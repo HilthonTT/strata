@@ -2,6 +2,7 @@
 
 mod app;
 mod event;
+mod man;
 mod remote;
 mod tui;
 mod ui;
@@ -65,6 +66,9 @@ struct Cli {
     /// Print the pid and directory of each running strata and exit.
     #[arg(long)]
     list_instances: bool,
+    /// Print the man page and exit: `strata --man > strata.1`.
+    #[arg(long)]
+    man: bool,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -121,6 +125,10 @@ end
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if cli.man {
+        let mut out = std::io::stdout().lock();
+        return man::render(<Cli as clap::CommandFactory>::command(), &mut out).context("writing the man page");
+    }
     if let Some(shell) = cli.shell_init {
         print!("{}", shell.init_script());
         return Ok(());

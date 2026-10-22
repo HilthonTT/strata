@@ -41,6 +41,7 @@ jobs:
           name="strata-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir "$name"
           cp "target/${{ matrix.target }}/release/strata" README.md LICENSE "$name/"
+          "$name/strata" --man > "$name/strata.1"
           tar -czf "$name.tar.gz" "$name"
           echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
 

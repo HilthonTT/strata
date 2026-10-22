@@ -23,9 +23,14 @@
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "-p" "strata" ];
 
-          nativeBuildInputs = [ pkgs.pkg-config ];
+          nativeBuildInputs = [ pkgs.pkg-config pkgs.installShellFiles ];
           buildInputs = [ pkgs.openssl pkgs.zlib ];
           env.OPENSSL_NO_VENDOR = "1";
+
+          postInstall = pkgs.lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
+            $out/bin/strata --man > strata.1
+            installManPage strata.1
+          '';
 
           # The tests run in CI; some expect git and a writable home.
           doCheck = false;

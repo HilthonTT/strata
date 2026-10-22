@@ -37,6 +37,7 @@ trash = "5"
 ssh2 = "0.9"
 sysinfo = { version = "0.39", default-features = false, features = ["disk", "system"] }
 clap = { version = "4", features = ["derive"] }
+clap_mangen = "0.2"
 unicode-width = "0.2"
 tempfile = "3"
 md-5 = "0.11"
