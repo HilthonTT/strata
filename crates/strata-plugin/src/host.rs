@@ -78,7 +78,8 @@ impl PluginHost {
         Ok(())
     }
 
-    /// Loads every `*.lua` and `*/init.lua` in `dir`, skipping `disabled`.
+    /// Loads every `*.lua` and `*/init.lua` in `dir`, skipping `disabled`
+    /// and dot-named entries (installs in progress).
     /// Returns one message per plugin that failed.
     pub fn load_dir(
         &mut self,
@@ -91,6 +92,7 @@ impl PluginHost {
         };
         let mut candidates: Vec<(String, std::path::PathBuf)> = read
             .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')))
             .filter_map(|p| {
                 if p.is_dir() {
                     let init = p.join("init.lua");

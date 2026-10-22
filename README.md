@@ -38,7 +38,7 @@ Everything you need, nothing you don't.
 - **Docker**: list, start, stop and inspect containers, and browse their filesystems
 - **Dashboard**: disk free space, disk usage, I/O (IOPS, throughput, latency) and memory pressure (PSI)
 - **28 themes**: a default `strata` theme, Catppuccin, Nord, Tokyo Night, Dracula, Gruvbox, Rose Pine and more, plus your own
-- **Lua plugins**: add keys, commands, panels, status-line segments, previewers, file-list columns and sort orders, react to events such as `rename`, `open`, `tag`, `delete` and `job_done`, and refuse deletes, moves and renames with `before_*` events
+- **Lua plugins**: install them from git with `strata plugin add owner/repo` (pinned in `plugins.toml`, so `strata plugin install` restores them on another machine), and add keys, commands, panels, status-line segments, previewers, file-list columns and sort orders, react to events such as `rename`, `open`, `tag`, `delete` and `job_done`, and refuse deletes, moves and renames with `before_*` events
 - **Mouse**: double-click to open, a right-click menu, drag files between panels or into folders (alt to move), click path segments and tabs
 - **Vim-style keys**, all remappable
 
@@ -116,6 +116,12 @@ Run `strata --dump-config > ~/.config/strata/config.toml` to start from a docume
 ## Plugins
 
 Plugins are Lua files in `~/.config/strata/plugins/`. strata ships official ones: `git`, `bookmarks`, `archive` (previews of `.7z` and `.rar` archives), `zoxide` and `protect` (refuses to delete, move, rename or overwrite items tagged `keep`; off by default). See [docs/plugins.md](docs/plugins.md) for the API.
+
+Install plugins from git repositories, and keep `~/.config/strata/plugins.toml` with your dotfiles to get the same ones, at the same commits, elsewhere:
+
+```sh
+strata plugin add someone/strata-foo --ref v1.2   # also: list, update, remove, install
+```
 
 ## Documentation
 

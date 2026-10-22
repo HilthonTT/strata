@@ -14,7 +14,7 @@ license=('MIT')
 depends=('gcc-libs' 'glibc' 'openssl' 'zlib')
 makedepends=('cargo' 'pkgconf')
 optdepends=(
-  'git: status markers in the panels'
+  'git: status markers in the panels and strata plugin'
   'ripgrep: faster content search'
   'zoxide: the zoxide plugin'
   'rclone: S3, WebDAV, FTP and rclone connections'

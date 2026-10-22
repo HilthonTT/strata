@@ -32,6 +32,7 @@ pub fn render(cmd: clap::Command, w: &mut dyn Write) -> io::Result<()> {
     man.render_options_section(w)?;
 
     let mut page = Roff::new();
+    plugin_commands(&mut page, &cmd);
     keys(&mut page);
     palette(&mut page);
     files(&mut page);
@@ -61,6 +62,69 @@ fn paragraph(page: &mut Roff, text: &str) {
 /// A term in bold followed by its description, indented.
 fn entry(page: &mut Roff, term: impl Into<Vec<Inline>>, text: &str) {
     page.control("TP", []).text(term).text([roman(text)]);
+}
+
+/// `strata plugin …`, one entry per subcommand with its arguments.
+fn plugin_commands(page: &mut Roff, cmd: &clap::Command) {
+    let Some(plugin) = cmd.find_subcommand("plugin") else { return };
+    section(page, "PLUGIN MANAGER");
+    paragraph(
+        page,
+        "Plugins are Lua files in the plugins folder (see FILES). strata plugin installs them from git \
+         repositories: each is cloned, checked out and copied there without its history, and plugins.toml \
+         records its source and commit. Copy plugins.toml to another machine and run strata plugin install \
+         to get the same plugins at the same commits. git must be installed.",
+    );
+    for sub in plugin.get_subcommands() {
+        let mut usage = format!("strata plugin {}", sub.get_name());
+        let args: Vec<&clap::Arg> = sub.get_arguments().filter(|a| !is_builtin(a)).collect();
+        for arg in args.iter().filter(|a| !a.is_positional()) {
+            usage.push_str(&format!(" [{}]", option_usage(arg)));
+        }
+        for arg in args.iter().filter(|a| a.is_positional()) {
+            usage.push_str(&format!(" {}", positional_usage(arg)));
+        }
+        entry(page, [bold(usage)], &help(sub.get_about()));
+        let options: Vec<&&clap::Arg> = args.iter().filter(|a| !a.is_positional()).collect();
+        if !options.is_empty() {
+            page.control("RS", []);
+            for arg in options {
+                entry(page, [bold(option_usage(arg))], &help(arg.get_help()));
+            }
+            page.control("RE", []);
+        }
+    }
+}
+
+fn is_builtin(arg: &clap::Arg) -> bool {
+    matches!(arg.get_id().as_str(), "help" | "version")
+}
+
+fn option_usage(arg: &clap::Arg) -> String {
+    let long = format!("--{}", arg.get_long().unwrap_or(arg.get_id().as_str()));
+    if matches!(arg.get_action(), clap::ArgAction::SetTrue | clap::ArgAction::SetFalse | clap::ArgAction::Count) {
+        return long;
+    }
+    format!("{long} {}", value_name(arg))
+}
+
+fn value_name(arg: &clap::Arg) -> String {
+    arg.get_value_names().map(|n| n[0].to_string()).unwrap_or_else(|| arg.get_id().to_string().to_uppercase())
+}
+
+fn positional_usage(arg: &clap::Arg) -> String {
+    let name = value_name(arg);
+    let many = matches!(arg.get_action(), clap::ArgAction::Append);
+    match (arg.is_required_set(), many) {
+        (true, true) => format!("{name}..."),
+        (true, false) => name,
+        (false, true) => format!("[{name}...]"),
+        (false, false) => format!("[{name}]"),
+    }
+}
+
+fn help(text: Option<&clap::builder::StyledStr>) -> String {
+    text.map(|t| t.to_string()).unwrap_or_default()
 }
 
 /// The default (vim) key bindings, as the `?` screen lists them.
@@ -96,6 +160,7 @@ fn files(page: &mut Roff) {
         ("~/.config/strata/config.toml", "The config file. strata --dump-config prints a documented one."),
         ("~/.config/strata/themes/", "Custom themes, one .toml file each."),
         ("~/.config/strata/plugins/", "Plugins: name.lua files and name/init.lua folders."),
+        ("~/.config/strata/plugins.toml", "Plugins installed with strata plugin, with their commits."),
         (
             "~/.local/share/strata/",
             "State: session.json, layouts.json, jumps.json (frecency), selections.json, and plugin data. \
@@ -130,6 +195,7 @@ fn examples(page: &mut Roff) {
         ("strata -e 'select *.jpg' ~/Pictures", "Mark every JPEG once the panel is up."),
         ("strata --remote-query | jq -r '.marked[]'", "Print the items marked in the running strata."),
         ("eval \"$(strata --shell-init bash)\"", "In ~/.bashrc: let Q change the shell's directory."),
+        ("strata plugin add someone/strata-foo --ref v1.0", "Install a plugin at a tag."),
         ("strata --man > ~/.local/share/man/man1/strata.1", "Install this page."),
     ];
     for (cmd, text) in rows {
@@ -142,13 +208,16 @@ mod tests {
     use clap::CommandFactory;
 
     #[test]
-    fn page_covers_options_and_keys() {
+    fn page_covers_options_keys_and_plugins() {
         let mut out = Vec::new();
         super::render(crate::Cli::command(), &mut out).unwrap();
         let page = String::from_utf8(out).unwrap();
         assert!(page.starts_with(".ie"), "{}", &page[..80]);
-        for needle in [".TH strata 1", "dump\\-config", ".SH KEYS", ".SH COMMANDS"] {
+        for needle in
+            [".TH strata 1", "dump\\-config", ".SH KEYS", ".SH COMMANDS", "strata plugin add [\\-\\-name NAME]"]
+        {
             assert!(page.contains(needle), "missing {needle}");
         }
+        assert!(page.contains("[\\-\\-force] SOURCE") && page.contains("[NAME...]"));
     }
 }

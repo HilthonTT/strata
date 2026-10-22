@@ -6,10 +6,12 @@
 //! previewers, add file-list columns and sort orders, and veto operations
 //! through `before_*` events. Side effects on the app (changing directory, prompting the
 //! user...) are queued as [`Request`]s that the UI drains after each call,
-//! which keeps this crate independent of the UI.
+//! which keeps this crate independent of the UI. [`package`] installs
+//! plugins from git repositories.
 
 mod api;
 mod host;
+pub mod package;
 mod types;
 
 pub use host::{PluginHost, PluginInfo, OFFICIAL_PLUGINS};

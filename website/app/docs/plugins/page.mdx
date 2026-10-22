@@ -15,6 +15,23 @@ strata.command("hello", function(ctx, args)
 end, "Say hello")
 ```
 
+## Installing plugins
+
+`strata plugin` installs plugins from git repositories. A repository holds one plugin, with `init.lua` at its root or in the folder `--path` names:
+
+```sh
+strata plugin add someone/strata-foo              # GitHub owner/repo; installed as "foo"
+strata plugin add https://example.com/x/bar.git --ref v1.2
+strata plugin add someone/plugins --path baz      # one plugin from a repository with several
+strata plugin list                                # installed plugins and their commits
+strata plugin update                              # newest commit of each plugin's branch
+strata plugin remove foo
+```
+
+Each plugin is copied, without its git history, to `~/.config/strata/plugins/<name>/`. `~/.config/strata/plugins.toml` records its source and the commit installed. Keep that file with your dotfiles and run `strata plugin install` on another machine to get the same plugins at the same commits. `--ref` follows a branch, or pins a tag or commit; without it a plugin follows the repository's default branch. Restart strata to load new plugins. You need `git` for all of this.
+
+A plugin runs with your permissions, like any program you install, so add only ones you trust.
+
 ## Official plugins
 
 | Plugin | What it adds |

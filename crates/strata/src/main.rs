@@ -3,6 +3,7 @@
 mod app;
 mod event;
 mod man;
+mod plugin_cli;
 mod remote;
 mod tui;
 mod ui;
@@ -14,7 +15,12 @@ use clap::Parser;
 use strata_config::{Config, ThemeRegistry};
 
 #[derive(Parser, Debug)]
-#[command(name = "strata", version, about = "A fast, extensible terminal file explorer")]
+#[command(
+    name = "strata",
+    version,
+    about = "A fast, extensible terminal file explorer",
+    args_conflicts_with_subcommands = true
+)]
 struct Cli {
     /// Directories to open, one panel each.
     paths: Vec<PathBuf>,
@@ -69,6 +75,16 @@ struct Cli {
     /// Print the man page and exit: `strata --man > strata.1`.
     #[arg(long)]
     man: bool,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    /// Install, update and remove plugins from git repositories. (A folder
+    /// named `plugin` opens with `strata ./plugin`.)
+    #[command(subcommand)]
+    Plugin(plugin_cli::PluginCommand),
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -125,6 +141,9 @@ end
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if let Some(Command::Plugin(cmd)) = cli.command {
+        std::process::exit(plugin_cli::run(cmd));
+    }
     if cli.man {
         let mut out = std::io::stdout().lock();
         return man::render(<Cli as clap::CommandFactory>::command(), &mut out).context("writing the man page");
