@@ -119,7 +119,9 @@ impl App {
 
     pub(super) fn prompt_chmod(&mut self) {
         let paths = self.panel().targets();
-        let Some(first) = self.panel().hovered().filter(|_| !paths.is_empty()) else { return };
+        // The first item that will change, which is not the hovered one
+        // when others are marked.
+        let Some(first) = self.panel().target_entries().into_iter().next() else { return };
         let current = first.mode.map(|m| format!("{m:o}")).unwrap_or_default();
         let what = match paths.as_slice() {
             [_] => format!("'{}'", first.name),

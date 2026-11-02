@@ -372,9 +372,16 @@ impl App {
         let first = name.split(['/', '\\']).find(|s| !s.is_empty()).unwrap_or(name).to_string();
         let first_path = vfs.join(&into, &first);
         let work = {
-            let (vfs, path, first_path) = (vfs.clone(), path.clone(), first_path.clone());
+            let (vfs, path) = (vfs.clone(), path.clone());
             move || {
-                let created = (!vfs.exists(&first_path)).then_some(first_path);
+                // Walked up from `path` itself: `first_path` is wrong for an
+                // absolute name or one going up with `..`.
+                let mut created = None;
+                let mut at = Some(path.clone());
+                while let Some(p) = at.filter(|p| !vfs.exists(p)) {
+                    at = vfs.parent(&p);
+                    created = Some(p);
+                }
                 if dir {
                     vfs.create_dir(&path)?;
                 } else {
@@ -718,14 +725,13 @@ impl App {
 
     pub(super) fn unmount(&mut self, conn: Connection) {
         if let Some(vfs) = self.nas.sessions.remove(&conn.name) {
-            for i in 0..self.panels.len() {
-                if std::sync::Arc::ptr_eq(&self.panels[i].vfs, &vfs) {
-                    let local = self.local.clone();
-                    self.panels[i].switch_vfs(local, dirs::home_dir().unwrap_or_default());
-                }
-            }
-            // Back must not lead into the closed session.
+            // Every tab's panels leave the closed session, and back must not
+            // lead into it.
+            let local = self.local.clone();
             for panel in self.panels.iter_mut().chain(self.tabs.iter_mut().flat_map(|t| t.panels.iter_mut())) {
+                if std::sync::Arc::ptr_eq(&panel.vfs, &vfs) {
+                    panel.switch_vfs(local.clone(), dirs::home_dir().unwrap_or_default());
+                }
                 panel.forget_vfs(&vfs);
             }
             return self.info(format!("disconnected {}", conn.name));

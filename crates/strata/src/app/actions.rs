@@ -580,9 +580,8 @@ impl App {
             targets: Default::default(),
             options,
         };
-        if clip.mode == TransferMode::Move {
-            self.clipboard = None;
-        }
+        // A cut is used up when the move starts (see `start_transfer`), not
+        // here: cancelling the conflict prompt must leave it to paste again.
         self.begin_transfer(transfer);
         self.emit_plugin_event("paste");
     }
@@ -627,6 +626,10 @@ impl App {
     pub(super) fn start_transfer(&mut self, mut transfer: Transfer) {
         if self.plugins_veto_transfer(&transfer) {
             return;
+        }
+        let cut = self.clipboard.as_ref().is_some_and(|c| c.mode == TransferMode::Move && c.paths == transfer.sources);
+        if transfer.mode == TransferMode::Move && cut {
+            self.clipboard = None;
         }
         transfer.options.verify |= self.config.general.verify_copies;
         transfer.options.bandwidth_limit = self.bandwidth_limit();
