@@ -229,10 +229,18 @@ impl Transfer {
     }
 
     /// What to do about `source` clashing with `existing`: its own answer
-    /// if it has one, else the batch policy.
+    /// if it has one, else the batch policy. Replacing a destination that is
+    /// the source itself (a copy into its own folder) or holds it (a move
+    /// out of `foo/foo` onto `foo`) would destroy the source, so those keep
+    /// both instead.
     pub fn decision(&self, source: &Entry, existing: &Entry) -> Conflict {
         let policy = self.resolutions.per_source.get(&source.path).copied().unwrap_or(self.conflict);
-        resolve(policy, source, existing)
+        match resolve(policy, source, existing) {
+            Conflict::Overwrite if same_vfs(&self.src, &self.dst) && source.path.starts_with(&existing.path) => {
+                Conflict::KeepBoth
+            }
+            other => other,
+        }
     }
 
     /// `(source, destination)` of the top-level items not in `finished`,
@@ -525,7 +533,9 @@ pub fn swap_with_trashed(vfs: &dyn Vfs, paths: &[PathBuf], since: std::time::Sys
     if chosen.is_empty() {
         bail!("the items are no longer in the trash");
     }
-    for path in paths.iter().filter(|p| vfs.exists(p)) {
+    // Only the items with a version to bring back are swapped.
+    let restorable: Vec<PathBuf> = chosen.iter().map(|t| t.original_path()).collect();
+    for path in paths.iter().filter(|p| restorable.contains(p) && vfs.exists(p)) {
         vfs.trash(path)?;
     }
     restore_items(chosen)
@@ -596,6 +606,36 @@ mod tests {
         assert_eq!(fs::read_to_string(dest.join("src/nested/a.txt")).unwrap(), "hello");
         assert!(dest.join("src (1)/nested/a.txt").exists());
         assert!(src.exists());
+    }
+
+    #[test]
+    fn overwrite_never_replaces_the_source_or_what_holds_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("x.txt");
+        fs::write(&file, "keep").unwrap();
+        fs::create_dir_all(dir.path().join("foo/foo")).unwrap();
+        fs::write(dir.path().join("foo/foo/inner"), "inner").unwrap();
+        let vfs = local();
+        let transfer = |mode, source: PathBuf| Transfer {
+            mode,
+            src: vfs.clone(),
+            sources: vec![source],
+            dst: vfs.clone(),
+            dest_dir: dir.path().to_path_buf(),
+            conflict: Conflict::Overwrite,
+            resolutions: Default::default(),
+            targets: Default::default(),
+            options: Default::default(),
+        };
+        let p = Progress::default();
+        // A copy into its own folder.
+        transfer(TransferMode::Copy, file.clone()).run(&p).unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "keep");
+        assert_eq!(fs::read_to_string(dir.path().join("x (1).txt")).unwrap(), "keep");
+        // A move onto the folder that holds it.
+        transfer(TransferMode::Move, dir.path().join("foo/foo")).run(&p).unwrap();
+        assert!(dir.path().join("foo").is_dir());
+        assert_eq!(fs::read_to_string(dir.path().join("foo (1)/inner")).unwrap(), "inner");
     }
 
     #[test]
