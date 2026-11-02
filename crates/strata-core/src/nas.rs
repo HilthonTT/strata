@@ -289,13 +289,11 @@ impl Connection {
             return Some(gvfs);
         }
         let mounts = read_mounts();
-        let host = self.host.to_ascii_lowercase();
+        let host = self.host.trim_matches(['[', ']']).to_ascii_lowercase();
         let share = self.share.trim_matches('/').to_ascii_lowercase();
         mounts.into_iter().find_map(|(source, target)| {
-            let s = source.to_ascii_lowercase().replace('\\', "/");
-            let matches_host = s.contains(&host);
-            let matches_share = share.is_empty() || s.trim_end_matches('/').ends_with(&share);
-            (matches_host && matches_share).then_some(target)
+            let (h, s) = mount_source(&source)?;
+            (h == host && (share.is_empty() || s == share)).then_some(target)
         })
     }
 
@@ -379,7 +377,7 @@ impl Connection {
                     "mount".into(),
                     "-t".into(),
                     "nfs".into(),
-                    format!("{}:{}", self.host, self.share),
+                    format!("{}:{}", bracket_ipv6(&self.host), self.share),
                     mp,
                 ]
             }
@@ -687,6 +685,21 @@ fn split_host_port(s: &str) -> (String, Option<u16>) {
     }
 }
 
+/// The host and share of a mount source (`//user@host/share` for SMB,
+/// `host:/export` or `[v6]:/export` for NFS), lowercased, without slashes
+/// around the share. Exact parts, so `10.0.0.1` never matches `10.0.0.10`.
+fn mount_source(source: &str) -> Option<(String, String)> {
+    let s = source.to_ascii_lowercase().replace('\\', "/");
+    let (host, share) = if let Some(rest) = s.strip_prefix("//") {
+        let (host, share) = rest.split_once('/').unwrap_or((rest, ""));
+        (host.rsplit('@').next().unwrap_or(host), share)
+    } else {
+        let i = s.rfind(":/")?;
+        (&s[..i], &s[i + 1..])
+    };
+    Some((host.trim_matches(['[', ']']).to_string(), share.trim_matches('/').to_string()))
+}
+
 fn bracket_ipv6(host: &str) -> String {
     if host.contains(':') {
         format!("[{host}]")
@@ -774,6 +787,16 @@ fn read_mounts() -> Vec<(String, PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mount_sources_split_into_exact_host_and_share() {
+        let pair = |h: &str, s: &str| Some((h.to_string(), s.to_string()));
+        assert_eq!(mount_source("//hans@NAS/Media/"), pair("nas", "media"));
+        assert_eq!(mount_source("//10.0.0.10/multimedia"), pair("10.0.0.10", "multimedia"));
+        assert_eq!(mount_source("nas:/export/data"), pair("nas", "export/data"));
+        assert_eq!(mount_source("[fd00::5]:/export"), pair("fd00::5", "export"));
+        assert_eq!(mount_source("/dev/sda1"), None);
+    }
 
     #[test]
     fn parses_urls() {
