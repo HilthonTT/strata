@@ -112,6 +112,10 @@ fn hex(s: &str) -> Color {
 pub fn parse_color(s: &str) -> Result<Color> {
     let s = s.trim();
     if let Some(h) = s.strip_prefix('#') {
+        // Hex digits are ASCII; anything else would be sliced mid-character.
+        if !h.is_ascii() {
+            bail!("invalid colour '{s}'");
+        }
         let expand = |c: &str| u8::from_str_radix(c, 16);
         let (r, g, b) = match h.len() {
             6 => (expand(&h[0..2])?, expand(&h[2..4])?, expand(&h[4..6])?),
@@ -765,6 +769,13 @@ impl ThemeRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn non_ascii_colours_are_errors_not_panics() {
+        assert!(parse_color("#€").is_err());
+        assert!(parse_color("#aébcd").is_err());
+        assert!(matches!(parse_color("#fff"), Ok(Color::Rgb(255, 255, 255))));
+    }
 
     #[test]
     fn has_twenty_plus_themes() {

@@ -103,8 +103,9 @@ fn failure(child: &mut Child, program: &str, what: &str) -> String {
 pub(crate) fn last_line(stderr: &str) -> Option<String> {
     let mut line = stderr.lines().map(str::trim).rfind(|l| !l.is_empty())?;
     let dated = line.len() > 20 && line.as_bytes()[4] == b'/' && line.as_bytes()[13] == b':';
-    if dated {
-        line = &line[20..];
+    // `get`: an undated line can still have a multibyte character there.
+    if let Some(rest) = line.get(20..).filter(|_| dated) {
+        line = rest;
         // The level: `ERROR : `, `CRITICAL: `, `NOTICE: `.
         if let Some((level, rest)) = line.split_once(": ") {
             if level.trim().chars().all(|c| c.is_ascii_uppercase()) {

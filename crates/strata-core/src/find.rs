@@ -232,7 +232,7 @@ pub fn parse_age(input: &str) -> Result<Duration> {
         "y" => 365.0 * 86_400.0,
         _ => bail!("'{input}' is not an age like 12h, 7d or 1y"),
     };
-    Ok(Duration::from_secs_f64(number * seconds))
+    Duration::try_from_secs_f64(number * seconds).ok().with_context(|| format!("'{input}' is too long an age"))
 }
 
 /// Entries found by [`walk`].

@@ -129,7 +129,9 @@ impl App {
         }
 
         if self.view == View::Files {
-            if let Some(i) = self.layout.panels.iter().position(inside) {
+            // The layout is from the last draw: a tab switch or a closed
+            // panel earlier in the same burst of events can leave it stale.
+            if let Some(i) = self.layout.panels.iter().position(inside).filter(|&i| i < self.panels.len()) {
                 return self.on_panel_mouse(i, mouse);
             }
             if self.layout.preview.is_some_and(|r| inside(&r)) {

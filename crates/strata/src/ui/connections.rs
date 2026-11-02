@@ -50,7 +50,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     spans.extend(stat("Reachable", reachable.to_string(), theme.success));
     spans.extend(stat(
         "Unreachable",
-        (app.nas.statuses.len().min(conns.len()) - reachable.min(conns.len())).to_string(),
+        app.nas.statuses.len().min(conns.len()).saturating_sub(reachable).to_string(),
         theme.error,
     ));
     spans.extend(stat("Connected", mounted.to_string(), theme.info));

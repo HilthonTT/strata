@@ -255,8 +255,9 @@ fn draw_picker(frame: &mut Frame, app: &App, picker: &PickerState, area: Rect) {
 /// when it would run off an edge.
 fn menu_rect(area: Rect, (x, y): (u16, u16), picker: &PickerState, query_rows: u16) -> Rect {
     let longest = picker.items.iter().map(|i| i.width()).chain([picker.title.width()]).max().unwrap_or(0);
-    let width = (longest as u16 + 6).clamp(20, area.width);
-    let height = (picker.matches.len() as u16 + query_rows + 2).clamp(3, area.height);
+    // Not `clamp`: it panics on a terminal smaller than the minimum.
+    let width = (longest as u16 + 6).max(20).min(area.width);
+    let height = (picker.matches.len() as u16 + query_rows + 2).max(3).min(area.height);
     let x = x.min(area.x + area.width - width);
     let y = if y + 1 + height <= area.y + area.height { y + 1 } else { y.saturating_sub(height).max(area.y) };
     Rect { x, y, width, height }
