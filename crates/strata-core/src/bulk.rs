@@ -25,7 +25,7 @@ pub fn render(names: &[String]) -> String {
 /// Compares the edited text with the original names and returns the
 /// renames to perform, rejecting anything ambiguous.
 pub fn plan(original: &[String], edited: &str) -> Result<Vec<Rename>> {
-    let new: Vec<&str> = edited.lines().map(str::trim_end).filter(|l| !l.is_empty()).collect();
+    let new: Vec<&str> = edited.lines().map(|l| l.strip_suffix('\r').unwrap_or(l)).filter(|l| !l.is_empty()).collect();
     if new.len() != original.len() {
         bail!("expected {} names but found {} — lines must not be added or removed", original.len(), new.len());
     }
@@ -57,11 +57,38 @@ pub fn apply(vfs: &VfsRef, dir: &Path, plan: &[Rename]) -> Result<()> {
     }
     let staged: Vec<(String, &Rename)> =
         plan.iter().enumerate().map(|(i, r)| (format!(".strata-rename-{}-{i}", std::process::id()), r)).collect();
-    for (tmp, r) in &staged {
-        vfs.rename(&vfs.join(dir, &r.from), &vfs.join(dir, tmp))?;
+    // Where each item is now, so a failure can put everything back rather
+    // than leave items under hidden temporary names.
+    let mut now: Vec<Option<&str>> = vec![None; staged.len()];
+    let rename = |from: &str, to: &str| vfs.rename(&vfs.join(dir, from), &vfs.join(dir, to));
+    let undo = |now: &[Option<&str>]| {
+        // Best effort, never onto an existing name; chains (`a`→`b`, `b`→`c`)
+        // free each other's names, so retry until nothing moves.
+        let mut left: Vec<(&str, &str)> =
+            (0..staged.len()).filter_map(|i| Some((now[i]?, staged[i].1.from.as_str()))).collect();
+        loop {
+            let before = left.len();
+            left.retain(|(current, original)| {
+                vfs.exists(&vfs.join(dir, original)) || rename(current, original).is_err()
+            });
+            if left.is_empty() || left.len() == before {
+                break;
+            }
+        }
+    };
+    for (i, (tmp, r)) in staged.iter().enumerate() {
+        if let Err(e) = rename(&r.from, tmp) {
+            undo(&now);
+            return Err(e);
+        }
+        now[i] = Some(tmp);
     }
-    for (tmp, r) in &staged {
-        vfs.rename(&vfs.join(dir, tmp), &vfs.join(dir, &r.to))?;
+    for (i, (tmp, r)) in staged.iter().enumerate() {
+        if let Err(e) = rename(tmp, &r.to) {
+            undo(&now);
+            return Err(e);
+        }
+        now[i] = Some(&r.to);
     }
     Ok(())
 }
@@ -98,6 +125,27 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.path().join("a")).unwrap(), "B");
         apply(&vfs, dir.path(), &reverse(&p)).unwrap();
         assert_eq!(std::fs::read_to_string(dir.path().join("a")).unwrap(), "A");
+    }
+
+    #[test]
+    fn keeps_trailing_spaces_and_strips_crlf() {
+        let orig = names(&["a ", "b"]);
+        assert!(plan(&orig, "a \r\nb\r\n").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_failed_rename_puts_everything_back() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a"), "A").unwrap();
+        std::fs::write(dir.path().join("b"), "B").unwrap();
+        let vfs: VfsRef = std::sync::Arc::new(crate::vfs::LocalVfs);
+        // The second new name is too long for any filesystem.
+        let p = vec![Rename { from: "a".into(), to: "a2".into() }, Rename { from: "b".into(), to: "x".repeat(300) }];
+        assert!(apply(&vfs, dir.path(), &p).is_err());
+        let mut left: Vec<String> =
+            std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        left.sort();
+        assert_eq!(left, ["a", "b"]);
     }
 
     #[test]

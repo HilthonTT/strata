@@ -71,7 +71,9 @@ impl Pattern {
         }
         if let Some(rest) = input.strip_prefix('s').filter(|r| r.len() > 1) {
             let delim = rest.chars().next().expect("not empty");
-            if !delim.is_alphanumeric() && delim != '{' {
+            // Only the usual sed delimiters, so names like `s-{n}` or
+            // `s_photo_{n}` stay templates.
+            if ['/', '|', '#', ':', ',', '!', '@'].contains(&delim) {
                 let parts = split_unescaped(&rest[delim.len_utf8()..], delim);
                 let (find, replace, flags) = match parts.as_slice() {
                     [f, r] => (f.as_str(), r.as_str(), ""),
@@ -127,7 +129,7 @@ impl Pattern {
                 Value::Ext { dot: true } if ext.is_empty() => String::new(),
                 Value::Ext { dot: true } => format!(".{ext}"),
                 Value::Full => name.to_string(),
-                Value::Counter { width, start } => format!("{:0width$}", start + index),
+                Value::Counter { width, start } => format!("{:0width$}", start.saturating_add(index)),
                 Value::Date(format) => {
                     item.modified.map(|t| DateTime::<Local>::from(t).format(format).to_string()).unwrap_or_default()
                 }
