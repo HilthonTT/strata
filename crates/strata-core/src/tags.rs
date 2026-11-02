@@ -78,7 +78,7 @@ impl TagDb {
             if !tags.contains(&tag) {
                 tags.push(tag.clone());
                 added += 1;
-                write_xattr(path, tags);
+                write_xattr(path, tags, &[]);
             }
         }
         self.save()?;
@@ -91,13 +91,11 @@ impl TagDb {
         for path in paths {
             let Some(tags) = self.tags.get_mut(path) else { continue };
             let before = tags.len();
-            match tag {
-                Some(tag) => tags.retain(|t| t != tag),
-                None => tags.clear(),
-            }
+            let dropped: Vec<String> = tags.iter().filter(|t| tag.is_none_or(|tag| *t == tag)).cloned().collect();
+            tags.retain(|t| !dropped.contains(t));
             if tags.len() != before {
                 removed += 1;
-                write_xattr(path, tags);
+                write_xattr(path, tags, &dropped);
             }
             if tags.is_empty() {
                 self.tags.remove(path);
@@ -180,9 +178,10 @@ fn check_path(path: &Path) -> Result<()> {
 /// Mirrors our tags into `user.xdg.tags`, keeping tags other programs set.
 /// Best effort: filesystems without extended attributes just skip it.
 #[cfg(target_os = "linux")]
-fn write_xattr(path: &Path, ours: &[String]) {
+fn write_xattr(path: &Path, ours: &[String], dropped: &[String]) {
     const ATTR: &str = "user.xdg.tags";
-    let known: HashSet<&str> = COLORS.iter().copied().chain(ours.iter().map(String::as_str)).collect();
+    // Tags just removed are ours too, so they go as well.
+    let known: HashSet<&str> = COLORS.iter().copied().chain(ours.iter().chain(dropped).map(String::as_str)).collect();
     let mut tags: Vec<String> = xattr::get(path, ATTR)
         .ok()
         .flatten()
@@ -195,7 +194,7 @@ fn write_xattr(path: &Path, ours: &[String]) {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn write_xattr(_path: &Path, _ours: &[String]) {}
+fn write_xattr(_path: &Path, _ours: &[String], _dropped: &[String]) {}
 
 #[cfg(test)]
 mod tests {
