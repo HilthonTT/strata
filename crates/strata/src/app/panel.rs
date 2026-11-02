@@ -741,16 +741,23 @@ impl Panel {
     /// are skipped and forgotten. False if there was nowhere to go.
     pub fn travel(&mut self, back: bool, steps: usize) -> bool {
         let mut current = self.here();
-        let mut moved = 0;
-        while moved < steps {
+        // `steps` counts history entries (as the history picker lists them),
+        // vanished ones included; when the target itself is gone, the next
+        // place past it is used.
+        let (mut popped, mut moved) = (0, 0);
+        loop {
             let (from, to) =
                 if back { (&mut self.back, &mut self.forward) } else { (&mut self.forward, &mut self.back) };
             let Some(place) = from.pop() else { break };
+            popped += 1;
             if place.vfs.is_local() && matches!(can_open_dir(&place.path), Some(Err(_))) {
                 continue;
             }
             to.push(std::mem::replace(&mut current, place));
             moved += 1;
+            if popped >= steps {
+                break;
+            }
         }
         if moved == 0 {
             return false;
@@ -1236,6 +1243,22 @@ mod tests {
         std::fs::remove_dir(dir.path().join("c")).unwrap();
         assert!(p.travel(true, 1));
         assert_eq!(p.cwd, dir.path());
+    }
+
+    #[test]
+    fn history_steps_count_vanished_places() {
+        let dir = tempfile::tempdir().unwrap();
+        for d in ["a", "b", "c"] {
+            std::fs::create_dir(dir.path().join(d)).unwrap();
+        }
+        let mut p = panel_in(dir.path());
+        for d in ["a", "b", "c"] {
+            assert!(p.cd(dir.path().join(d)));
+        }
+        // Back is [root, a, b]; the picker lists b (1), a (2), root (3).
+        std::fs::remove_dir(dir.path().join("b")).unwrap();
+        assert!(p.travel(true, 2), "row 2 of the picker");
+        assert_eq!(p.cwd, dir.path().join("a"), "the vanished place still counts as a step");
     }
 
     #[test]
