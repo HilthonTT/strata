@@ -309,12 +309,17 @@ fn check_ignore<'a>(root: &Path, rels: impl Iterator<Item = &'a str>) -> HashSet
 /// Parses `git status --porcelain=v1 -z` output.
 pub fn parse(root: &Path, output: &[u8]) -> GitStatus {
     let mut status = GitStatus { root: root.to_path_buf(), ..Default::default() };
-    let mut records = output.split(|b| *b == 0).filter(|r| r.len() > 3);
+    // Old paths can be as short as one byte, so only empty records go.
+    let mut records = output.split(|b| *b == 0).filter(|r| !r.is_empty());
     while let Some(record) = records.next() {
+        if record.len() < 4 {
+            continue;
+        }
         let (x, y) = (record[0], record[1]);
         let rel = String::from_utf8_lossy(&record[3..]).into_owned();
-        // Renames are followed by a second record holding the old path.
-        if x == b'R' || x == b'C' {
+        // Renames (staged or in the work tree) are followed by a second
+        // record holding the old path.
+        if matches!(x, b'R' | b'C') || matches!(y, b'R' | b'C') {
             records.next();
         }
         let state = match (x, y) {
@@ -323,7 +328,7 @@ pub fn parse(root: &Path, output: &[u8]) -> GitStatus {
             (b'U', _) | (_, b'U') | (b'A', b'A') | (b'D', b'D') => GitState::Conflicted,
             (_, b'M') | (b'M', _) | (_, b'T') | (b'T', _) => GitState::Modified,
             (b'A', _) => GitState::Added,
-            (b'R', _) | (b'C', _) => GitState::Renamed,
+            (b'R', _) | (b'C', _) | (_, b'R') | (_, b'C') => GitState::Renamed,
             (b'D', _) | (_, b'D') => GitState::Deleted,
             _ => continue,
         };
@@ -362,6 +367,11 @@ mod tests {
         assert_eq!(s.get(Path::new("/repo/a.txt")), None, "old name of a rename is skipped");
         assert_eq!(s.get(Path::new("/repo/conflict.rs")), Some(GitState::Conflicted));
         assert_eq!(s.get(Path::new("/repo/clean.rs")), None);
+
+        // A short old name must not swallow the next record.
+        let s = parse(root, b"R  b.c\0a.c\0 M z.txt\0");
+        assert_eq!(s.get(Path::new("/repo/z.txt")), Some(GitState::Modified));
+        assert_eq!(s.get(Path::new("/repo/a.c")), None);
     }
 
     #[test]
