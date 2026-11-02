@@ -255,7 +255,9 @@ impl<E: Send + 'static> JobManager<E> {
         thread::spawn(move || {
             let state = match work(&job.progress) {
                 Ok(()) => JobState::Done,
-                Err(e) if e.is::<Cancelled>() => JobState::Cancelled,
+                // A cancel can surface wrapped in another error (an `io::Error`
+                // from a reader that checks it), so the flag decides.
+                Err(e) if e.is::<Cancelled>() || job.progress.is_cancelled() => JobState::Cancelled,
                 Err(e) => JobState::Failed(format!("{e:#}")),
             };
             *job.state.lock().unwrap_or_else(|e| e.into_inner()) = state.clone();

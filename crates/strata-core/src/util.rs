@@ -80,7 +80,8 @@ pub fn posix_join(base: &Path, name: &str) -> PathBuf {
 
 /// Expands a leading `~` to the home directory.
 pub fn expand_tilde(input: &str) -> PathBuf {
-    if let Some(rest) = input.strip_prefix('~') {
+    // `~` or `~/…` only: `~bob/x` is someone else's home, not `$HOME/bob/x`.
+    if let Some(rest) = input.strip_prefix('~').filter(|r| r.is_empty() || r.starts_with(['/', '\\'])) {
         if let Some(home) = dirs::home_dir() {
             return home.join(rest.trim_start_matches(['/', '\\']));
         }

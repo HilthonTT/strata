@@ -48,7 +48,8 @@ impl DockerVfs {
         let kind = match kind {
             k if k.contains("symbolic link") => EntryKind::Symlink { to_dir },
             k if k.contains("directory") => EntryKind::Dir,
-            k if k.contains("file") => EntryKind::File,
+            // `regular file` / `regular empty file`; device files are not.
+            k if k.contains("regular") => EntryKind::File,
             _ => EntryKind::Other,
         };
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "/".into());

@@ -66,7 +66,9 @@ impl App {
         }
         // Keep a little context above the match.
         let context = 2;
-        let current = self.preview_scroll + context;
+        // A new search starts at the top of what is shown, so a match on
+        // the first lines is not passed over.
+        let current = if inclusive { self.preview_scroll } else { self.preview_scroll + context };
         let target = if forward {
             matches.iter().find(|&&m| if inclusive { m >= current } else { m > current }).or(matches.first())
         } else {

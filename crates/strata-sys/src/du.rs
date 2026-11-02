@@ -180,7 +180,9 @@ fn measure(path: &Path, cancel: &AtomicBool) -> Option<UsageItem> {
     let meta = std::fs::symlink_metadata(path).ok()?;
     let name = path.file_name()?.to_string_lossy().into_owned();
     if !meta.is_dir() {
-        return Some(UsageItem { name, path: path.to_path_buf(), size: meta.len(), is_dir: false, files: 1 });
+        // Links and special files count as nothing, as they do below a folder.
+        let (size, files) = if meta.is_file() { (meta.len(), 1) } else { (0, 0) };
+        return Some(UsageItem { name, path: path.to_path_buf(), size, is_dir: false, files });
     }
     let (mut size, mut files) = (0, 0);
     for entry in walkdir(path) {

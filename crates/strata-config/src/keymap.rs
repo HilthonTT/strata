@@ -157,7 +157,13 @@ impl KeyPress {
                     KeyCode::Char(c)
                 }
             }
+            // Terminals report shift+tab as BackTab, so `shift+tab` in the
+            // config must mean the same key.
             KeyCode::BackTab => {
+                mods.remove(KeyModifiers::SHIFT);
+                KeyCode::BackTab
+            }
+            KeyCode::Tab if mods.contains(KeyModifiers::SHIFT) => {
                 mods.remove(KeyModifiers::SHIFT);
                 KeyCode::BackTab
             }
@@ -625,6 +631,11 @@ mod tests {
 
     fn key(s: &str) -> KeyPress {
         KeyPress::parse(s).unwrap()
+    }
+
+    #[test]
+    fn shift_tab_matches_what_terminals_send() {
+        assert_eq!(key("shift+tab"), KeyPress::new(KeyCode::BackTab, KeyModifiers::SHIFT));
     }
 
     #[test]
