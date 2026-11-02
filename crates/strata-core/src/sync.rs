@@ -140,6 +140,10 @@ pub fn apply(
                 Ok(())
             }),
             SyncStep::Replace(_) => src.0.stat(&from).and_then(|entry| {
+                // An unreadable source must not cost the destination its copy.
+                if !entry.is_dir() {
+                    drop(src.0.reader(&from)?);
+                }
                 remove(&to)?;
                 // Recorded before copying: undo must bring the old version
                 // back even when the new one arrived only in part.
